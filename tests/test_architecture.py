@@ -40,7 +40,8 @@ ENGINE_ONLY_IN = {"sounddevice": "engine/audio_io", "pymss": "engine/separate", 
 
 
 def _stdlib() -> set[str]:
-    return set(sys.stdlib_module_names)
+    # tomllib joined the standard library in 3.11; on 3.10 its version-guarded import still counts.
+    return set(sys.stdlib_module_names) | {"tomllib"}
 
 
 def _imports(path: Path) -> list[str]:

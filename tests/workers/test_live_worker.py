@@ -6,7 +6,7 @@ import sys
 import threading
 import time
 from multiprocessing import Pipe
-from multiprocessing.connection import Connection, Listener
+from multiprocessing.connection import Listener
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +16,7 @@ import pytest
 from rvc_next.engine.audio_io.devices import group_devices
 from rvc_next.engine.audio_io.fake import FakeBackend
 from rvc_next.protocol import live as P
-from rvc_next.workers.live import LiveWorker
+from rvc_next.workers.live import AnyConnection, LiveWorker
 from tests.tiny import make_tiny_voice
 
 
@@ -48,7 +48,7 @@ def devices(output: str = "Speakers", monitor: str | None = None) -> dict[str, A
 class Client:
     """The core's side of the pipe, collecting events."""
 
-    def __init__(self, conn: Connection) -> None:
+    def __init__(self, conn: AnyConnection) -> None:
         self.conn = conn
         self.events: list[P.Message] = []
         self._lock = threading.Lock()

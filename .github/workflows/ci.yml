@@ -11,8 +11,10 @@ on:
 permissions:
   contents: read
 
+# github.workflow is the caller's name when Release runs this file, so a push to main that also
+# changes the version runs both instead of one cancelling the other.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

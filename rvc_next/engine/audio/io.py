@@ -203,6 +203,7 @@ def _transcode(src: io.BytesIO, dst: Path, fmt: str) -> None:
     the original's ``wav2`` did not do (its mp3 and m4a export of 40k models failed).
     """
     import av
+    from av.audio.stream import AudioStream
 
     container_format = "mp4" if fmt == "m4a" else fmt
     codec = "aac" if fmt == "m4a" else "libmp3lame"
@@ -212,6 +213,8 @@ def _transcode(src: io.BytesIO, dst: Path, fmt: str) -> None:
         layout = "mono" if channels == 1 else "stereo"
         rate = encoder_rate(codec, int(in_stream.codec_context.sample_rate))
         ostream = out.add_stream(codec, rate=rate)
+        # Older PyAV (the last for Python 3.10) types add_stream() as any kind of stream.
+        assert isinstance(ostream, AudioStream)
         ostream.layout = layout
         fmt_name = "fltp" if codec == "aac" else "s16p"
         resampler = av.AudioResampler(format=fmt_name, layout=layout, rate=rate)

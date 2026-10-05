@@ -13,6 +13,7 @@ reports it and waits in ``reconnecting`` for ``set_devices`` (the reconnect poli
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import traceback
 from dataclasses import fields, replace
@@ -32,6 +33,14 @@ from rvc_next.protocol import live as P
 from rvc_next.protocol.jsonl import Emitter
 from rvc_next.protocol.messages import OUT_OF_MEMORY
 from rvc_next.workers.base import run_worker
+
+if sys.platform == "win32":
+    # Pipe() and Listener.accept() give a PipeConnection on Windows.
+    from multiprocessing.connection import PipeConnection
+
+    AnyConnection = Connection | PipeConnection
+else:
+    AnyConnection = Connection
 
 logger = logging.getLogger("rvc_next.workers.live")
 
@@ -64,7 +73,7 @@ def _error(code: str, message: str, **detail: Any) -> dict[str, Any]:
 
 
 class LiveWorker:
-    def __init__(self, conn: Connection, request: P.WorkerRequest, backend: Any = None, runtime: Any = None) -> None:
+    def __init__(self, conn: AnyConnection, request: P.WorkerRequest, backend: Any = None, runtime: Any = None) -> None:
         self.conn = conn
         self.request = request
         self.backend = backend if backend is not None else backend_from_request(request.backend, request.enable_asio, request.fake)
