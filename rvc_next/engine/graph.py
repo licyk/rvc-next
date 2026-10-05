@@ -12,6 +12,7 @@ import time
 from collections import OrderedDict
 
 import torch
+import torch.version
 
 logger = logging.getLogger(__name__)
 

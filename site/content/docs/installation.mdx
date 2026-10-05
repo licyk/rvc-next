@@ -8,7 +8,7 @@ icon: Download
 
 | 需要 | 说明 |
 | --- | --- |
-| Python | 3.10 或更新（3.10 至 3.13） |
+| Python | 3.10 或更新（3.10 至 3.14） |
 | 独立的虚拟环境 | 一个只给 RVC Next 用的 venv 或独立 Python，**不要**与其他应用共用 |
 | PyTorch | 2.7.1 或更新的版本，按你的硬件选择 CUDA 版或 CPU 版，**先于** RVC Next 安装 |
 | 磁盘空间 | 模型另需空间：转换必需的 HuBERT 和 RMVPE 约 353 MB，每个分离模型 300～440 MB，每组训练底模约 350～420 MB |
@@ -55,7 +55,7 @@ python -m pip install --upgrade pip
 
 </Tab>
 </Tabs>
-`py -3.11` 只是示例，换成你已安装的 3.10～3.13 中任一版本即可。之后的所有命令都在激活了该环境的终端中执行。
+`py -3.11` 只是示例，换成你已安装的 3.10～3.14 中任一版本即可。之后的所有命令都在激活了该环境的终端中执行。
 
 ## 第二步：安装 PyTorch
 
@@ -121,7 +121,7 @@ python -m pip install "rvc-next[directml]"
 </Tabs>
 <Callout type="warn" title="未在真实硬件上验证">
 
-CUDA（包括 fp16 和 CUDA Graphs）、ROCm、XPU、DirectML 和 MPS 都没有在真实硬件上测试过。CPU 路径已经测试；依赖组合在 torch 2.8 + numpy 1.26 和 torch 2.11 + numpy 2.4 两端都跑通了完整的检查。
+CUDA（包括 fp16 和 CUDA Graphs）、ROCm、XPU、DirectML 和 MPS 都没有在真实硬件上测试过。CPU 路径已经测试；依赖组合在两端都通过了测试：Python 3.10 上 torch 2.7.1 且其余依赖都取下限，以及 Python 3.12 至 3.14 上 torch 2.11 配 numpy 2.5、librosa 1.0、av 19。
 
 </Callout>
 ## 第三步：安装 RVC Next

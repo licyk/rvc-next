@@ -19,13 +19,15 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Multimedia :: Sound/Audio :: Conversion",
 ]
 # Lower bounds are what the code needs (or what a dependency forces); upper bounds stop at the next
 # major release, which has not been tested. rvc-next is meant for its own venv or standalone Python.
 dependencies = [
     # Web and command line.
-    "fastapi>=0.115,<1",
+    # 0.115.3 needs Starlette 0.40+: older Starlette ignores Range requests, so the player cannot seek.
+    "fastapi>=0.115.3,<1",
     "uvicorn>=0.30,<1",
     # uvicorn speaks WebSocket only when this is installed; without it socket.io falls back to polling.
     "websockets>=12",
@@ -36,7 +38,7 @@ dependencies = [
     "rich>=13,<16",
     "tomli-w>=1,<2",
     "tomli>=2; python_version < '3.11'",
-    "send2trash>=1.8,<2",
+    "send2trash>=1.8,<3",
     # Engine. Install the torch build for your hardware first (see README); pip then finds it satisfied.
     # numpy 2 is allowed: numpy 1.x has no wheels for Python 3.13.
     "numpy>=1.26,<3",
@@ -49,9 +51,10 @@ dependencies = [
     # huggingface_hub 2.x cannot hold rvc-next: use a separate venv.
     "transformers>=5,<6",
     "faiss-cpu>=1.8,<2",
-    "librosa>=0.10.2,<0.12",
+    # librosa 1.x, av 19, numpy 2.5 and scipy 1.18 need Python 3.12+; 3.10 and 3.11 resolve the older releases.
+    "librosa>=0.10.2,<2",
     "praat-parselmouth>=0.4.5,<0.5",
-    "av>=14,<19",
+    "av>=14,<20",
     "soundfile>=0.12,<1",
     # 0.5.1 bundles the ASIO-enabled PortAudio on Windows (SD_ENABLE_ASIO).
     "sounddevice>=0.5.1,<0.6",

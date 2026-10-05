@@ -102,8 +102,12 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
     - `transformers>=5,<6`: 4.x needs `huggingface_hub` < 1. Its `tokenizers` dependency (every
       release, 1.0 pre-releases included) needs `huggingface_hub` < 2, which is why rvc-next
       cannot share an environment with projects on `huggingface_hub` 2.x.
-  Tested at both ends: torch 2.8 with numpy 1.26, and torch 2.11 with numpy 2.4 (the full check
-  passes on both).
+  Tested at both ends, from the built wheel (smoke install, then the test suite): Python 3.10 with
+  torch 2.7.1 and every direct dependency at its floor (`uv pip install --resolution lowest-direct`),
+  and Python 3.12–3.14 with torch 2.11, numpy 2.5, scipy 1.18, librosa 1.0, av 19, send2trash 2
+  (those need Python 3.12+; 3.11, the dev env, gets numpy 2.4, librosa 0.11, av 18). The floor
+  run found `fastapi` 0.115.0's Starlette ignoring Range requests, hence `>=0.115.3`. Standalone
+  Pythons for such runs: `sd-webui-all-in-one self-manager python-standalone list`.
 - Assets for real runs: a scratch `assets/` in the original's layout; point
   `RVC_NEXT_PATHS__ASSETS_DIR` at it. Tests marked `assets` read `RVC_NEXT_TEST_ASSETS`; `golden`
   tests also need the original checkout. Both are deselected by default.

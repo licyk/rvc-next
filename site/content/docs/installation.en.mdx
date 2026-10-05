@@ -8,7 +8,7 @@ icon: Download
 
 | Requirement | Description |
 | --- | --- |
-| Python | 3.10 or newer (3.10 through 3.13) |
+| Python | 3.10 or newer (3.10 through 3.14) |
 | Isolated virtual environment | A venv or standalone Python dedicated to RVC Next; **do not** share it with other applications |
 | PyTorch | Version 2.7.1 or newer; choose a CUDA or CPU build for your hardware and install it **before** RVC Next |
 | Disk space | Models need additional space: HuBERT and RMVPE, required for conversion, take about 353 MB; each separation model takes 300–440 MB, and each set of training base models about 350–420 MB |
@@ -55,7 +55,7 @@ python -m pip install --upgrade pip
 
 </Tab>
 </Tabs>
-`py -3.11` is only an example; replace it with any installed version from 3.10 through 3.13. Run all subsequent commands in a terminal with this environment activated.
+`py -3.11` is only an example; replace it with any installed version from 3.10 through 3.14. Run all subsequent commands in a terminal with this environment activated.
 
 ## Step 2: Install PyTorch
 
@@ -121,7 +121,7 @@ This extra installs `torch-directml` and `onnxruntime-directml`. `torch-directml
 </Tabs>
 <Callout type="warn" title="Not validated on physical hardware">
 
-CUDA (including fp16 and CUDA Graphs), ROCm, XPU, DirectML and MPS have not been tested on physical hardware. The CPU path has been tested; the full checks have passed with dependency combinations at both ends: torch 2.8 + numpy 1.26 and torch 2.11 + numpy 2.4.
+CUDA (including fp16 and CUDA Graphs), ROCm, XPU, DirectML and MPS have not been tested on physical hardware. The CPU path has been tested; the tests have passed with dependency combinations at both ends: torch 2.7.1 with every other dependency at its lower bound on Python 3.10, and torch 2.11 with numpy 2.5, librosa 1.0 and av 19 on Python 3.12 to 3.14.
 
 </Callout>
 ## Step 3: Install RVC Next

@@ -152,7 +152,7 @@ python scripts/dev.py site           # 构建到 site/.output/public
 
 ## 依赖约束
 
-`pyproject.toml` 的原则是：**下限**是代码需要或某个依赖强制的版本，**上限**停在下一个未经测试的大版本前；torch 例外，不设上限，因为它由用户按硬件先行安装。因为 RVC Next 运行在自己的环境里，上限不会妨碍别人；它防止的是某天 `pip install` 解析出一个从没测过的组合。项目在两端都测试过：torch 2.8 配 numpy 1.26，以及 torch 2.11 配 numpy 2.4，完整检查都能通过。
+`pyproject.toml` 的原则是：**下限**是代码需要或某个依赖强制的版本，**上限**停在下一个未经测试的大版本前；torch 例外，不设上限，因为它由用户按硬件先行安装。因为 RVC Next 运行在自己的环境里，上限不会妨碍别人；它防止的是某天 `pip install` 解析出一个从没测过的组合。项目在两端都测试过，测试套件均通过：Python 3.10 上 torch 2.7.1 且其余依赖都取下限，以及 Python 3.12 至 3.14 上 torch 2.11 配 numpy 2.5、librosa 1.0、av 19（从构建好的 wheel 安装；下限一端对直接依赖使用 `uv pip install --resolution lowest-direct`）。开发环境（Python 3.11）通过完整检查。
 
 | 约束 | 原因 |
 | --- | --- |

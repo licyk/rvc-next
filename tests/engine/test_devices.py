@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 import torch
+import torch.version
 
 from rvc_next.engine import graph, runtime
 from rvc_next.engine.runtime import ChunkConfig, choose_device, cuda_profile, device_type, gpu_backend, list_devices, supports_half, torch_backend, visible_devices_env
