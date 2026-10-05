@@ -1,5 +1,7 @@
 # rvc-next
 
+English | [简体中文](https://github.com/licyk/rvc-next/blob/main/README.zh-CN.md)
+
 Retrieval-based voice conversion, rewritten as one application: **convert** files, convert
 **live** through your audio devices, **separate** vocals from music, **train** your own voices,
 and manage them all in one **library**, from a web UI or the command line.
@@ -15,7 +17,8 @@ loop) is ported so existing voices sound the same; everything around it is new:
   blocks the screen.
 - **Pipelines**: separate, convert and add the accompaniment back in one job.
 - **Audio devices** listed once per physical device, input and output on any drivers, an
-  optional monitor output, a level meter and a test sound, and recovery when a device returns.
+  optional monitor output, a level meter and a test sound, recovery when a device returns, and
+  a loopback test that measures the real latency instead of estimating it.
 - **Existing models load unchanged** (`.pth` and `added_*.index`), an existing RVC install can
   be read in place, and new models are written in the same format.
 
@@ -28,8 +31,20 @@ The design record, the conventions and the known gaps are in [AGENTS.md](AGENTS.
 
 Use a fresh virtual environment (or a standalone Python): rvc-next pins its dependencies to
 tested ranges and is not meant to share an environment with other applications. Install PyTorch
-for your hardware first (2.7.1 or newer; CUDA 12.8 for RTX 50 cards, CUDA 11.8 or 12.x for older
-NVIDIA cards, or the CPU build; torchaudio is not needed), then:
+for your hardware first (2.7.1 or newer; torchaudio is not needed):
+
+| Hardware | PyTorch build (`--index-url https://download.pytorch.org/whl/…`) |
+| --- | --- |
+| NVIDIA | `cu128` (RTX 50 cards need it; older cards also work with other CUDA builds) |
+| AMD, Linux | `rocm7.2`; the cards appear as `cuda:N` |
+| Intel Arc and recent integrated graphics | `xpu` (Linux and Windows); the cards appear as `xpu:N` |
+| Apple silicon | the default build (`pip install torch`); Metal is experimental |
+| CPU only | `cpu` |
+
+On Windows, AMD and Intel cards can also use DirectML: the CPU build plus
+`pip install "rvc-next[directml]"`.
+
+With an NVIDIA card, for example:
 
 ```bash
 python -m venv .venv && . .venv/bin/activate
@@ -40,8 +55,9 @@ rvc-next model download --all     # optional: the official RVC demo voices
 rvc-next webui                    # http://127.0.0.1:7868
 ```
 
-`rvc-next doctor` reports the torch build, the GPU rule's choice, audio device access and the
-assets. On Linux, live conversion needs PortAudio (`libportaudio2`).
+`rvc-next doctor` reports the torch build (CUDA, ROCm or XPU), the GPU rule's choice, audio
+device access and the assets. ROCm, XPU, DirectML and Metal have not yet been tried on real
+hardware. On Linux, live conversion needs PortAudio (`libportaudio2`).
 
 To reuse the models of an existing RVC install, point `paths.assets_dir` at its `assets/`
 folder and add the install as a legacy root (Models › Voices › Original RVC installs, or
