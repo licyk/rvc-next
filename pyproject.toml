@@ -64,7 +64,7 @@ directml = ["torch-directml", "onnxruntime-directml"]
 
 [dependency-groups]
 # tomli lets ty resolve the Python 3.10 fallback import on newer Pythons.
-dev = ["pytest", "pytest-cov", "ruff==0.16.9", "ty==0.0.84", "python-docstring-checker", "httpx", "tomli"]
+dev = ["pytest", "pytest-cov", "ruff", "ty", "python-docstring-checker", "httpx", "tomli"]
 
 [project.scripts]
 rvc-next = "rvc_next.cli.app:main"
@@ -93,7 +93,7 @@ extend-exclude = ["rvc_next/webui/dist", "rvc_next/webui/node_modules"]
 exclude = ["rvc_next/engine/models/{attentions,commons,modules,transforms,synthesizer}.py", "rvc_next/engine/f0/rmvpe.py"]
 
 [tool.ruff.lint]
-# Written out so a ruff upgrade cannot change what runs (pinned above as well).
+# Written out so a ruff upgrade cannot change which rules run.
 select = [
     "E4", "E7", "E9", # pycodestyle errors that ruff checks by default
     "F",              # pyflakes

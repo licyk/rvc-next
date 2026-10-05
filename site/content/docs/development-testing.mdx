@@ -142,7 +142,7 @@ tests/
 
 | 作业 | 环境 | 内容 |
 | --- | --- | --- |
-| Lint and format | Ubuntu，Python 3.11 | 只装 `ruff==0.16.9`，`ruff check` 与 `ruff format --check`。拉取请求上同样运行 |
+| Lint and format | Ubuntu，Python 3.11 | 只装最新版 `ruff`，`ruff check` 与 `ruff format --check`。拉取请求上同样运行 |
 | ty | Ubuntu / Windows / macOS × Python 3.10–3.13 | CPU 版 torch 加 `pip install -e . --group dev`，`ty check --python-version <版本> --python-platform <平台> --error-on-warning`。只为解析导入，所以装 CPU 版 torch 就够了 |
 | Tests | Ubuntu，Python 3.10 与 3.12 | 装 `libportaudio2`、CPU 版 torch 和开发依赖，`pytest -q` |
 | Web UI | Ubuntu，最新 bun | `bun install --frozen-lockfile`，`bun run test`、`typecheck`、`build`，然后 `python scripts/dev.py typegen-check` |

@@ -167,7 +167,7 @@ python scripts/dev.py site           # 构建到 site/.output/public
 | `tomli>=2; python_version < '3.11'` | 3.10 没有 `tomllib` |
 | 可选组 `directml` | `torch-directml`、`onnxruntime-directml`：Windows 上 AMD / Intel 显卡用 DirectML，RMVPE 走 ONNX |
 
-开发依赖组 `dev` 把 `ruff==0.16.9` 和 `ty==0.0.84` **精确锁定**，`[tool.ruff.lint]` 的 `select` 也逐条写出：ruff 升级会改变默认规则集，锁定后"能不能过检查"只取决于代码本身。`tomli` 也在 `dev` 组里，好让 ty 在新版 Python 上也能解析 3.10 的回退导入。
+开发依赖组 `dev` 中的 `ruff` 和 `ty` 不锁定版本，总是使用最新版。`[tool.ruff.lint]` 的 `select` 逐条写出：ruff 升级会改变默认规则集，写明规则后，升级不会改变检查哪些规则（但新版本对同一规则的判断可能更严格）。`tomli` 也在 `dev` 组里，好让 ty 在新版 Python 上也能解析 3.10 的回退导入。
 
 ## 代码约定速览
 

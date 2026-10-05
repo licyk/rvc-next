@@ -142,7 +142,7 @@ Alongside component and store unit tests, **rule tests** turn conventions into f
 
 | Job | Environment | Contents |
 | --- | --- | --- |
-| Lint and format | Ubuntu, Python 3.11 | Install only `ruff==0.16.9`; `ruff check` and `ruff format --check`. Also runs on pull requests |
+| Lint and format | Ubuntu, Python 3.11 | Install only the latest `ruff`; `ruff check` and `ruff format --check`. Also runs on pull requests |
 | ty | Ubuntu / Windows / macOS × Python 3.10–3.13 | CPU torch plus `pip install -e . --group dev`, `ty check --python-version <version> --python-platform <platform> --error-on-warning`. Only resolves imports, so CPU torch suffices |
 | Tests | Ubuntu, Python 3.10 and 3.12 | Install `libportaudio2`, CPU torch, and development dependencies; `pytest -q` |
 | Web UI | Ubuntu, latest bun | `bun install --frozen-lockfile`, `bun run test`, `typecheck`, `build`, then `python scripts/dev.py typegen-check` |

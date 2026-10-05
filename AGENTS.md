@@ -115,7 +115,7 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
 
 ## 4. Conventions
 
-- **Python ≥ 3.10**, ruff 0.16.9 and ty 0.0.84 pinned, `lint.select` written out, line length 180.
+- **Python ≥ 3.10**, ruff and ty unpinned (latest), `lint.select` written out, line length 180.
   The ported files (`engine/models/{attentions,commons,modules,transforms,synthesizer}.py`,
   `engine/f0/rmvpe.py`, `engine/audio/denoise.py`, some `engine/train/*`) keep the original's
   shape: excluded from `ruff format` and ty, with per-file lint ignores, so they diff cleanly
