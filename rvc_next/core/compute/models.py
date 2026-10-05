@@ -9,9 +9,9 @@ from rvc_next.core.record import Record
 
 class ComputeDevice(Record):
     id: str
-    """cpu, cuda:N, dml or mps."""
+    """cpu, cuda:N (NVIDIA, or AMD on ROCm), xpu:N, dml or mps."""
     name: str
-    kind: Literal["cpu", "cuda", "dml", "mps"]
+    kind: Literal["cpu", "cuda", "xpu", "dml", "mps"]
     memory_mb: float | None = None
     sm: float | None = None
     eligible: bool
@@ -26,6 +26,8 @@ class ComputeInfo(Record):
     devices: list[ComputeDevice]
     torch_version: str | None = None
     cuda_version: str | None = None
+    backend: str | None = None
+    """What torch was built for: ``CUDA 12.8``, ``ROCm 6.4``, ``XPU``; None for a CPU build."""
     cuda_graph: bool = False
 
 

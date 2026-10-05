@@ -194,7 +194,7 @@ const previewShown = ref(true);
                 { label: t('settings.dataDir'), value: meta.data.value?.data_dir ?? '—', mono: true },
                 { label: t('settings.settingsFile'), value: s.settings_file, mono: true },
                 { label: t('settings.device'), value: meta.data.value?.compute ?? '—' },
-                { label: 'torch', value: devicesQ.data.value ? `${devicesQ.data.value.torch_version} (CUDA ${devicesQ.data.value.cuda_version ?? '—'})` : '—' },
+                { label: 'torch', value: devicesQ.data.value ? `${devicesQ.data.value.torch_version} (${devicesQ.data.value.backend ?? 'CPU'})` : '—' },
               ]"
             />
             <p class="type-body-small muted">RVC (MIT) · PyMSS (MIT) · rvc-next (GPL-3.0)</p>

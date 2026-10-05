@@ -8,7 +8,7 @@ This page explains how RVC Next selects compute devices and precision, manages G
 
 <Callout type="warn" title="Not verified on real hardware">
 
-The development machine has no GPU or audio hardware. CUDA (fp16, CUDA Graph, multi-GPU training, GPU memory reporting), DirectML, MPS, real PortAudio streams, ASIO, and WASAPI exclusive mode have **not been verified on real hardware**. This page describes the code's behavior; please report any issues you encounter on these platforms.
+The development machine has no GPU or audio hardware. CUDA (fp16, CUDA Graph, multi-GPU training, GPU memory reporting), AMD ROCm, Intel XPU, DirectML, MPS, real PortAudio streams, ASIO, and WASAPI exclusive mode have **not been verified on real hardware**. This page describes the code's behavior; please report any issues you encounter on these platforms.
 
 </Callout>
 ## Select a device
@@ -17,9 +17,10 @@ The development machine has no GPU or audio hardware. CUDA (fp16, CUDA Graph, mu
 
 | Value | Meaning |
 | --- | --- |
-| `auto` (default) | Selects the most suitable CUDA GPU using the rules below. If no CUDA GPU is available, tries DirectML, then CPU. `auto` does not select MPS |
+| `auto` (default) | Selects the most suitable GPU (CUDA, ROCm or XPU) using the rules below. If none is available, tries DirectML, then CPU. `auto` does not select MPS |
 | `cpu` | CPU only |
-| `cuda:N` | NVIDIA GPU N (numbered from 0). Also uses cards the GPU rules would skip (in fp32); falls back to CPU if the ID does not exist |
+| `cuda:N` | NVIDIA GPU N (numbered from 0), or AMD GPU N on a ROCm build of torch. Also uses cards the GPU rules would skip (in fp32); falls back to CPU if the ID does not exist |
+| `xpu:N` | Intel GPU N (Arc, Data Center GPU, recent integrated graphics) on an XPU build of torch. Same fallbacks as `cuda:N` |
 | `dml` | DirectML (AMD, Intel, and other GPUs on Windows). Falls back to CPU if unavailable |
 | `mps` | Metal on Apple Silicon (**experimental**). Falls back to CPU if unavailable |
 
@@ -34,6 +35,8 @@ The development machine has no GPU or audio hardware. CUDA (fp16, CUDA Graph, mu
 | Compute capability above 6.1 (RTX 20 series and newer) | Used, fp16 |
 | Others (compute capability between 5.3 and 6.1) | Not used |
 
+AMD cards on ROCm (still `cuda:N`) and Intel XPU cards skip the compute capability rows: a card with at least 4 GiB of memory is used; ROCm cards run fp16, and XPU cards run fp16 when the device reports fp16 support.
+
 If several GPUs qualify, the one with the highest compute capability is selected; ties are resolved by the largest memory size. `rvc-next doctor` and the device list under **Settings** › **Compute** show each device, the precision assigned by the rules, and the reason (e.g. "Pascal SM 6.1 and GTX 16xx cards run in fp32").
 
 ### Precision
@@ -42,15 +45,15 @@ If several GPUs qualify, the one with the highest compute capability is selected
 
 - `auto`: follows the GPU rules;
 - `fp32`: always uses fp32;
-- `fp16`: forces fp16 on CUDA (including GPUs assigned fp32 by the rules).
+- `fp16`: forces fp16 on CUDA, ROCm and XPU (including GPUs assigned fp32 by the rules).
 
 DirectML, MPS, and CPU always use fp32 (except vocal separation on DirectML; see below). fp16 is faster and uses less GPU memory; if a card produces abnormal output in fp16, switch to `fp32`.
 
-Precision also determines chunk sizes for long audio (as in the original): CUDA cards with at most 4 GiB of memory use the smallest chunks, fp16 uses larger chunks, and other cases use medium chunks.
+Precision also determines chunk sizes for long audio (as in the original): CUDA, ROCm and XPU cards with at most 4 GiB of memory use the smallest chunks, fp16 uses larger chunks, and other cases use medium chunks.
 
 ### Install the appropriate PyTorch
 
-Device availability depends on the installed PyTorch: NVIDIA GPUs need a CUDA build of torch (RTX 50 series needs the CUDA 12.8 build). With only a CPU build installed, `auto` selects CPU. For installation instructions, see [Installation](/docs/installation); `rvc-next doctor` shows the torch version and its bundled CUDA version.
+Device availability depends on the installed PyTorch: NVIDIA GPUs need a CUDA build of torch (RTX 50 series needs the CUDA 12.8 build), AMD GPUs a ROCm build (Linux), Intel GPUs an XPU build. With only a CPU build installed, `auto` selects CPU. For installation instructions, see [Installation](/docs/installation); `rvc-next doctor` shows the torch version and what it was built for (for example `CUDA 12.8`, `ROCm 7.2` or `XPU`).
 
 ## CUDA Graph
 
@@ -61,7 +64,13 @@ CUDA Graph records an inference run and replays it directly afterward, reducing 
 | `compute.cuda_graph_offline` | **CUDA Graph for conversion** | Off |
 | `compute.cuda_graph_live` | **CUDA Graph for Live** | On |
 
-It works only on CUDA. Recordings are cached by input shape (up to 8 per call site, adjustable with `RVC_NEXT_CUDA_GRAPH_MAX_CACHE`). If recording fails, inference automatically falls back to normal mode. Offline inputs vary in length, making recordings hard to reuse, so it is disabled by default.
+It works only on NVIDIA CUDA: on ROCm and XPU the switches have no effect and inference runs normally. Recordings are cached by input shape (up to 8 per call site, adjustable with `RVC_NEXT_CUDA_GRAPH_MAX_CACHE`). If recording fails, inference automatically falls back to normal mode. Offline inputs vary in length, making recordings hard to reuse, so it is disabled by default.
+
+## AMD ROCm and Intel XPU
+
+- ROCm: torch's ROCm build (Linux) presents AMD GPUs as CUDA devices, so they appear as `cuda:N` and everything that runs on CUDA runs on them, except CUDA Graph. Vocal separation uses the GPU directly.
+- XPU: Intel GPUs appear as `xpu:N`. Conversion, Live, training (fp16 with AMP; several cards train with the `xccl` backend) and pitch and feature extraction run on them. Vocal separation loads the model on the CPU, moves it to the GPU and runs in fp32, because pymss has no XPU support of its own.
+- Multi-GPU training selects cards with `CUDA_VISIBLE_DEVICES` (also read by ROCm) or, on XPU, `ZE_AFFINITY_MASK`. The GPU ids under **Train** refer to the devices of whichever of the two your torch build provides.
 
 ## DirectML
 

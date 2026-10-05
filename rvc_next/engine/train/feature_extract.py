@@ -44,7 +44,9 @@ def _part(version: str, assets_dir: str, device: str, is_half: bool, items: list
         from rvc_next.engine.runtime import directml_device
 
         dev = directml_device()
-    half = is_half and str(device).startswith("cuda")
+    from rvc_next.engine.runtime import supports_half
+
+    half = is_half and supports_half(device)
     model = load_hubert(Path(assets_dir) / "hubert_base", dev, half)
     done = failed = 0
     for wav_path, out_path in items:
@@ -96,8 +98,11 @@ def run(request: FeatureRequest, progress: Progress | None = None, log: Log | No
     env: list[dict[str, str] | None] | None = None
     if len(request.gpus) > 1:
         n = len(request.gpus)
-        parts = [(request.version, request.assets_dir, "cuda:0", request.is_half, todo[i::n]) for i in range(n)]
-        env = [{"CUDA_VISIBLE_DEVICES": str(g)} for g in request.gpus]
+        from rvc_next.engine.runtime import gpu_backend, visible_devices_env
+
+        backend = gpu_backend() or "cuda"
+        parts = [(request.version, request.assets_dir, f"{backend}:0", request.is_half, todo[i::n]) for i in range(n)]
+        env = [visible_devices_env([g], backend) for g in request.gpus]
     else:
         parts = [(request.version, request.assets_dir, request.device, request.is_half, todo)]
     parts = [p for p in parts if p[-1]]

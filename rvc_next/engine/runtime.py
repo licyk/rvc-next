@@ -4,6 +4,12 @@ The GPU rule is the original's (``configs/config.py``): a GPU under 4 GiB or bel
 used; SM 6.1 and GTX 16xx cards run fp32; newer cards run fp16; without a usable CUDA device
 DirectML is tried, then the CPU. Here it is a function of a requested device instead of an import
 side effect, and nothing reads ``sys.argv``.
+
+Beyond the original, as ComfyUI's ``model_management``: AMD cards on a ROCm build of torch answer
+to ``torch.cuda`` and are ``cuda:N`` devices (``torch.version.hip`` tells them apart; the SM rule
+does not apply, they need 4 GiB and run fp16), and Intel GPUs are ``xpu:N`` (4 GiB, fp16 when the
+device has it). One build of torch carries one of CUDA, ROCm or XPU, so the GPU ids of training
+(``gpus``) index the devices of :func:`gpu_backend`.
 """
 
 from __future__ import annotations
@@ -36,7 +42,7 @@ class DeviceProfile:
     id: str
     name: str
     kind: str
-    """cpu, cuda, dml or mps."""
+    """cpu, cuda (NVIDIA, or AMD on ROCm), xpu, dml or mps."""
     memory_gb: float = 0.0
     sm: float = 0.0
     eligible: bool = True
@@ -56,6 +62,11 @@ def cuda_profile(index: int) -> DeviceProfile:
     except Exception as e:  # a broken driver must not stop the CPU path
         return DeviceProfile(device_id, f"CUDA {index}", "cuda", eligible=False, reason=f"Cannot inspect the device: {e}")
     mem_gb = mem_bytes / (1024**3) + 0.4
+    if is_rocm():
+        # The capability is the gfx version (10.3 for gfx1030), not an SM; every ROCm card runs fp16.
+        if mem_gb < 4:
+            return DeviceProfile(device_id, name, "cuda", mem_gb, eligible=False, reason="Under 4 GiB of memory")
+        return DeviceProfile(device_id, name, "cuda", mem_gb, fp16=True)
     sm = major + minor / 10.0
     is_16_series = bool(re.search(r"16\d{2}", name)) and sm == 7.5
     if mem_gb < 4 or sm < 5.3:
@@ -73,6 +84,100 @@ def cuda_profiles() -> list[DeviceProfile]:
     if not torch.cuda.is_available():
         return []
     return [cuda_profile(i) for i in range(torch.cuda.device_count())]
+
+
+def is_rocm() -> bool:
+    """Whether torch is a ROCm (HIP) build, whose AMD devices are ``cuda:N``."""
+    try:
+        import torch.version
+
+        return bool(getattr(torch.version, "hip", None))
+    except Exception:
+        return False
+
+
+def xpu_available() -> bool:
+    try:
+        import torch
+
+        return hasattr(torch, "xpu") and bool(torch.xpu.is_available())
+    except Exception:
+        return False
+
+
+def xpu_profile(index: int) -> DeviceProfile:
+    """The GPU rule for one Intel XPU device: at least 4 GiB, fp16 when the device has it."""
+    import torch
+
+    device_id = f"xpu:{index}"
+    try:
+        props = torch.xpu.get_device_properties(index)
+        name = str(props.name)
+        mem_gb = props.total_memory / (1024**3)
+        fp16 = bool(getattr(props, "has_fp16", True))
+    except Exception as e:
+        return DeviceProfile(device_id, f"XPU {index}", "xpu", eligible=False, reason=f"Cannot inspect the device: {e}")
+    if mem_gb < 4:
+        return DeviceProfile(device_id, name, "xpu", mem_gb, eligible=False, reason="Under 4 GiB of memory")
+    return DeviceProfile(device_id, name, "xpu", mem_gb, fp16=fp16, reason=None if fp16 else "The device has no fp16 support")
+
+
+def xpu_profiles() -> list[DeviceProfile]:
+    if not xpu_available():
+        return []
+    import torch
+
+    return [xpu_profile(i) for i in range(torch.xpu.device_count())]
+
+
+def gpu_backend() -> str | None:
+    """``cuda`` (NVIDIA or ROCm) or ``xpu``: the device type the GPU ids of training refer to."""
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return "cuda"
+    except Exception:
+        return None
+    return "xpu" if xpu_available() else None
+
+
+def gpu_profiles() -> list[DeviceProfile]:
+    """The devices of :func:`gpu_backend`, numbered as the GPU ids of training."""
+    backend = gpu_backend()
+    if backend == "cuda":
+        return cuda_profiles()
+    if backend == "xpu":
+        return xpu_profiles()
+    return []
+
+
+def device_type(device: Any) -> str:
+    """cuda, xpu, mps, dml or cpu for a ``torch.device``, a device string or the DirectML device."""
+    text = str(getattr(device, "type", None) or device).split(":", 1)[0].lower()
+    return "dml" if text in ("privateuseone", "dml") else text
+
+
+def supports_half(device: Any) -> bool:
+    """Whether fp16 may run on ``device`` (the GPU rule decides whether it does)."""
+    return device_type(device) in ("cuda", "xpu")
+
+
+def visible_devices_env(gpus: tuple[int, ...] | list[int], backend: str | None = None) -> dict[str, str]:
+    """The environment that shows a child process only ``gpus`` (HIP reads ``CUDA_VISIBLE_DEVICES`` too)."""
+    ids = ",".join(map(str, gpus))
+    return {"ZE_AFFINITY_MASK": ids} if (backend or gpu_backend()) == "xpu" else {"CUDA_VISIBLE_DEVICES": ids}
+
+
+def synchronize(device: Any) -> None:
+    """Wait for the device's queued work (CUDA, ROCm, XPU); nothing elsewhere."""
+    import torch
+
+    kind = device_type(device)
+    if kind == "cuda":
+        torch.cuda.synchronize(device)
+    elif kind == "xpu":
+        torch.xpu.synchronize(device)
 
 
 def directml_device() -> Any | None:
@@ -106,9 +211,24 @@ def torch_versions() -> tuple[str, str | None]:
     return torch.__version__, torch.version.cuda
 
 
+def torch_backend() -> str | None:
+    """The accelerator torch was built for: ``CUDA 12.8``, ``ROCm 6.4``, ``XPU``; None for a CPU build."""
+    import torch.version
+
+    hip = getattr(torch.version, "hip", None)
+    if hip:
+        return f"ROCm {hip}"
+    if torch.version.cuda:
+        return f"CUDA {torch.version.cuda}"
+    xpu = getattr(torch.version, "xpu", None)
+    if xpu or xpu_available():
+        return f"XPU {xpu}" if xpu else "XPU"
+    return None
+
+
 def list_devices() -> list[DeviceProfile]:
     """Every device the application could use, CPU last."""
-    out = list(cuda_profiles())
+    out = [*cuda_profiles(), *xpu_profiles()]
     if directml_device() is not None:
         out.append(DeviceProfile("dml", "DirectML", "dml"))
     if mps_available():
@@ -142,20 +262,25 @@ def choose_device(requested: str = "auto", precision: str = "auto") -> DeviceCho
     requested = (requested or "auto").lower()
     choice: DeviceChoice | None = None
     if requested == "auto":
-        eligible = [p for p in cuda_profiles() if p.eligible]
+        eligible = [p for p in gpu_profiles() if p.eligible]
         if eligible:
             best = max(eligible, key=lambda p: (p.sm, p.memory_gb))
-            choice = DeviceChoice(torch.device(best.id), best.id, "cuda", best.name, best.fp16, best.memory_gb, best.reason)
+            choice = DeviceChoice(torch.device(best.id), best.id, best.kind, best.name, best.fp16, best.memory_gb, best.reason)
         else:
             dml = directml_device()
             if dml is not None:
                 choice = DeviceChoice(dml, "dml", "dml", "DirectML", False)
-    elif requested.startswith("cuda"):
+    elif requested.startswith(("cuda", "xpu")):
+        kind = "xpu" if requested.startswith("xpu") else "cuda"
         index = int(requested.split(":", 1)[1]) if ":" in requested else 0
-        if torch.cuda.is_available() and index < torch.cuda.device_count():
-            profile = cuda_profile(index)
+        if kind == "cuda":
+            count = torch.cuda.device_count() if torch.cuda.is_available() else 0
+        else:
+            count = torch.xpu.device_count() if xpu_available() else 0
+        if index < count:
+            profile = cuda_profile(index) if kind == "cuda" else xpu_profile(index)
             # An explicit choice is honoured even when the rule would skip the card, in fp32.
-            choice = DeviceChoice(torch.device(profile.id), profile.id, "cuda", profile.name, profile.fp16 and profile.eligible, profile.memory_gb, profile.reason)
+            choice = DeviceChoice(torch.device(profile.id), profile.id, kind, profile.name, profile.fp16 and profile.eligible, profile.memory_gb, profile.reason)
         else:
             choice = DeviceChoice(torch.device("cpu"), "cpu", "cpu", "CPU", False, reason=f"{requested} is not available")
     elif requested == "dml":
@@ -170,7 +295,7 @@ def choose_device(requested: str = "auto", precision: str = "auto") -> DeviceCho
         choice = DeviceChoice(torch.device("cpu"), "cpu", "cpu", "CPU", False)
     if precision == "fp32" and choice.fp16:
         choice = DeviceChoice(choice.device, choice.id, choice.kind, choice.name, False, choice.memory_gb, "fp32 requested")
-    elif precision == "fp16" and choice.kind == "cuda" and not choice.fp16:
+    elif precision == "fp16" and choice.kind in ("cuda", "xpu") and not choice.fp16:
         choice = DeviceChoice(choice.device, choice.id, choice.kind, choice.name, True, choice.memory_gb, "fp16 requested")
     return choice
 
@@ -216,7 +341,7 @@ def _discard_cuda_async_error() -> None:
 
 
 def soft_empty_cache() -> None:
-    """Collect garbage, then hand the allocator's cached blocks back to the driver (CUDA, MPS).
+    """Collect garbage, then hand the allocator's cached blocks back to the driver (CUDA, ROCm, XPU, MPS).
 
     ComfyUI's ``soft_empty_cache``: ``synchronize`` first so no kernel still uses a block, and
     ``ipc_collect`` for memory shared with other processes. Does nothing when torch is not loaded.
@@ -230,6 +355,9 @@ def soft_empty_cache() -> None:
             torch.cuda.synchronize()
             torch.cuda.empty_cache()
             torch.cuda.ipc_collect()
+        elif hasattr(torch, "xpu") and torch.xpu.is_available() and getattr(torch.xpu, "is_initialized", lambda: True)():
+            torch.xpu.synchronize()
+            torch.xpu.empty_cache()
         elif getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
             torch.mps.empty_cache()
     except Exception as e:  # a broken context after an error must not stop the unload
@@ -247,7 +375,7 @@ class ChunkConfig:
 
     @classmethod
     def for_device(cls, choice: DeviceChoice) -> ChunkConfig:
-        if choice.kind == "cuda" and choice.memory_gb > 0 and int(choice.memory_gb) <= 4:
+        if choice.kind in ("cuda", "xpu") and choice.memory_gb > 0 and int(choice.memory_gb) <= 4:
             return cls(1, 5, 30, 32)
         if choice.fp16:
             return cls(3, 10, 60, 65)
@@ -422,13 +550,13 @@ class Runtime:
         return True
 
     def vram(self) -> tuple[float, float] | None:
-        """(used, total) in MiB on a CUDA device, else None."""
-        if self.choice.kind != "cuda":
+        """(used, total) in MiB on a CUDA, ROCm or XPU device, else None."""
+        if self.choice.kind not in ("cuda", "xpu"):
             return None
         import torch
 
         try:
-            free, total = torch.cuda.mem_get_info(self.device)
+            free, total = (torch.cuda if self.choice.kind == "cuda" else torch.xpu).mem_get_info(self.device)
         except Exception:
             return None
         return (total - free) / 2**20, total / 2**20

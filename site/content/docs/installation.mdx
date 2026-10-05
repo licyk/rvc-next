@@ -61,7 +61,7 @@ python -m pip install --upgrade pip
 
 PyTorch 需要按硬件选择对应的构建，所以要**先**单独安装。版本须为 2.7.1 或更新。最可靠的做法是到 [pytorch.org](https://pytorch.org/get-started/locally/) 的选择器中选好系统和 CUDA 版本，复制给出的命令，并把版本号固定在这个范围内。
 
-<Tabs items={["NVIDIA 显卡（CUDA）", "仅 CPU", "macOS", "Windows：AMD / Intel 显卡（DirectML）"]}>
+<Tabs items={["NVIDIA 显卡（CUDA）", "Linux：AMD 显卡（ROCm）", "Intel 显卡（XPU）", "仅 CPU", "macOS", "Windows：AMD / Intel 显卡（DirectML）"]}>
 <Tab value="NVIDIA 显卡（CUDA）">
 
 ```bash
@@ -69,6 +69,24 @@ python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl
 ```
 
 CUDA 12.8 的构建支持 RTX 50 系列，也适用于较早的 NVIDIA 显卡。如果你的驱动较旧，请在 pytorch.org 上选择该版本提供的其他 CUDA 构建。
+
+</Tab>
+<Tab value="Linux：AMD 显卡（ROCm）">
+
+```bash
+python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/rocm7.2
+```
+
+ROCm 构建只有 Linux 版。安装后 AMD 显卡显示为 `cuda:N`。请确认你的显卡和驱动受所选 ROCm 版本支持（pytorch.org 列出了每个版本提供的构建）。
+
+</Tab>
+<Tab value="Intel 显卡（XPU）">
+
+```bash
+python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/xpu
+```
+
+XPU 构建可在 Linux 和 Windows 上运行，需要较新的 Intel 显卡驱动。安装后 Intel 显卡显示为 `xpu:N`。
 
 </Tab>
 <Tab value="仅 CPU">
@@ -103,7 +121,7 @@ python -m pip install "rvc-next[directml]"
 </Tabs>
 <Callout type="warn" title="未在真实硬件上验证">
 
-CUDA（包括 fp16 和 CUDA Graphs）、DirectML 和 MPS 都没有在真实硬件上测试过。CPU 路径已经测试；依赖组合在 torch 2.8 + numpy 1.26 和 torch 2.11 + numpy 2.4 两端都跑通了完整的检查。
+CUDA（包括 fp16 和 CUDA Graphs）、ROCm、XPU、DirectML 和 MPS 都没有在真实硬件上测试过。CPU 路径已经测试；依赖组合在 torch 2.8 + numpy 1.26 和 torch 2.11 + numpy 2.4 两端都跑通了完整的检查。
 
 </Callout>
 ## 第三步：安装 RVC Next

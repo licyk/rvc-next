@@ -61,7 +61,7 @@ python -m pip install --upgrade pip
 
 PyTorch needs a build suited to your hardware, so install it separately **first**. The version must be 2.7.1 or newer. The most reliable approach is to select your operating system and CUDA version in the selector at [pytorch.org](https://pytorch.org/get-started/locally/), copy its command and pin the version within this range.
 
-<Tabs items={["NVIDIA GPU (CUDA)", "CPU only", "macOS", "Windows: AMD / Intel GPU (DirectML)"]}>
+<Tabs items={["NVIDIA GPU (CUDA)", "Linux: AMD GPU (ROCm)", "Intel GPU (XPU)", "CPU only", "macOS", "Windows: AMD / Intel GPU (DirectML)"]}>
 <Tab value="NVIDIA GPU (CUDA)">
 
 ```bash
@@ -69,6 +69,24 @@ python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl
 ```
 
 The CUDA 12.8 build supports the RTX 50 series and earlier NVIDIA GPUs. If your driver is older, choose another CUDA build available for this version on pytorch.org.
+
+</Tab>
+<Tab value="Linux: AMD GPU (ROCm)">
+
+```bash
+python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/rocm7.2
+```
+
+ROCm builds exist for Linux only. AMD GPUs then appear as `cuda:N`. Check that your card and driver are supported by the ROCm release you choose (pytorch.org lists the builds for each version).
+
+</Tab>
+<Tab value="Intel GPU (XPU)">
+
+```bash
+python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/xpu
+```
+
+The XPU build runs on Linux and Windows with a current Intel GPU driver. Intel GPUs then appear as `xpu:N`.
 
 </Tab>
 <Tab value="CPU only">
@@ -103,7 +121,7 @@ This extra installs `torch-directml` and `onnxruntime-directml`. `torch-directml
 </Tabs>
 <Callout type="warn" title="Not validated on physical hardware">
 
-CUDA (including fp16 and CUDA Graphs), DirectML and MPS have not been tested on physical hardware. The CPU path has been tested; the full checks have passed with dependency combinations at both ends: torch 2.8 + numpy 1.26 and torch 2.11 + numpy 2.4.
+CUDA (including fp16 and CUDA Graphs), ROCm, XPU, DirectML and MPS have not been tested on physical hardware. The CPU path has been tested; the full checks have passed with dependency combinations at both ends: torch 2.8 + numpy 1.26 and torch 2.11 + numpy 2.4.
 
 </Callout>
 ## Step 3: Install RVC Next

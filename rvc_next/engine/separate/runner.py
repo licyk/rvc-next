@@ -62,8 +62,9 @@ class Separator(Protocol):
 class PymssSeparator:
     """``pymss.MSSeparator`` with the options the original passes, adapted to pymss 2.1.7.
 
-    pymss 2.1.7 knows cpu, cuda and mps. For DirectML the model is loaded on the CPU and then moved
-    (and cast to half for the fp16 attempt); demixing follows ``separator.device``.
+    pymss 2.1.7 knows cpu, cuda (ROCm included) and mps. For DirectML and XPU the model is loaded on
+    the CPU and then moved (DirectML casts to half for the fp16 attempt; XPU stays fp32, as pymss has
+    no XPU autocast); demixing follows ``separator.device``.
     """
 
     def __init__(self, model: dict[str, Any], device: Any, kind: str, half: bool) -> None:
@@ -71,6 +72,7 @@ class PymssSeparator:
 
         self._hook: ProgressHook | None = None
         dml = kind == "dml"
+        xpu = kind == "xpu"
         use_amp = bool(half and kind == "cuda")
         if kind == "cuda":
             index = getattr(device, "index", None)
@@ -109,6 +111,11 @@ class PymssSeparator:
                 net = net.half()
             self.separator.model = net
             self.separator.device = device
+        elif xpu:
+            # pymss tests ``"cuda" in self.device``, so the device stays a string.
+            xpu_net: Any = self.separator.model
+            self.separator.model = xpu_net.to(device)
+            self.separator.device = str(device)
 
     def _on_progress(self, done: float, total: float, message: str | None = None) -> None:
         if self._hook is not None and total:
@@ -219,7 +226,7 @@ def run_separation(request: dict[str, Any], reporter: Reporter, cancel: CancelTo
         device, kind, fp16 = choice.device, choice.kind, choice.fp16
     dml = kind == "dml"
     # DirectML tries fp16 first unless fp32 was asked for (the original's "auto" model dtype).
-    half = fp16 or (dml and precision != "fp32")
+    half = (fp16 and kind != "xpu") or (dml and precision != "fp32")
     allow_retry = dml and half and bool(request.get("allow_fp32_retry", True))
     result = JobResult(device="dml" if dml else str(device), precision="fp16" if half else "fp32")
     reporter.log("info", f"Separating {len(inputs)} file(s) with {preset['id']} on {result.device}, {result.precision}")
@@ -333,5 +340,7 @@ def _empty_cache() -> None:
 
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+        elif hasattr(torch, "xpu") and torch.xpu.is_available():
+            torch.xpu.empty_cache()
     except Exception:
         pass

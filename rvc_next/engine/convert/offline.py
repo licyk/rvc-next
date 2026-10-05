@@ -245,3 +245,5 @@ class OfflineConverter:
 
         if torch.cuda.is_available() and not cuda_graph_enabled(self.device):
             torch.cuda.empty_cache()
+        elif str(self.device).startswith("xpu"):
+            torch.xpu.empty_cache()

@@ -138,7 +138,7 @@ class ComputeService:
 
     def info(self) -> ComputeInfo:
         """Every device, with the precision the GPU rule chose. Imports torch."""
-        from rvc_next.engine.runtime import choose_device, list_devices, torch_versions
+        from rvc_next.engine.runtime import choose_device, list_devices, torch_backend, torch_versions
 
         c = self._settings.settings.compute
         choice = choose_device(c.device, c.precision)
@@ -161,6 +161,7 @@ class ComputeService:
             devices=devices,
             torch_version=torch_versions()[0],
             cuda_version=torch_versions()[1],
+            backend=torch_backend(),
             cuda_graph=bool(self._runtime.cuda_graph) if self._runtime else False,
         )
 

@@ -22,7 +22,7 @@ def map_engine_error(e: BaseException) -> RvcNextError | None:
 
     if is_oom(e):
         return ComputeError(f"Out of GPU memory: {e}", {"reason": OUT_OF_MEMORY})
-    if "cuda error" in str(e).lower():
+    if any(s in str(e).lower() for s in ("cuda error", "hip error")):
         return ComputeError(str(e))
     return None
 

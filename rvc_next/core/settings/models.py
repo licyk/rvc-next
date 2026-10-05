@@ -42,7 +42,7 @@ class PathSettings(Record):
 
 class ComputeSettings(Record):
     device: str = "auto"
-    """auto, cpu, cuda:N, dml, or mps (experimental)."""
+    """auto, cpu, cuda:N (NVIDIA, or AMD on ROCm), xpu:N (Intel), dml, or mps (experimental)."""
     precision: Literal["auto", "fp32", "fp16"] = "auto"
     cuda_graph_offline: bool = False
     cuda_graph_live: bool = True

@@ -101,13 +101,11 @@ def training_is_half(gpus: tuple[int, ...]) -> bool:
     """fp16 (AMP) only when every chosen card qualifies, as the original's ``get_training_dtype``."""
     if not gpus:
         return False
-    import torch
+    from rvc_next.engine.runtime import gpu_profiles
 
-    if not torch.cuda.is_available():
+    profiles = gpu_profiles()
+    if not profiles:
         return False
-    from rvc_next.engine.runtime import cuda_profile
-
-    profiles = [cuda_profile(i) for i in range(torch.cuda.device_count())]
     return all(profiles[i].eligible and profiles[i].fp16 for i in range(len(gpus)) if i < len(profiles))
 
 
@@ -226,6 +224,8 @@ def run(
     output: Callable[[str, str], None] | None = None,
 ) -> dict[str, Any]:
     """Train to ``request.epochs``; resume from the newest G/D pair when there is one."""
+    from rvc_next.engine.runtime import gpu_backend, visible_devices_env
+
     hps = prepare(request)
     if log:
         log(
@@ -234,7 +234,7 @@ def run(
     n_procs = len(request.gpus) if len(request.gpus) > 1 else (request.ddp_cpu_processes if request.ddp_cpu_processes > 1 else 0)
     if not n_procs:
         sink = Sink(lambda msg: _dispatch(msg, progress, log, metrics, output))
-        device = f"cuda:{request.gpus[0]}" if request.gpus else "cpu"
+        device = f"{gpu_backend() or 'cuda'}:{request.gpus[0]}" if request.gpus else "cpu"
         return _train(0, 1, hps, sink, cancel, device, False, training_is_half(request.gpus))
 
     import torch.multiprocessing as mp
@@ -243,10 +243,11 @@ def run(
     q = ctx.Queue()
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(randint(20000, 55555))
+    backend = (gpu_backend() or "cuda") if request.gpus else None
     if request.gpus:
-        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, request.gpus))
+        os.environ.update(visible_devices_env(request.gpus, backend))
     half = training_is_half(request.gpus)
-    procs = [ctx.Process(target=_ddp_entry, args=(rank, n_procs, hps, q, bool(request.gpus), half), daemon=False) for rank in range(n_procs)]
+    procs = [ctx.Process(target=_ddp_entry, args=(rank, n_procs, hps, q, backend, half), daemon=False) for rank in range(n_procs)]
     for p in procs:
         p.start()
     result: dict[str, Any] = {}
@@ -279,12 +280,13 @@ def run(
     return result
 
 
-def _ddp_entry(rank: int, n_procs: int, hps: dict[str, Any], q: Any, cuda: bool, half: bool) -> None:
+def _ddp_entry(rank: int, n_procs: int, hps: dict[str, Any], q: Any, backend: str | None, half: bool) -> None:
+    """``backend`` is cuda or xpu for one process per GPU, None for CPU processes."""
     import traceback
 
     sink = Sink(q.put) if rank == 0 else Sink(lambda msg: None)
     try:
-        result = _train(rank, n_procs, hps, sink, None, f"cuda:{rank}" if cuda else "cpu", True, half)
+        result = _train(rank, n_procs, hps, sink, None, f"{backend}:{rank}" if backend else "cpu", True, half)
         if rank == 0:
             q.put(("result", result))
     except BaseException as e:
@@ -315,13 +317,19 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
     from rvc_next.engine.train.mel import mel_spectrogram_torch, spec_to_mel_torch
 
     hps = HParams(**hps_dict)
-    cuda = device.startswith("cuda")
+    xpu = device.startswith("xpu")
+    # "cuda" below means any GPU (CUDA, ROCm or XPU), as the original's flag; amp is the autocast device type.
+    cuda = device.startswith("cuda") or xpu
+    amp = "xpu" if xpu else "cuda"
     torch.backends.cudnn.deterministic = False
     torch.backends.cudnn.benchmark = False
     if use_ddp:
-        dist.init_process_group(backend="gloo", init_method="env://?use_libuv=False", world_size=n_procs, rank=rank)
+        # gloo cannot reduce XPU tensors; xccl is torch's XPU collective backend.
+        dist.init_process_group(backend="xccl" if xpu else "gloo", init_method="env://?use_libuv=False", world_size=n_procs, rank=rank)
     torch.manual_seed(hps.train.seed)
-    if cuda:
+    if xpu:
+        torch.xpu.set_device(torch.device(device))
+    elif cuda:
         torch.cuda.set_device(torch.device(device))
 
     writer = None
@@ -341,7 +349,7 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
     collate_fn = TextAudioCollateMultiNSFsid() if f0 else TextAudioCollate()
     workers = int(hps.num_workers)
     loader_kwargs: dict[str, Any] = {"persistent_workers": True, "prefetch_factor": 8} if workers > 0 else {}
-    train_loader = DataLoader(train_dataset, num_workers=workers, shuffle=False, pin_memory=cuda, collate_fn=collate_fn, batch_sampler=train_sampler, **loader_kwargs)
+    train_loader = DataLoader(train_dataset, num_workers=workers, shuffle=False, pin_memory=cuda and not xpu, collate_fn=collate_fn, batch_sampler=train_sampler, **loader_kwargs)
     if len(train_loader) == 0:
         raise EngineError("No training batches: the slices are too short or too few for the batch size")
 
@@ -390,7 +398,7 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
             group.setdefault("initial_lr", hps.train.learning_rate)
     scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=hps.train.lr_decay, last_epoch=last_epoch - 1)
     scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=last_epoch - 1)
-    scaler = torch.amp.GradScaler("cuda", enabled=is_half)
+    scaler = torch.amp.GradScaler(amp, enabled=is_half)
 
     steps_per_epoch = len(train_loader)
     global_step = last_epoch * steps_per_epoch
@@ -453,14 +461,14 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
                 phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wave, wave_lengths, sid = info
             else:
                 phone, phone_lengths, spec, spec_lengths, wave, wave_lengths, sid = info
-            with torch.autocast("cuda", enabled=is_half):
+            with torch.autocast(amp, enabled=is_half):
                 if f0:
                     y_hat, ids_slice, x_mask, z_mask, (z, z_p, m_p, logs_p, m_q, logs_q) = net_g(phone, phone_lengths, pitch, pitchf, spec, spec_lengths, sid)
                 else:
                     y_hat, ids_slice, x_mask, z_mask, (z, z_p, m_p, logs_p, m_q, logs_q) = net_g(phone, phone_lengths, spec, spec_lengths, sid)
                 mel = spec_to_mel_torch(spec, hps.data.filter_length, hps.data.n_mel_channels, hps.data.sampling_rate, hps.data.mel_fmin, hps.data.mel_fmax)
                 y_mel = commons.slice_segments(mel, ids_slice, hps.train.segment_size // hps.data.hop_length)
-                with torch.autocast("cuda", enabled=False):
+                with torch.autocast(amp, enabled=False):
                     y_hat_mel = mel_spectrogram_torch(
                         y_hat.float().squeeze(1),
                         hps.data.filter_length,
@@ -475,7 +483,7 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
                     y_hat_mel = y_hat_mel.half()
                 wave = commons.slice_segments(wave, ids_slice * hps.data.hop_length, hps.train.segment_size)
                 y_d_hat_r, y_d_hat_g, _, _ = net_d(wave, y_hat.detach())
-                with torch.autocast("cuda", enabled=False):
+                with torch.autocast(amp, enabled=False):
                     loss_disc, losses_disc_r, losses_disc_g = discriminator_loss(y_d_hat_r, y_d_hat_g)
             optim_d.zero_grad()
             scaler.scale(loss_disc).backward()
@@ -483,9 +491,9 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
             commons.clip_grad_value_(net_d.parameters(), None)
             scaler.step(optim_d)
 
-            with torch.autocast("cuda", enabled=is_half):
+            with torch.autocast(amp, enabled=is_half):
                 y_d_hat_r, y_d_hat_g, fmap_r, fmap_g = net_d(wave, y_hat)
-                with torch.autocast("cuda", enabled=False):
+                with torch.autocast(amp, enabled=False):
                     loss_mel = F.l1_loss(y_mel, y_hat_mel) * hps.train.c_mel
                     loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * hps.train.c_kl
                     loss_fm = feature_loss(fmap_r, fmap_g)

@@ -155,6 +155,15 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
 - **Runtime** (`engine/runtime.py`): the original's GPU rule as `choose_device(requested,
   precision)`; `ChunkConfig` (x_pad/x_query/x_center/x_max) from the choice; caches HuBERT, F0
   providers, the last 3 voices and indexes keyed by path and mtime; `release_idle`.
+- **ROCm and XPU** (after ComfyUI's `model_management`): a ROCm torch shows AMD cards as `cuda:N`
+  (`is_rocm()` = `torch.version.hip`); `cuda_profile` skips the SM rule there (the capability is
+  the gfx version): ≥ 4 GiB, fp16. Intel cards are `xpu:N` (`xpu_profile`: ≥ 4 GiB, fp16 when
+  `has_fp16`). Training's integer GPU ids index `gpu_profiles()` of `gpu_backend()` (`cuda` or
+  `xpu`, one per torch build); children see their card through `visible_devices_env()`
+  (`CUDA_VISIBLE_DEVICES`, which HIP reads, or `ZE_AFFINITY_MASK`). XPU training: autocast and
+  `GradScaler("xpu")`, DDP over `xccl`. CUDA Graphs never on ROCm. pymss has no XPU: separation
+  loads on the CPU, moves the net, runs fp32. Decide fp16 with `supports_half(device)`, never
+  `startswith("cuda")`. `ComputeInfo.backend` = `torch_backend()` (`CUDA 12.8`, `ROCm 7.2`, `XPU`).
 - **HuBERT normalisation:** the real `preprocessor_config.json` has `do_normalize: false`, so
   neither training nor inference normalises (one function, `features/hubert.normalize_input`).
 - **Behaviour changes**, all in place: slicing keeps every tail; Live honours the
@@ -358,7 +367,7 @@ rule tests come from Hanaikada.
 
 ## 9. Not verified (no GPU, no audio hardware on the build machine)
 
-CUDA (fp16, CUDA Graphs, DDP, VRAM reporting), DirectML, MPS, real PortAudio streams, ASIO,
+CUDA (fp16, CUDA Graphs, DDP, VRAM reporting), ROCm, Intel XPU (tests fake the device queries), DirectML, MPS, real PortAudio streams, ASIO,
 WASAPI exclusive mode, the macOS permission-silence detection (not implemented), separation
 chains with real models, the Live, Train and Separate screens against real work (Convert and
 Models were driven in headless Chromium), the VST adapter (M9), browser audio (M8).

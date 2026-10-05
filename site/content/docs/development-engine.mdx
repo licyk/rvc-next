@@ -47,7 +47,9 @@ icon: Cog
 | 算力 > 6.1 | fp16 |
 | 其余 | 不可用 |
 
-显存按 `total_memory / 1024³ + 0.4` 计，与原版一致。`requested="auto"` 时在可用 CUDA 卡中选 `(sm, memory_gb)` 最大的一张；没有就试 DirectML（`directml_device()` 真的跑一次张量运算来确认能用），再退到 CPU。显式的 `cuda:N` 即使规则会跳过也照用，但只在 fp32；`dml`、`mps` 不可用时退回 CPU 并在 `reason` 里说明。`precision` 为 `fp32`/`fp16` 时覆盖规则（fp16 只对 CUDA 生效）。MPS 只在显式请求时使用，`auto` 永远不选它。
+显存按 `total_memory / 1024³ + 0.4` 计，与原版一致。`requested="auto"` 时在可用 CUDA 卡中选 `(sm, memory_gb)` 最大的一张；没有就试 DirectML（`directml_device()` 真的跑一次张量运算来确认能用），再退到 CPU。显式的 `cuda:N` 即使规则会跳过也照用，但只在 fp32；`dml`、`mps` 不可用时退回 CPU 并在 `reason` 里说明。`precision` 为 `fp32`/`fp16` 时覆盖规则（fp16 只对 CUDA 和 XPU 生效）。MPS 只在显式请求时使用，`auto` 永远不选它。
+
+ROCm 版 torch 上（`is_rocm()`：`torch.version.hip`），AMD 显卡是 `cuda:N`，`cuda_profile` 跳过 SM 规则（此时的计算能力是 gfx 版本）：至少 4 GiB，fp16。Intel 显卡是 `xpu:N`（`xpu_profile`：至少 4 GiB，`has_fp16` 时 fp16）。一个 torch 构建只带其中一种，所以 `gpu_backend()`（`cuda` 或 `xpu`）和 `gpu_profiles()` 给出训练中整数 GPU 编号所指的设备；`visible_devices_env()` 对子进程隐藏其余设备（`CUDA_VISIBLE_DEVICES`，HIP 也读取它；或 `ZE_AFFINITY_MASK`）。训练的 autocast 和 `GradScaler` 在 XPU 上用 `xpu`，DDP 用 `xccl` 而不是 `gloo`。`configure_cuda_graph` 在 ROCm 下从不开启 CUDA Graph。pymss 不支持 XPU，所以分离在 CPU 上加载、再移动网络，并保持 fp32。
 
 `list_devices()` 列出全部设备（CPU 在最后），供 `GET /compute/devices` 和 `rvc-next doctor` 显示每张卡的规则判定。
 

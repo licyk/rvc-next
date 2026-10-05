@@ -1996,7 +1996,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "cpu" | "cuda" | "dml" | "mps";
+            kind: "cpu" | "cuda" | "xpu" | "dml" | "mps";
             /** Memory Mb */
             memory_mb: number | null;
             /** Sm */
@@ -2026,6 +2026,8 @@ export interface components {
             torch_version: string | null;
             /** Cuda Version */
             cuda_version: string | null;
+            /** Backend */
+            backend: string | null;
             /**
              * Cuda Graph
              * @default false

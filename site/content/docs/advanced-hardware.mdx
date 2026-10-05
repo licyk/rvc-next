@@ -8,7 +8,7 @@ icon: Cpu
 
 <Callout type="warn" title="未在真实硬件上验证">
 
-开发机器没有 GPU 和音频硬件。CUDA（fp16、CUDA Graph、多卡训练、显存统计）、DirectML、MPS、真实的 PortAudio 音频流、ASIO 和 WASAPI 独占模式都**没有在真实硬件上验证过**。本页描述的是代码的行为；如果你在这些平台上遇到问题，欢迎反馈。
+开发机器没有 GPU 和音频硬件。CUDA（fp16、CUDA Graph、多卡训练、显存统计）、AMD ROCm、Intel XPU、DirectML、MPS、真实的 PortAudio 音频流、ASIO 和 WASAPI 独占模式都**没有在真实硬件上验证过**。本页描述的是代码的行为；如果你在这些平台上遇到问题，欢迎反馈。
 
 </Callout>
 ## 选择设备
@@ -17,9 +17,10 @@ icon: Cpu
 
 | 值 | 含义 |
 | --- | --- |
-| `auto`（默认） | 按下面的 GPU 规则选择最合适的 CUDA 显卡；没有可用的 CUDA 显卡时尝试 DirectML，再不行用 CPU。`auto` 不会选择 MPS |
+| `auto`（默认） | 按下面的 GPU 规则选择最合适的显卡（CUDA、ROCm 或 XPU）；都没有时尝试 DirectML，再不行用 CPU。`auto` 不会选择 MPS |
 | `cpu` | 只用 CPU |
-| `cuda:N` | 第 N 块 NVIDIA 显卡（从 0 开始）。GPU 规则会跳过的卡也照样使用（以 fp32 运行）；编号不存在时退回 CPU |
+| `cuda:N` | 第 N 块 NVIDIA 显卡（从 0 开始），在 ROCm 版 torch 上则是第 N 块 AMD 显卡。GPU 规则会跳过的卡也照样使用（以 fp32 运行）；编号不存在时退回 CPU |
+| `xpu:N` | XPU 版 torch 上的第 N 块 Intel 显卡（Arc、数据中心 GPU、较新的核显）。退回规则与 `cuda:N` 相同 |
 | `dml` | DirectML（Windows 上的 AMD、Intel 等显卡）。不可用时退回 CPU |
 | `mps` | Apple Silicon 的 Metal（**实验性**）。不可用时退回 CPU |
 
@@ -34,6 +35,8 @@ icon: Cpu
 | 计算能力高于 6.1（RTX 20 系列及更新） | 使用，fp16 |
 | 其他（计算能力 5.3 到 6.1 之间） | 不使用 |
 
+ROCm 上的 AMD 显卡（仍是 `cuda:N`）和 Intel XPU 显卡不看计算能力：显存至少 4 GiB 就使用；ROCm 显卡以 fp16 运行，XPU 显卡在设备报告支持 fp16 时以 fp16 运行。
+
 有多块可用显卡时，选计算能力最高的，相同时选显存最大的。`rvc-next doctor` 和 **设置** › **计算** 下方的设备列表会列出每个设备、规则给出的精度和原因（例如 "Pascal SM 6.1 and GTX 16xx cards run in fp32"）。
 
 ### 精度
@@ -42,15 +45,15 @@ icon: Cpu
 
 - `auto`：按 GPU 规则；
 - `fp32`：始终用 fp32；
-- `fp16`：在 CUDA 上强制 fp16（包括规则判为 fp32 的显卡）。
+- `fp16`：在 CUDA、ROCm 和 XPU 上强制 fp16（包括规则判为 fp32 的显卡）。
 
 DirectML、MPS 和 CPU 上始终是 fp32（DirectML 上的人声分离例外，见下）。fp16 更快、显存占用更少；如果某块卡在 fp16 下输出异常，改为 `fp32`。
 
-精度还决定长音频的分块大小（与原版相同）：显存不超过 4 GiB 的 CUDA 卡用最小的分块，fp16 用较大的分块，其他情况用中等分块。
+精度还决定长音频的分块大小（与原版相同）：显存不超过 4 GiB 的 CUDA、ROCm 和 XPU 卡用最小的分块，fp16 用较大的分块，其他情况用中等分块。
 
 ### 安装对应的 PyTorch
 
-设备是否可用取决于安装的 PyTorch：NVIDIA 显卡需要 CUDA 版的 torch（RTX 50 系列需要 CUDA 12.8 版本），只装了 CPU 版时 `auto` 会选 CPU。安装方法见 [安装](/docs/installation)；`rvc-next doctor` 显示 torch 版本和它带的 CUDA 版本。
+设备是否可用取决于安装的 PyTorch：NVIDIA 显卡需要 CUDA 版的 torch（RTX 50 系列需要 CUDA 12.8 版本），AMD 显卡需要 ROCm 版（Linux），Intel 显卡需要 XPU 版；只装了 CPU 版时 `auto` 会选 CPU。安装方法见 [安装](/docs/installation)；`rvc-next doctor` 显示 torch 版本和它的构建目标（例如 `CUDA 12.8`、`ROCm 7.2` 或 `XPU`）。
 
 ## CUDA Graph
 
@@ -61,7 +64,13 @@ CUDA Graph 把一次推理录制下来、之后直接重放，减少 CPU 调度�
 | `compute.cuda_graph_offline` | **转换时使用 CUDA Graph** | 关 |
 | `compute.cuda_graph_live` | **实时转换使用 CUDA Graph** | 开 |
 
-只在 CUDA 上起作用。录制按输入的形状缓存（每个调用点最多 8 个，环境变量 `RVC_NEXT_CUDA_GRAPH_MAX_CACHE` 可调），录制失败时自动退回普通模式。离线转换的输入长度各不相同，难以复用录制结果，所以默认关闭。
+只在 NVIDIA CUDA 上起作用：ROCm 和 XPU 上这两个开关不生效，推理以普通模式运行。录制按输入的形状缓存（每个调用点最多 8 个，环境变量 `RVC_NEXT_CUDA_GRAPH_MAX_CACHE` 可调），录制失败时自动退回普通模式。离线转换的输入长度各不相同，难以复用录制结果，所以默认关闭。
+
+## AMD ROCm 与 Intel XPU
+
+- ROCm：torch 的 ROCm 版（Linux）把 AMD 显卡当作 CUDA 设备，所以它们显示为 `cuda:N`，CUDA 上能运行的功能都能在上面运行，CUDA Graph 除外。人声分离直接使用显卡。
+- XPU：Intel 显卡显示为 `xpu:N`。转换、实时变声、训练（fp16 使用 AMP；多卡训练使用 `xccl` 后端）以及音高和特征提取都在上面运行。人声分离先在 CPU 上加载模型再移到显卡，并以 fp32 运行，因为 pymss 本身不支持 XPU。
+- 多卡训练通过 `CUDA_VISIBLE_DEVICES`（ROCm 也读取它）或 XPU 上的 `ZE_AFFINITY_MASK` 选择显卡。**训练** 中的 GPU 编号指当前 torch 构建所提供的那一类设备。
 
 ## DirectML
 

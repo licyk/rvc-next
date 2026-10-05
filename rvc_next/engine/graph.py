@@ -78,9 +78,12 @@ def detect_cuda_graph_support(device):
 
 
 def configure_cuda_graph(device, wanted: bool) -> bool:
-    """Turn graphs on for this process when ``wanted`` and the device passes the probe; return the result."""
+    """Turn graphs on for this process when ``wanted`` and the device passes the probe; return the result.
+
+    Never on ROCm: HIP graphs pass the probe but are less dependable than eager mode there.
+    """
     global _probe_result, _enabled
-    if not wanted or _device_type(device) != "cuda":
+    if not wanted or _device_type(device) != "cuda" or getattr(torch.version, "hip", None):
         _enabled = False
         return False
     with _probe_lock:

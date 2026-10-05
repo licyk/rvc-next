@@ -80,7 +80,7 @@ def _device_line(d: dict[str, Any]) -> str:
 
 
 def doctor(json_output: Annotated[bool, typer.Option("--json", help="Print JSON")] = False) -> None:
-    """Check Python, torch and CUDA, DirectML, ffmpeg, audio devices, the assets and the GPU rule."""
+    """Check Python, torch and its GPU backend (CUDA, ROCm, XPU), DirectML, ffmpeg, audio devices, the assets and the GPU rule."""
     from rvc_next.cli.output import open_services
 
     report: dict[str, Any] = {"rvc_next": VERSION, "python": platform.python_version(), "platform": platform.platform(), "components": _components()}
@@ -114,7 +114,7 @@ def doctor(json_output: Annotated[bool, typer.Option("--json", help="Print JSON"
     if "error" in compute:
         rows.append(("Compute", f"[red]{compute['error']}[/red]"))
     else:
-        rows.append(("torch", f"{compute['torch_version']} (CUDA {compute['cuda_version'] or 'none'})"))
+        rows.append(("torch", f"{compute['torch_version']} ({compute.get('backend') or 'CPU only'})"))
         rows.append(("Selected", f"{compute['selected']} · {compute['precision']}"))
         for d in compute["devices"]:
             rows.append((f"  {d['id']}", _device_line(d)))

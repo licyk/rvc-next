@@ -483,8 +483,8 @@ class MelSpectrogram(torch.nn.Module):
 class RMVPE:
     def __init__(self, model_path, is_half, device, onnx_path=None):
         self.resample_kernel = {}
-        # Half precision only on CUDA, where the runtime's GPU rule already decided it.
-        is_half = bool(is_half) and str(device).startswith("cuda")
+        # Half precision only on CUDA/ROCm and XPU, where the runtime's GPU rule already decided it.
+        is_half = bool(is_half) and str(device).startswith(("cuda", "xpu"))
         self.is_half = is_half
         self.device = device
         self.mel_extractor = MelSpectrogram(

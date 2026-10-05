@@ -188,14 +188,14 @@ class TrainingService:
         method = self._settings.settings.training.f0_method
         if method != "auto":
             return method
-        return "pm" if self._settings.settings.compute.device == "cpu" or not self._has_cuda() else "rmvpe"
+        return "pm" if self._settings.settings.compute.device == "cpu" or not self._has_gpu() else "rmvpe"
 
     @staticmethod
-    def _has_cuda() -> bool:
-        from rvc_next.engine.runtime import cuda_profiles
+    def _has_gpu() -> bool:
+        from rvc_next.engine.runtime import gpu_profiles
 
         try:
-            return any(p.eligible for p in cuda_profiles())
+            return any(p.eligible for p in gpu_profiles())
         except Exception:
             return False
 
@@ -495,10 +495,10 @@ class TrainingService:
         if spec == "cpu" or self._settings.settings.compute.device == "cpu":
             return []
         if spec == "auto":
-            from rvc_next.engine.runtime import cuda_profiles
+            from rvc_next.engine.runtime import gpu_profiles
 
             try:
-                return [int(p.id.split(":")[1]) for p in cuda_profiles() if p.eligible]
+                return [int(p.id.split(":")[1]) for p in gpu_profiles() if p.eligible]
             except Exception:
                 return []
         try:

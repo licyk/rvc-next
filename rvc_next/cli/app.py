@@ -43,7 +43,7 @@ def get_app() -> typer.Typer:
     app.command(help="Start the server and open the web UI", name="webui")(webui)
     app.command(help="Show the version of rvc-next and its main components", name="version")(version)
     app.command(help="List the environment variables rvc-next reads", name="env")(env)
-    app.command(help="Check torch, CUDA, audio devices and the assets", name="doctor")(doctor)
+    app.command(help="Check torch and its GPU backend, audio devices and the assets", name="doctor")(doctor)
     app.command(help="Convert audio files or folders with a voice", name="convert")(convert)
     app.command(help="Separate vocals, accompaniment and reverb", name="separate")(separate)
 

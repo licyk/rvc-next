@@ -28,7 +28,7 @@ class F0Request:
     """pm or rmvpe."""
     assets_dir: str = ""
     device: str = "cpu"
-    """cpu, cuda[:N] or dml; ignored when ``gpus`` lists several cards."""
+    """cpu, cuda[:N], xpu[:N] or dml; ignored when ``gpus`` lists several cards."""
     is_half: bool = False
     n_workers: int = 1
     """CPU processes for pm."""
@@ -111,10 +111,13 @@ def run(request: F0Request, progress: Progress | None = None, log: Log | None = 
     if log:
         log(f"Pitch ({request.method}) for {len(todo)} of {len(names)} slices")
     env: list[dict[str, str] | None] | None = None
+    from rvc_next.engine.runtime import gpu_backend, visible_devices_env
+
     if request.method == "rmvpe" and len(request.gpus) > 1:
         n = len(request.gpus)
-        parts = [(request.method, request.assets_dir, "cuda:0", request.is_half, todo[i::n]) for i in range(n)]
-        env = [{"CUDA_VISIBLE_DEVICES": str(g)} for g in request.gpus]
+        backend = gpu_backend() or "cuda"
+        parts = [(request.method, request.assets_dir, f"{backend}:0", request.is_half, todo[i::n]) for i in range(n)]
+        env = [visible_devices_env([g], backend) for g in request.gpus]
     elif request.method == "pm":
         n = max(1, min(request.n_workers, len(todo)))
         parts = [(request.method, request.assets_dir, "cpu", False, todo[i::n]) for i in range(n)]

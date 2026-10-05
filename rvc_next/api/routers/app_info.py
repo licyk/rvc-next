@@ -27,7 +27,7 @@ class AppMeta(Record):
     host: str
     """The server's host name; the audio device picker names it."""
     compute: str
-    """The configured compute device (auto, cpu, cuda:N, dml, mps)."""
+    """The configured compute device (auto, cpu, cuda:N, xpu:N, dml, mps)."""
     live_available: bool
     """Whether audio device access (sounddevice) is installed on the server."""
     assets_ready: bool

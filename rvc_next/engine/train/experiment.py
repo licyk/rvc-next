@@ -139,13 +139,11 @@ def read_legacy(exp_dir: Path | str) -> dict[str, Any]:
 
 
 def default_batch_size() -> int:
-    """The smallest CUDA card's memory in GiB divided by 2 (the original's default); 1 without a card."""
+    """The smallest GPU's memory in GiB divided by 2 (the original's default); 1 without a card."""
     try:
-        import torch
+        from rvc_next.engine.runtime import gpu_profiles
 
-        if not torch.cuda.is_available():
-            return 1
-        mems = [torch.cuda.get_device_properties(i).total_memory / 1024**3 + 0.4 for i in range(torch.cuda.device_count())]
+        mems = [p.memory_gb for p in gpu_profiles() if p.memory_gb]
         return max(1, int(min(mems) // 2)) if mems else 1
     except Exception:
         return 1

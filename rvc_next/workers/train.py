@@ -4,7 +4,7 @@
 
 The request is ``{"stage": "slice" | "f0" | "features" | "fit" | "index", ...}`` plus the stage's
 request fields (see ``engine/train`` and ``engine/index/build.py``), and optionally ``assets_dir``,
-``device`` (auto, cpu, cuda:N, dml) and ``precision`` (auto, fp32, fp16). Events go to stdout as
+``device`` (auto, cpu, cuda:N, xpu:N, dml) and ``precision`` (auto, fp32, fp16). Events go to stdout as
 JSON lines; the stage's result dict is the final ``result`` event. Cancel is a process-tree kill.
 """
 
@@ -34,12 +34,12 @@ def build_request(cls: Any, data: dict[str, Any], **overrides: Any) -> Any:
 
 def resolve_device(data: dict[str, Any]) -> tuple[str, bool]:
     """The device string and half precision for F0 and features, by the runtime's GPU rule."""
-    from rvc_next.engine.runtime import choose_device
+    from rvc_next.engine.runtime import choose_device, gpu_backend
 
     requested = str(data.get("device") or "auto")
     gpus = list(data.get("gpus") or [])
     if requested == "auto" and len(gpus) == 1:
-        requested = f"cuda:{gpus[0]}"
+        requested = f"{gpu_backend() or 'cuda'}:{gpus[0]}"
     choice = choose_device(requested, str(data.get("precision") or "auto"))
     return choice.id, choice.fp16
 
