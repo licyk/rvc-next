@@ -10,7 +10,7 @@ from rvc_next.cli.commands.assets import assets_download, assets_list, assets_ve
 from rvc_next.cli.commands.config import config_get, config_path, config_set, config_show
 from rvc_next.cli.commands.convert import convert
 from rvc_next.cli.commands.jobs import jobs_list, jobs_show
-from rvc_next.cli.commands.live import live_check, live_devices, live_run, live_test_tone
+from rvc_next.cli.commands.live import live_check, live_devices, live_latency, live_run, live_test_tone
 from rvc_next.cli.commands.model import (
     index_assign,
     index_attach,
@@ -100,6 +100,7 @@ def get_app() -> typer.Typer:
     live_cli.command(help="List audio devices", name="devices")(live_devices)
     live_cli.command(help="Check the saved devices and format", name="check")(live_check)
     live_cli.command(help="Play a test sound on an output", name="test-tone")(live_test_tone)
+    live_cli.command(help="Measure the real latency with a loopback", name="latency")(live_latency)
     live_cli.command(help="Convert live until Ctrl+C", name="run")(live_run)
     app.add_typer(live_cli, name="live")
 

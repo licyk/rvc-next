@@ -286,6 +286,15 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   one lock (`LiveService._control`), so a switch and the speaker change it causes cannot interleave;
   the worker answers every `SetVoice` with `State.voice_path` (the voice now converting — the old
   one, with `detail.reason == "voice_load"`, when the new one fails) and the state follows it.
+- **Measured latency** (`engine/audio_io/loopback.py`, `POST /live/devices/latency-test`, `live
+  latency`, **Measure latency**): the devices worker opens an `AudioSession` with a
+  `LoopbackProbe` as its processor, plays four distinct band-limited noise bursts and finds each in
+  the input by FFT cross-correlation (found at ≥ 20 dB over the correlation's median floor; they
+  must agree within 2 ms). That round trip covers prefill, rings and device buffers; the engine's
+  own delay is added, computed (`engine_delay_ms`: crossfade + 10 ms, + min(crossfade, 40 ms) with
+  input denoise; `test_engine_delay` measures it on passthrough). Live must be stopped; the meter
+  is paused. `LiveState.latency_test` keeps it while input, output and block match. The fake
+  backend's `loopback` feeds an output back with one block plus `delay_ms`.
 
 ## 7. Web UI
 

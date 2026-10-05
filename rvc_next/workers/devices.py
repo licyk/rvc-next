@@ -3,11 +3,12 @@
 ``python -m rvc_next.workers.devices <request.json>``. Enumerating in its own process never disturbs
 a running stream, and needs none of the private re-initialisation calls the original used.
 
-Request: ``{"action": "enumerate" | "check" | "test_tone", "enable_asio": bool, "platform"?: str,
-"backend"?: "sounddevice" | "fake", "fake"?: {...}}``. ``check`` also takes ``input``, ``output``
-and ``monitor`` (each a ``DeviceSelection`` dict plus ``portaudio_index``, or null) and
-``sample_rate``; ``test_tone`` takes ``device`` (the same shape, or null for the default output).
-One ``ResultEvent`` carries the answer.
+Request: ``{"action": "enumerate" | "check" | "test_tone" | "measure_latency", "enable_asio": bool,
+"platform"?: str, "backend"?: "sounddevice" | "fake", "fake"?: {...}}``. ``check`` also takes
+``input``, ``output`` and ``monitor`` (each a ``DeviceSelection`` dict plus ``portaudio_index``, or
+null) and ``sample_rate``; ``test_tone`` takes ``device`` (the same shape, or null for the default
+output); ``measure_latency`` takes ``input``, ``output``, ``block_ms`` and ``level_db`` and runs a
+loopback measurement (``engine/audio_io/loopback.py``). One ``ResultEvent`` carries the answer.
 """
 
 from __future__ import annotations
@@ -75,6 +76,38 @@ def test_tone(backend: Any, request: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "reason": None, "message": None, "role": None}
 
 
+def measure_latency(backend: Any, request: dict[str, Any]) -> dict[str, Any]:
+    from rvc_next.engine.audio_io.loopback import measure
+    from rvc_next.engine.audio_io.streams import SessionConfig
+    from rvc_next.engine.stream.latency import block_frames
+
+    _, raw_devices, _ = backend.query()
+    inp = endpoint_from_selection(request.get("input"), raw_devices, "input") or Endpoint()
+    out = endpoint_from_selection(request.get("output"), raw_devices, "output") or Endpoint()
+    block = block_frames(float(request.get("block_ms") or 250), engine_rate(out, inp))
+    try:
+        run = measure(backend, SessionConfig(input=inp, output=out), block, level_db=float(request.get("level_db", -12.0)), timeout_scale=1.0 / getattr(backend, "time_scale", 1.0))
+    except DeviceOpenError as e:
+        return {"ok": False, "reason": e.reason, "message": e.message, "role": e.role}
+    r = run.result
+    return {
+        "ok": True,
+        "found": r.ok,
+        "failure": r.reason,
+        "round_trip_ms": r.round_trip_ms,
+        "jitter_ms": r.jitter_ms,
+        "pings": r.pings,
+        "detected": len(r.delays),
+        "snr_db": r.snr_db,
+        "input_peak_db": r.input_peak_db,
+        "clipped": r.clipped,
+        "topology": run.topology,
+        "sample_rate": run.sample_rate,
+        "reported_ms": list(run.reported_ms),
+        "underruns": run.underruns,
+    }
+
+
 def main(request: dict[str, Any], emitter: Emitter) -> None:
     action = request.get("action", "enumerate")
     enable_asio = bool(request.get("enable_asio", False))
@@ -90,6 +123,8 @@ def main(request: dict[str, Any], emitter: Emitter) -> None:
         data = check(backend, request)
     elif action == "test_tone":
         data = test_tone(backend, request)
+    elif action == "measure_latency":
+        data = measure_latency(backend, request)
     else:
         raise ValueError(f"Unknown action {action!r}")
     emitter.emit(ResultEvent(data=data))

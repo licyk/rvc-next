@@ -79,6 +79,20 @@ The bottom of the panel has a status line, for example `48 kHz · one duplex str
 - **one duplex stream**: input and output use the same driver and sample rate, sending and receiving through one stream for the lowest latency.
 - **split streams**: the two cannot share a stream (different drivers or sample rates). An extra buffer adds one block of latency.
 
+### Measure the real latency [#measure-latency]
+
+The estimate relies on the latency the drivers report, which is often optimistic. **Measure latency** (below the status line) measures it instead:
+
+1. Connect the output to the input: an audio cable from the output to the input, a virtual cable's own loopback, or speakers near the microphone.
+2. Click **Measure latency**. For a few seconds, four short noise bursts play on the output while the input listens. Live must be stopped (and **Hear yourself** off); the input meter pauses meanwhile.
+3. The result reads, for example, `Measured latency 620 ms: round trip 560 ms through the devices + conversion 60 ms (estimated 580 ms)`.
+
+The **round trip** is measured: the bursts go through the same buffers a session uses (the output prefill, the device's buffers both ways, the cable or the air). The **conversion** part is the converter's own delay (crossfade + 10 ms, plus min(crossfade, 40 ms) with input noise reduction). It depends only on the settings, so it is computed, and SOLA may take up to 10 ms off it. Inference time adds nothing as long as there are no underruns.
+
+The measurement stays valid while you keep the same input, output and block length. While a session runs with them, the status bar shows **measured N ms** beside the estimate, and the Live chip uses it. Changing the crossfade or noise reduction only recomputes the conversion part; changing a device or the block clears the measurement.
+
+If no burst comes back, the panel says so: check the connection and raise the levels. If the bursts come back at different times (dropouts, a drifting clock between two devices), try a longer block or devices on one driver. With speakers and a microphone the measurement includes the sound's travel through the air (about 3 ms per metre).
+
 ### Device problems and repair buttons
 
 Whenever you change devices, rvc-next actually tries to open them with the current configuration in the background. Problems therefore appear below the relevant device before you click **Start**. The format is **reason: explanation from the server** (the explanation is supplied by the server in English):
@@ -144,6 +158,7 @@ The status bar updates 10 times per second and includes:
 | **Load** | Inference time ÷ block length. Above 80%, the bar turns a warning color, indicating the model is close to falling behind real time |
 | **Increase block to N ms** | Appears when load is too high. Uses the 95th percentile of recent inference times to estimate a block length that brings load back to about 70% (up to 1500 ms). Click to apply |
 | **Latency N ms** | Current estimated end-to-end latency |
+| **measured N ms** | The [measured latency](#measure-latency), when a measurement fits the session's devices and block length |
 | **N underruns** / **N overruns** | Counts of the output buffer running empty (audible gaps) / the input buffer overflowing. Shown only after they occur |
 | **GPU N MB** | GPU memory used by the live process |
 

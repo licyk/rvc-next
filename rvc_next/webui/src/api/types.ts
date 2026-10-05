@@ -49,6 +49,7 @@ export type DeviceList = S['DeviceList'];
 export type PhysicalDevice = S['PhysicalDevice'];
 export type AudioDevice = S['AudioDevice'];
 export type DeviceCheck = S['DeviceCheck'];
+export type LatencyMeasurement = S['LatencyMeasurement'];
 export type ResolvedDevice = S['ResolvedDevice'];
 export type ImportResult = S['ImportResult'];
 

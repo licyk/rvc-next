@@ -79,6 +79,7 @@ export {
   Sun,
   SunMoon,
   Tag,
+  Timer,
   Trash2,
   Unplug,
   Upload,

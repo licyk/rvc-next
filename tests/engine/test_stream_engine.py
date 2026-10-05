@@ -5,7 +5,7 @@ import pytest
 
 from rvc_next.engine.convert.params import VoiceParams
 from rvc_next.engine.stream.engine import StreamEngine
-from rvc_next.engine.stream.latency import estimate_latency_ms
+from rvc_next.engine.stream.latency import engine_delay_ms, estimate_latency_ms
 from rvc_next.engine.stream.params import StreamParams
 from tests.tiny import make_tiny_voice, tone
 
@@ -102,3 +102,22 @@ def test_latency_estimate() -> None:
     assert estimate_latency_ms(s, split=True, input_latency_ms=0, output_latency_ms=0) == 250 + 50 + 10 + 250 + 250
     denoise = StreamParams(block_ms=250, crossfade_ms=50, input_denoise=True)
     assert estimate_latency_ms(denoise, False, 0, 0) == 250 + 50 + 10 + 250 + 40
+
+
+@pytest.mark.parametrize(("crossfade_ms", "denoise"), [(20, False), (50, False), (100, False), (50, True)])
+def test_engine_delay(tiny_runtime, voice, crossfade_ms: int, denoise: bool) -> None:
+    """Passthrough keeps the engine's geometry (buffer, SOLA, denoise); its delay is what a latency
+    measurement adds to the measured round trip."""
+    sr = 16000
+    stream = StreamParams(block_ms=100, crossfade_ms=crossfade_ms, context_ms=300, input_denoise=denoise)
+    engine = StreamEngine(tiny_runtime, voice, VoiceParams(f0_method="pm"), stream, sr, None)
+    engine.passthrough = True
+    t = np.arange(4 * sr) / sr
+    x = (0.3 * np.sin(2 * np.pi * 220 * t) * (1 + 0.5 * np.sin(2 * np.pi * 3 * t)) + 0.1 * np.random.default_rng(1).standard_normal(t.size)).astype(np.float32)
+    n = engine.block_size
+    out = np.concatenate(_run(engine, x, len(x) // n))
+    seg = out[20 * n : 30 * n]
+    lags = np.arange(0, 2000)
+    score = [np.dot(seg, x[20 * n - d : 30 * n - d]) / np.linalg.norm(x[20 * n - d : 30 * n - d]) for d in lags]
+    delay_ms = 1000 * int(lags[int(np.argmax(score))]) / sr
+    assert engine_delay_ms(stream) - 10 <= delay_ms <= engine_delay_ms(stream)

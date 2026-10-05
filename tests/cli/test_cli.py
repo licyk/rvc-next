@@ -15,7 +15,7 @@ EXPECTED_TREE = {
     "doctor": None,
     "env": None,
     "jobs": {"list": None, "show": None},
-    "live": {"check": None, "devices": None, "run": None, "test-tone": None},
+    "live": {"check": None, "devices": None, "latency": None, "run": None, "test-tone": None},
     "model": {
         "catalog": None,
         "download": None,

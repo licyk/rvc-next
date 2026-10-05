@@ -153,6 +153,8 @@ Latency ≈ block length + crossfade + 10 ms (SOLA search)
 
 With the default **Block** of 250 milliseconds and **Crossfade** of 50 milliseconds, one duplex stream gives about 560 milliseconds plus device latency.
 
+Device latency here is what PortAudio reports, which is often optimistic (MME, DirectSound and Bluetooth devices especially). For the real figure, connect the output to the input and use **Measure latency** on the Live page or `rvc-next live latency`: it plays noise bursts through the same buffers a session uses, finds them in the input by cross-correlation, and adds the converter's own delay. See [Measure the real latency](/docs/guide-live#measure-latency).
+
 To avoid gaps, inference time per block must be well below the block length. The **Load** bar on the Live page shows the ratio of inference time (p95) to block length:
 
 - Above 80% load, the bar turns red and shows **Increase block to \{ms\} ms** (the suggested value targets about 70% load, capped at 1500 milliseconds). Click to apply;

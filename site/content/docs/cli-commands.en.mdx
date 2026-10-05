@@ -711,6 +711,20 @@ Check saved devices: resolution results, formats, topology (one duplex stream or
 | --- | --- |
 | `--json` | Print JSON |
 
+### `live latency`
+
+Measure the real latency of the saved devices with a loopback: connect the output to the input first (a cable, a virtual cable's loopback, or speakers near the microphone). Plays four noise bursts on the output, finds them in the input and prints the measured round trip, the converter's own delay, their sum and the estimate for comparison. Live must be stopped. Exits with code 1 when no burst comes back or the bursts disagree, and 8 when a device cannot be opened.
+
+```text
+rvc-next live latency [OPTIONS]
+```
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `--block-ms` | Block length in ms | The saved one |
+| `--level-db` | Peak level of the test bursts, −40 to −3 dBFS | `-12` |
+| `--json` | Print JSON | Off |
+
 ### `live test-tone`
 
 Play a short test tone on an output device.

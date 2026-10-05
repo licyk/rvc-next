@@ -1592,6 +1592,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/live/devices/latency-test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Measure Latency
+         * @description Measure the real latency with a loopback: test bursts go out of the output and must reach the
+         *     input (a cable, a virtual cable's loopback, or speakers near the microphone). Takes a few
+         *     seconds; Live must be stopped.
+         */
+        post: operations["measure_live_latency"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/live/meter": {
         parameters: {
             query?: never;
@@ -2965,6 +2987,64 @@ export interface components {
             ids: string[];
         };
         /**
+         * LatencyMeasurement
+         * @description A loopback measurement: test bursts played on the output and found again in the input.
+         */
+        LatencyMeasurement: {
+            /** Ok */
+            ok: boolean;
+            /** Reason */
+            reason: ("no_signal" | "inconsistent") | null;
+            /** Latency Ms */
+            latency_ms: number | null;
+            /** Round Trip Ms */
+            round_trip_ms: number | null;
+            /** Engine Ms */
+            engine_ms: number;
+            /** Estimated Ms */
+            estimated_ms: number;
+            /** Jitter Ms */
+            jitter_ms: number | null;
+            /** Pings */
+            pings: number;
+            /** Detected */
+            detected: number;
+            /** Snr Db */
+            snr_db: number | null;
+            /** Input Peak Db */
+            input_peak_db: number;
+            /** Clipped */
+            clipped: boolean;
+            /**
+             * Underruns
+             * @default 0
+             */
+            underruns: number;
+            /**
+             * Topology
+             * @enum {string}
+             */
+            topology: "duplex" | "split";
+            /** Sample Rate */
+            sample_rate: number;
+            /** Reported Ms */
+            reported_ms: number[];
+            devices: components["schemas"]["LiveDevices-Output"];
+            stream: components["schemas"]["StreamParamsModel-Output"];
+            /** Measured At */
+            measured_at: string;
+        };
+        /** LatencyTestRequest */
+        LatencyTestRequest: {
+            devices?: components["schemas"]["LiveDevices-Input"] | null;
+            stream?: components["schemas"]["StreamParamsModel-Input"] | null;
+            /**
+             * Level Db
+             * @default -12
+             */
+            level_db?: number;
+        };
+        /**
          * LegacyRoot
          * @description An original RVC install whose ``assets/weights`` voices are read in place.
          */
@@ -3171,6 +3251,7 @@ export interface components {
             } | null;
             /** Started At */
             started_at: string | null;
+            latency_test: components["schemas"]["LatencyMeasurement"] | null;
         };
         /** LiveStateEvent */
         LiveStateEvent: {
@@ -11015,6 +11096,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LiveState"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    measure_live_latency: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LatencyTestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LatencyMeasurement"];
                 };
             };
             /** @description Bad Request */

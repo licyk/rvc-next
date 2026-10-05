@@ -144,3 +144,29 @@ def test_show_all_devices_lists_both_directions(live, services):
 
     services.settings.update({"live": {"show_all_devices": False}})
     assert {p.key for p in live.devices().outputs} == output_keys
+
+
+def test_latency_measurement(live, services):
+    """A loopback measurement through the devices worker: the fake cable's 60 ms, the device's block
+    and the one-block prefill, then the engine's crossfade + 10 ms; it follows the settings it was taken with."""
+    from rvc_next.core.live.models import LatencyTestRequest
+
+    live.fake = {**live.fake, "time_scale": 4.0, "loopback": {"delay_ms": 60.0, "gain": 0.5, "noise": 0.001}}
+    stream = StreamParamsModel(block_ms=50, crossfade_ms=50)
+    live.update_stream(stream)  # the state keeps a measurement only while it fits the current settings
+    m = live.measure_latency(LatencyTestRequest())
+    assert m.ok and m.topology == "duplex" and m.detected == m.pings == 4
+    assert m.round_trip_ms == 160.0 and m.engine_ms == 60.0 and m.latency_ms == 220.0 and not m.clipped
+    assert m.estimated_ms == 50 + 60 + 50 + 20  # block, engine, prefill, the fake's reported 10 + 10 ms
+    assert live.state().latency_test == m
+
+    # Settings saved while stopped: the crossfade only changes the engine's part; the block voids it.
+    live.update_stream(StreamParamsModel(block_ms=50, crossfade_ms=30))
+    test = live.state().latency_test
+    assert test is not None and test.engine_ms == 40.0 and test.latency_ms == 200.0
+    live.update_stream(StreamParamsModel(block_ms=60, crossfade_ms=30))
+    assert live.state().latency_test is None
+
+    live.fake = {k: v for k, v in live.fake.items() if k != "loopback"}
+    m = live.measure_latency(LatencyTestRequest(stream=stream))
+    assert not m.ok and m.reason == "no_signal" and m.latency_ms is None and m.engine_ms == 60.0

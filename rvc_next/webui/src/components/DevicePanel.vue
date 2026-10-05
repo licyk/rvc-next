@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useMeta, useSettings } from '@/api/queries/app';
-import { checkDevices, useLiveControl, useLiveDevices, useRefreshDevices } from '@/api/queries/live';
+import { checkDevices, useLiveControl, useLiveDevices, useMeasureLatency, useRefreshDevices } from '@/api/queries/live';
 import type { DeviceCheck, DeviceList, DeviceSelection, LiveDevices } from '@/api/types';
 import ErrorNotice from '@/components/ErrorNotice.vue';
 import { DEFAULT_VALUE, channelOptions, deviceOptions, devicesFor, driverOptions, selectionFor, selectionValue, statusMessage, variantOf } from '@/components/devices';
@@ -12,7 +12,8 @@ import { AppButton, DeviceMenu, ExpansionPanel, IconButton, LevelMeter, ParamSli
 /**
  * The device picker, on the Live screen and in Settings › Audio: physical devices with
  * full names, the server's host name in the title, a live input meter, a test sound, an optional
- * monitor, the driver under Advanced, and problems shown at the device they concern.
+ * monitor, the driver under Advanced, problems shown at the device they concern, and a loopback
+ * measurement of the real latency.
  */
 const props = withDefaults(defineProps<{ running?: boolean }>(), { running: false });
 const model = defineModel<LiveDevices>({ required: true });
@@ -132,6 +133,19 @@ onBeforeUnmount(() => {
   clearTimeout(timer);
   if (meterWanted.value) control.meter.mutate(false);
 });
+// Measured latency: bursts out of the output, found again in the input. The state keeps the last
+// measurement while it still fits the devices and the block.
+const measure = useMeasureLatency();
+const measurement = computed(() => live.state.latency_test);
+function runMeasure() {
+  measure.mutate({ devices: model.value });
+}
+const measuredLine = computed(() => {
+  const m = measurement.value;
+  if (!m) return '';
+  if (!m.ok) return tOr(`devices.measureFailed.${m.reason}`, m.reason ?? '');
+  return t('devices.measured', { ms: Math.round(m.latency_ms ?? 0), rt: Math.round(m.round_trip_ms ?? 0), engine: Math.round(m.engine_ms), est: Math.round(m.estimated_ms) });
+});
 const passthrough = computed({ get: () => live.state.passthrough, set: (on) => control.passthrough.mutate(on) });
 const inLevels = computed(() => (live.stats ? { rms: live.stats.input_rms_db, peak: live.stats.input_peak_db } : { rms: null, peak: null }));
 </script>
@@ -215,6 +229,14 @@ const inLevels = computed(() => (live.stats ? { rms: live.stats.input_rms_db, pe
         </div>
       </ExpansionPanel>
       <p v-if="statusLine" class="type-body-small muted status">{{ statusLine }}</p>
+      <div class="measure">
+        <AppButton variant="tonal" :icon="icons.Timer" :loading="measure.isPending.value" :disabled="running || live.state.passthrough" @click="runMeasure">{{ t('devices.measure') }}</AppButton>
+        <p class="type-body-small muted hint">{{ measure.isPending.value ? t('devices.measuring') : t('devices.measureHint') }}</p>
+      </div>
+      <ErrorNotice v-if="measure.error.value" :error="measure.error.value" />
+      <p v-else-if="measuredLine && !measure.isPending.value" class="type-body-small status" :class="measurement?.ok ? '' : 'warn'">
+        {{ measuredLine }}<template v-if="measurement?.clipped"> · {{ t('devices.measureClipped') }}</template>
+      </p>
     </template>
   </section>
 </template>
@@ -231,6 +253,8 @@ const inLevels = computed(() => (live.stats ? { rms: live.stats.input_rms_db, pe
 .warn { margin: 0; color: var(--md-sys-color-tertiary); }
 .problem { display: flex; align-items: center; flex-wrap: wrap; gap: var(--app-space-2); color: var(--md-sys-color-error); }
 .status { margin: 0; font-variant-numeric: tabular-nums; }
+.measure { display: flex; flex-wrap: wrap; align-items: center; gap: var(--app-space-2) var(--app-space-3); }
+.hint { margin: 0; flex: 1 1 240px; min-width: 0; }
 @media (max-width: 599px) {
   .role { grid-template-columns: 1fr; }
 }

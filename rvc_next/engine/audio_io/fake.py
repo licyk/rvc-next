@@ -3,7 +3,10 @@
 Each fake stream runs a thread that calls its callback once per block at the device's own rate,
 ``1 + ppm·1e-6`` times nominal (``time_scale`` speeds everything up). Inputs come from a signal
 function; outputs are recorded per device. ``lose(index)`` stalls a device's streams, as an
-unplugged USB device does; ``refuse`` makes opening fail with a reason.
+unplugged USB device does; ``refuse`` makes opening fail with a reason. ``loopback`` wires an
+output back into every input, as a cable would: input sample ``n`` is output sample
+``n − block − delay`` (in each stream's own count; a block played during one callback is captured
+by the next, as on a real device), times ``gain``, plus ``noise``.
 """
 
 from __future__ import annotations
@@ -140,6 +143,7 @@ class FakeBackend:
         time_scale: float = 1.0,
         latency: tuple[float, float] = (0.01, 0.01),
         refuse: dict[int, str] | None = None,
+        loopback: dict[str, Any] | None = None,
     ) -> None:
         if hostapis is None or devices is None:
             hostapis, devices = default_devices()
@@ -150,11 +154,31 @@ class FakeBackend:
         self.time_scale = time_scale
         self.latency = latency
         self.refuse = {int(k): v for k, v in (refuse or {}).items()}
+        if loopback is not None:
+            self.source = self._loopback_source(**loopback)
         self.lost: set[int] = set()
         self.recorded: dict[int, list[np.ndarray]] = {}
         self.played: list[tuple[int | None, int]] = []
         self._streams: set[FakeStream] = set()
         self._lock = threading.Lock()
+
+    def _loopback_source(self, delay_ms: float, gain: float = 1.0, noise: float = 0.0, output: int | None = None) -> Source:
+        """Input from ``output`` (default: the default output), one input block plus ``delay_ms`` later."""
+        rng = np.random.default_rng(0)
+        source_index = int(self.hostapis[0]["default_output_device"]) if output is None else int(output)
+
+        def source(rate: int, start: int, n: int) -> np.ndarray:
+            played = self.output(source_index)
+            first = start - n - int(round(delay_ms * rate / 1000))
+            out = np.zeros(n, dtype=np.float32)
+            lo, hi = max(first, 0), min(first + n, played.shape[0])
+            if hi > lo:
+                out[lo - first : hi - first] = played[lo:hi] * gain
+            if noise:
+                out += (noise * rng.standard_normal(n)).astype(np.float32)
+            return out
+
+        return source
 
     # -- simulation controls --------------------------------------------------------------------
 
@@ -241,6 +265,7 @@ def backend_from_request(name: str, enable_asio: bool = False, fake: dict[str, A
             ppm=cfg.get("ppm"),
             time_scale=float(cfg.get("time_scale", 1.0)),
             refuse=cfg.get("refuse"),
+            loopback=cfg.get("loopback"),
         )
     from rvc_next.engine.audio_io.streams import SounddeviceBackend
 

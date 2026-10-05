@@ -94,6 +94,40 @@ def live_test_tone(device: Annotated[str, typer.Argument(help="Output device id,
         console.print("Played the test sound")
 
 
+def live_latency(
+    block_ms: Annotated[int | None, typer.Option(help="Block length in ms (default: the saved one)")] = None,
+    level_db: Annotated[float, typer.Option(help="Peak level of the test bursts in dBFS", min=-40, max=-3)] = -12.0,
+    json_output: JsonOpt = False,
+) -> None:
+    """Measure the real latency of the saved devices with a loopback: connect the output to the input first."""
+    from rvc_next.core.live.models import LatencyTestRequest
+
+    with open_services() as services:
+        stream = services.settings.settings.live.stream
+        if block_ms is not None:
+            stream = stream.model_copy(update={"block_ms": block_ms})
+        m = services.live.measure_latency(LatencyTestRequest(stream=stream, level_db=level_db))
+        if json_output:
+            print_json(m)
+        elif m.ok:
+            console.print(
+                f"Latency {m.latency_ms:.0f} ms: round trip {m.round_trip_ms:.1f} ms (measured) + conversion {m.engine_ms:.0f} ms. "
+                f"Estimated {m.estimated_ms:.0f} ms. {m.sample_rate} Hz · {m.topology} · block {m.stream.block_ms} ms · "
+                f"{m.detected}/{m.pings} bursts, jitter {m.jitter_ms or 0:.2f} ms, {m.snr_db:.0f} dB over noise"
+            )
+        else:
+            hint = (
+                "No test burst came back: connect the output to the input (a cable, a virtual cable's loopback, or speakers near the microphone) and raise the levels"
+                if m.reason == "no_signal"
+                else "The bursts came back at different times (dropouts or a drifting clock); try a longer block or a duplex device"
+            )
+            err_console.print(f"[yellow]{hint}[/yellow]")
+        if m.clipped and not json_output:
+            err_console.print("[yellow]The input clipped: lower --level-db or the input gain[/yellow]")
+        if not m.ok:
+            raise typer.Exit(1)
+
+
 def live_run(
     voice: Annotated[str | None, typer.Option("--voice", "-v", help="Voice id or name (default: the last one used)")] = None,
     input_: Annotated[str | None, typer.Option("--input", help="Input device id, name or 'default'")] = None,

@@ -111,6 +111,50 @@ class LiveStats(Record):
     vram_mb: float | None = None
 
 
+class LatencyMeasurement(Record):
+    """A loopback measurement: test bursts played on the output and found again in the input."""
+
+    ok: bool
+    """Whether the bursts came back and agreed; the latencies are set only then."""
+    reason: Literal["no_signal", "inconsistent"] | None = None
+    latency_ms: float | None = None
+    """End to end, from the microphone to the output: the measured round trip plus the engine's delay."""
+    round_trip_ms: float | None = None
+    """Measured: from the converter's output, out of the output device, back in through the input device,
+    to the converter, with the session's own buffers; ``latency_ms`` minus the engine's part."""
+    engine_ms: float
+    """The conversion's own delay for these stream settings (crossfade + 10 ms, and the input denoise
+    buffer), computed; SOLA may take up to 10 ms off it per block."""
+    estimated_ms: float
+    """The estimate for the same settings, from the latency PortAudio reported for the open streams."""
+    jitter_ms: float | None = None
+    """How far apart the found bursts' round trips were."""
+    pings: int
+    detected: int
+    snr_db: float | None = None
+    """The weakest found burst's correlation peak over the noise floor."""
+    input_peak_db: float
+    clipped: bool
+    underruns: int = 0
+    topology: Literal["duplex", "split"]
+    sample_rate: int
+    reported_ms: list[float]
+    """PortAudio's input and output latency for the streams the measurement opened."""
+    devices: LiveDevices
+    stream: StreamParamsModel
+    measured_at: str
+
+
+class LatencyTestRequest(Record):
+    devices: LiveDevices | None = None
+    """None: the saved devices."""
+    stream: StreamParamsModel | None = None
+    """None: the saved stream settings. The block sets the buffers measured; crossfade and input
+    denoise set the engine's part."""
+    level_db: float = Field(default=-12.0, ge=-40, le=-3)
+    """Peak level of the test bursts in dBFS."""
+
+
 class LiveState(Record):
     state: LiveStateName = "stopped"
     voice_id: str | None = None
@@ -122,6 +166,9 @@ class LiveState(Record):
     passthrough: bool = False
     error: dict | None = None
     started_at: str | None = None
+    latency_test: LatencyMeasurement | None = None
+    """The last latency measurement, while it still applies: cleared when the input, the output or
+    the block length changes; recomputed when the crossfade or input denoise does."""
 
 
 class DeviceProblem(Record):

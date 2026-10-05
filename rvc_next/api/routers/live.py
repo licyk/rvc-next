@@ -4,7 +4,7 @@ from fastapi import APIRouter
 
 from rvc_next.api.deps import ServicesDep
 from rvc_next.api.errors import ERROR_RESPONSES
-from rvc_next.core.live.models import DeviceCheck, DeviceList, LiveConfig, LiveDevices, LiveState, LiveVoiceRequest, TestToneRequest, Toggle
+from rvc_next.core.live.models import DeviceCheck, DeviceList, LatencyMeasurement, LatencyTestRequest, LiveConfig, LiveDevices, LiveState, LiveVoiceRequest, TestToneRequest, Toggle
 from rvc_next.core.params import StreamParamsModel, VoiceParamsModel
 
 router = APIRouter(prefix="/v1/live", tags=["live"], responses=ERROR_RESPONSES)
@@ -61,6 +61,14 @@ def check_devices(services: ServicesDep, body: LiveDevices) -> DeviceCheck:
 @router.post("/devices/test-tone", operation_id="play_test_tone")
 def test_tone(services: ServicesDep, body: TestToneRequest) -> LiveState:
     return services.live.test_tone(body)
+
+
+@router.post("/devices/latency-test", operation_id="measure_live_latency")
+def measure_latency(services: ServicesDep, body: LatencyTestRequest) -> LatencyMeasurement:
+    """Measure the real latency with a loopback: test bursts go out of the output and must reach the
+    input (a cable, a virtual cable's loopback, or speakers near the microphone). Takes a few
+    seconds; Live must be stopped."""
+    return services.live.measure_latency(body)
 
 
 @router.post("/meter", operation_id="set_live_meter")

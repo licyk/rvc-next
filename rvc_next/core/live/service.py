@@ -31,6 +31,8 @@ from rvc_next.core.live.models import (
     DeviceList,
     DeviceProblem,
     DeviceSelection,
+    LatencyMeasurement,
+    LatencyTestRequest,
     LiveConfig,
     LiveDevices,
     LiveState,
@@ -50,6 +52,8 @@ logger = logging.getLogger(__name__)
 
 DEVICES_WORKER = "rvc_next.workers.devices"
 RECONNECT_INTERVAL = 2.0
+METER_SETTLE = 0.3
+"""Seconds for the live worker to close the input meter before a measurement opens the input."""
 ACTIVE = ("starting", "loading", "prewarming", "running", "reconnecting")
 
 
@@ -74,6 +78,7 @@ class LiveService:
         self._reconnect: threading.Thread | None = None
         self._closing = False
         self._awaiting_start = False
+        self._measuring = False
         self.backend = "sounddevice"
         """``fake`` in tests, with ``fake`` as the fake backend's configuration."""
         self.fake: dict[str, Any] | None = None
@@ -275,6 +280,8 @@ class LiveService:
         return listing.model_copy(update={"inputs": _with_others(listing.inputs, listing.outputs), "outputs": _with_others(listing.outputs, listing.inputs)})
 
     def _on_settings_keys(self, keys: list[str]) -> None:
+        if any(k.startswith(("live.devices", "live.stream")) for k in keys):
+            self._sync_latency_test()
         if "live.show_all_devices" in keys:
             with self._lock:
                 cached = self._devices
@@ -350,10 +357,7 @@ class LiveService:
         by_role = {r.role: r for r in resolved}
 
         def sel(role: str, selection: DeviceSelection | None) -> dict[str, Any] | None:
-            r = by_role.get(role)
-            if selection is None or r is None or r.device is None:
-                return None
-            return {**selection.model_dump(), "device_id": r.device.id, "host_api": r.device.host_api, "portaudio_index": r.device.portaudio_index}
+            return _probe_selection(selection, by_role.get(role))
 
         topology = sample_rate = None
         if not any(p.reason == "missing" for p in problems):
@@ -401,6 +405,116 @@ class LiveService:
         if not result.get("ok"):
             raise DeviceError(result.get("message") or "The test sound could not play", result.get("reason") or "format", {"role": request.role})
         return self.state()
+
+    # -- measured latency ---------------------------------------------------------------------
+
+    def measure_latency(self, request: LatencyTestRequest) -> LatencyMeasurement:
+        """Play test bursts on the output and find them in the input (a cable, a virtual cable's
+        loopback, or speakers near the microphone): the real round trip of the devices and the
+        session's buffers, plus the engine's own delay. Live must be stopped; the input meter is
+        paused meanwhile. The result also goes into the state (``latency_test``)."""
+        from rvc_next.engine.stream.latency import engine_delay_ms, estimate_latency_ms
+
+        live = self._settings.settings.live
+        devices = request.devices or live.devices
+        stream = request.stream or live.stream
+        with self._control:
+            current = self.state()
+            if current.state in ACTIVE:
+                raise BusyError("Stop Live before measuring the latency")
+            if current.passthrough:
+                raise BusyError("Turn off Hear yourself before measuring the latency")
+            with self._lock:
+                if self._measuring:
+                    raise BusyError("A latency measurement is already running")
+                self._measuring = True
+        try:
+            resolved = self.resolve(LiveDevices(input=devices.input, output=devices.output), self.devices(refresh=True))
+            by_role = {r.role: r for r in resolved}
+            for r in resolved:
+                if r.device is None:
+                    raise DeviceError(r.message or f"No {r.role} device", "missing", {"role": r.role})
+            meter = current.meter and self._supervisor.running
+            if meter:
+                self._supervisor.send(P.Meter(on=False))
+                time.sleep(METER_SETTLE)
+            try:
+                result = self._run_devices(
+                    {
+                        "action": "measure_latency",
+                        "input": _probe_selection(devices.input, by_role["input"]),
+                        "output": _probe_selection(devices.output, by_role["output"]),
+                        "block_ms": stream.block_ms,
+                        "level_db": request.level_db,
+                    },
+                    timeout=60.0 + 10.0 * stream.block_ms / 1000,
+                )
+            finally:
+                if meter:
+                    self.meter(True)
+        finally:
+            with self._lock:
+                self._measuring = False
+        if not result.get("ok"):
+            raise DeviceError(result.get("message") or "The devices could not be opened", result.get("reason") or "busy", {"role": result.get("role") or "output"})
+        engine = stream.to_engine()
+        round_trip = result.get("round_trip_ms") if result.get("found") else None
+        engine_ms = engine_delay_ms(engine)
+        reported = [float(x) for x in result.get("reported_ms") or [0.0, 0.0]]
+        measurement = LatencyMeasurement(
+            ok=bool(result.get("found")),
+            reason=result.get("failure"),
+            latency_ms=round(round_trip + engine_ms, 1) if round_trip is not None else None,
+            round_trip_ms=round(round_trip, 1) if round_trip is not None else None,
+            engine_ms=engine_ms,
+            estimated_ms=round(estimate_latency_ms(engine, result.get("topology") == "split", reported[0], reported[1]), 1),
+            jitter_ms=round(result["jitter_ms"], 2) if result.get("jitter_ms") is not None else None,
+            pings=int(result.get("pings") or 0),
+            detected=int(result.get("detected") or 0),
+            snr_db=result.get("snr_db"),
+            input_peak_db=float(result.get("input_peak_db", -120.0)),
+            clipped=bool(result.get("clipped")),
+            underruns=int(result.get("underruns") or 0),
+            topology=result.get("topology") or "duplex",
+            sample_rate=int(result.get("sample_rate") or 0),
+            reported_ms=reported,
+            devices=devices,
+            stream=stream,
+            measured_at=now_iso(),
+        )
+        self._set_state(latency_test=measurement)
+        self._sync_latency_test()
+        return measurement
+
+    def _sync_latency_test(self) -> None:
+        """Keep ``latency_test`` true to the current devices and stream settings (the running
+        session's, else the saved ones): drop it when the input, the output or the block changed;
+        recompute the engine's part when the crossfade or input denoise did."""
+        from rvc_next.engine.stream.latency import engine_delay_ms, estimate_latency_ms
+
+        with self._lock:
+            m = self._state.latency_test
+            if m is None:
+                return
+            config = self._state.config if self._state.state in ACTIVE else None
+        live = self._settings.settings.live
+        devices, stream = (config.devices, config.stream) if config is not None else (live.devices, live.stream)
+        if (m.devices.input, m.devices.output) != (devices.input, devices.output) or m.stream.block_ms != stream.block_ms:
+            self._set_state(latency_test=None)
+            return
+        if (m.stream.crossfade_ms, m.stream.input_denoise) == (stream.crossfade_ms, stream.input_denoise):
+            return
+        engine = stream.to_engine()
+        engine_ms = engine_delay_ms(engine)
+        updated = m.model_copy(
+            update={
+                "stream": stream,
+                "engine_ms": engine_ms,
+                "latency_ms": round(m.round_trip_ms + engine_ms, 1) if m.round_trip_ms is not None else None,
+                "estimated_ms": round(estimate_latency_ms(engine, m.topology == "split", m.reported_ms[0], m.reported_ms[1]), 1),
+            }
+        )
+        self._set_state(latency_test=updated)
 
     # -- the session -------------------------------------------------------------------------
 
@@ -480,6 +594,7 @@ class LiveService:
             self._settings.update(
                 {"live": {"devices": config.devices.model_dump(), "stream": config.stream.model_dump(), "last_voice": config.voice_id, "last_params": config.params.model_dump()}}
             )
+            self._sync_latency_test()
             return self.state()
 
     def stop(self) -> LiveState:
@@ -518,6 +633,7 @@ class LiveService:
                 if current.config:
                     self._set_state(config=current.config.model_copy(update={"stream": stream}))
             self._settings.update({"live": {"stream": stream.model_dump()}})
+            self._sync_latency_test()
             return self.state()
 
     def set_voice(self, voice_id: str) -> LiveState:
@@ -548,6 +664,7 @@ class LiveService:
                 self._supervisor.send(P.SetDevices(devices=self._worker_devices(devices, resolved)))
                 config = current.config.model_copy(update={"devices": devices}) if current.config else None
                 self._set_state(resolved=resolved, config=config)
+            self._sync_latency_test()
             return self.state()
 
     def meter(self, on: bool) -> LiveState:
@@ -621,6 +738,14 @@ class LiveService:
         if self._supervisor.running:
             self._supervisor.shutdown()
         self._release_gpu()
+
+
+def _probe_selection(selection: DeviceSelection | None, resolved: ResolvedDevice | None) -> dict[str, Any] | None:
+    """A selection as the devices worker opens it: the saved choice plus the resolved device's index."""
+    if selection is None or resolved is None or resolved.device is None:
+        return None
+    d = resolved.device
+    return {**selection.model_dump(), "device_id": d.id, "host_api": d.host_api, "portaudio_index": d.portaudio_index}
 
 
 def _with_others(own: list[PhysicalDevice], others: list[PhysicalDevice]) -> list[PhysicalDevice]:

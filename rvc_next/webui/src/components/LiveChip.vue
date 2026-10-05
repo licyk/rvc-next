@@ -11,7 +11,7 @@ const live = useLiveStore();
 const control = useLiveControl();
 const router = useRouter();
 const { t, tOr } = useI18n();
-const text = computed(() => (live.running && live.stats ? t('live.chip', { ms: Math.round(live.stats.est_latency_ms) }) : tOr(`live.states.${live.state.state}`, live.state.state)));
+const text = computed(() => (live.running && live.stats ? t('live.chip', { ms: Math.round(live.state.latency_test?.ok && live.state.latency_test.latency_ms !== null ? live.state.latency_test.latency_ms : live.stats.est_latency_ms) }) : tOr(`live.states.${live.state.state}`, live.state.state)));
 </script>
 
 <template>
