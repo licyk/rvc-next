@@ -1,0 +1,147 @@
+---
+title: "从原版 RVC 迁移"
+description: "RVC Next 是 Retrieval-based-Voice-Conversion-WebUI（以提交 81eed5e 为基准）的重写。"
+icon: ArrowRightLeft
+---
+
+RVC Next 是 Retrieval-based-Voice-Conversion-WebUI（以提交 `81eed5e` 为基准）的重写。原版的模型文件格式不变：原版训练的音色、索引、底模和实验都可以直接使用，RVC Next 训练出的音色也是同样的格式。本页说明怎样复用一个已有的原版 RVC 安装，以及两者在行为上的差异。
+
+迁移不会修改原版安装里的任何文件，可以两边同时使用。
+
+## 1. 复用原版的 `assets` 文件夹
+
+RVC Next 的资源文件夹与原版的 `assets/` 结构相同：
+
+| 资源 | 路径 |
+| --- | --- |
+| HuBERT | `hubert_base/` |
+| RMVPE | `rmvpe/rmvpe.pt`（DirectML 用 `rmvpe/rmvpe.onnx`） |
+| 底模 | `pretrained/`、`pretrained_v2/`（如 `f0G40k.pth`、`f0D40k.pth`） |
+| 分离模型 | `pymss_weights/` |
+| FCPE | `fcpe/fcpe_c_v001.pt`（原版通过 torchfcpe 包自带，RVC Next 需要单独下载） |
+
+所以把 `paths.assets_dir` 指向原版的 `assets` 文件夹，就不必重新下载这些文件：
+
+<Tabs items={["Web UI", "命令行"]}>
+<Tab value="Web UI">
+
+**设置** › **存储** › **文件夹** 中的 **资源**，填入原版 RVC 的 `assets` 文件夹路径。
+
+</Tab>
+<Tab value="命令行">
+
+```bash
+rvc-next config set paths.assets_dir "D:/RVC/assets"
+rvc-next assets list      # 确认 hubert、rmvpe 等显示为 installed
+rvc-next assets verify    # 可选：按 SHA-256 校验已有文件
+```
+
+</Tab>
+</Tabs>
+<Callout type="info">
+
+指向原版的 `assets` 后，之后在 RVC Next 里下载的资源（例如 FCPE、缺少的底模）也会写进这个文件夹。
+
+</Callout>
+## 2. 直接使用原版的音色
+
+把原版安装添加为"原版 RVC 安装"（设置里的 `paths.legacy_roots`）后，它的音色**直接读取，不复制**：
+
+- 音色来自 `<RVC>/assets/weights/*.pth`；
+- 索引从 `<RVC>/assets/indices` 和 `<RVC>/logs` 中查找，按原版 `get_index_path_from_model` 的打分规则（实验名、说话人、新旧）为每个音色推荐一个 `added_*.index`，名称含 `trained` 的索引不参与。
+
+在 Web UI 中：**模型** › **音色** 页面底部的 **原版 RVC 安装**，点 **添加 RVC 安装**，选择 RVC 的根目录（必须包含 `assets` 文件夹）。之后：
+
+- 这些音色带有 **旧版** 标记，出现在所有音色选择器里，可以直接用于转换和实时变声。
+- **扫描**：重新读取 `assets/weights`，并为还没有选过索引的音色重新按原版规则推荐索引；你手动添加或移除过索引的音色保持你的选择。
+- **全部导入**：把这个安装里的所有音色复制进 RVC Next 的音色库。
+
+推荐结果和你之后的修改（改名、说话人名称、换索引、隐藏）保存在数据目录的 `legacy-voices.json` 里，原版的文件夹始终不会被写入。为旧版音色附加的索引如果是上传的文件，会复制到 `models/attached-indexes/<音色>/`；如果是服务器上的路径，则只记录路径。删除旧版音色只是隐藏它（`rvc-next model list --all` 仍能列出），RVC 安装中的文件不会被改动。
+
+用命令行添加时，写入同样的设置即可，下次运行命令或启动服务器时会读取并推荐索引：
+
+```bash
+rvc-next config set paths.legacy_roots '[{"id": "rvc", "path": "D:/RVC", "name": "RVC"}]'
+rvc-next model list
+```
+
+Web UI 默认允许浏览已添加的原版 RVC 安装中的文件（见 [远程访问与安全](/docs/advanced-remote) 中的浏览范围）。
+
+## 3. 把音色复制进音色库
+
+如果想让音色独立于原版安装（例如之后要删除原版），就导入它们。导入时每个文件按内容识别，`.pth` 和 `.index` 的文件名不需要对应：
+
+- 索引的宽度决定它适合哪个版本（256 维为 v1，768 维为 v2），版本不符的不会配对；
+- 同一次导入中只有一个兼容音色时自动配对；有多个时按实验名、名称相似度和是否在同一文件夹打分，不够确定时由你选择（Web UI 弹出 **检查导入**，命令行打印计划并以退出码 3 结束）。
+
+<Tabs items={["Web UI", "命令行"]}>
+<Tab value="Web UI">
+
+把 `.pth`、`.index` 或 `.zip` 拖到 **模型** › **音色** 的导入区。旧版音色也可以在 **原版 RVC 安装** 中点 **全部导入**。
+
+</Tab>
+<Tab value="命令行">
+
+```bash
+rvc-next model import D:/RVC/assets/weights/alice.pth D:/RVC/logs/alice/added_IVF1024_Flat_nprobe_1_alice_v2.index
+rvc-next model import alice.zip
+rvc-next model import D:/RVC            # 整个安装：weights 中的音色，以及 indices 和 logs 中的 added_*.index
+```
+
+</Tab>
+</Tabs>
+训练用的 `G_*.pth`/`D_*.pth` 默认作为 **底模** 导入（之后可以在实验设置里选择）；想把 G 检查点直接变成音色，加 `--extract`，或在 **模型** › **工具** 中提取。
+
+## 4. 导入原版的训练实验
+
+原版的实验文件夹 `logs/<名称>` 可以复制进来继续使用：
+
+<Tabs items={["Web UI", "命令行"]}>
+<Tab value="Web UI">
+
+**训练** 页面点 **导入实验**，填入 **原版实验文件夹（logs/&lt;名称>）**。
+
+</Tab>
+<Tab value="命令行">
+
+```bash
+rvc-next train import D:/RVC/logs/alice --name alice
+rvc-next train status alice
+```
+
+</Tab>
+</Tabs>
+文件夹必须包含 `0_gt_wavs` 或 `config.json`。复制时跳过 `eval` 文件夹；输出已经存在的阶段（切片、音高、特征、训练、索引）记为已完成，之后可以接着运行没完成的阶段，或增加轮数继续训练。实验文件夹里没有 `experiment.json` 时，RVC Next 按原版实验来读取。
+
+## 与原版的行为差异
+
+以下是有意的改动（其余数值计算与原版逐行对应）：
+
+| 方面 | 原版 | RVC Next |
+| --- | --- | --- |
+| 切片 | 每个切片（最后一个除外）都会丢掉尾部（原版的回归问题） | 保留每个切片的尾部 |
+| 实时变声的说话人 | 固定为说话人 0 | 使用所选的说话人，多说话人音色可以用于实时变声 |
+| 索引重建 | 只要已有 `added_*.index` 就跳过 | 记录特征文件的指纹（名称、大小、修改时间），变化时重建 |
+| 索引加载 | 每个文件都重新读取索引 | 按路径和修改时间缓存，只加载一次 |
+| 音高算法 | 命令行只有 pm 和 rmvpe | 转换、命令行、实时变声都可以用 pm、rmvpe、fcpe（训练仍为 pm 和 rmvpe） |
+| 共振峰 | 只有实时变声支持 | 离线转换也支持，用实时变声的方法；共振峰为 0 时结果与原版逐位相同 |
+| 路径 | 实时 GUI 拒绝非 ASCII 路径 | 系统接受的任何路径 |
+| 实时推理 | 在音频回调里推理 | 回调只搬运数据，推理在单独的线程 |
+| 实时修改块长、交叉淡化、上下文 | 需要停止音频流 | 重新缓冲，不重新加载模型 |
+
+另外，单说话人切片只处理数据集文件夹顶层的音频文件（与数据集扫描一致）；判断音色是否为多说话人看 `.pth` 中的说话人信息，而不是嵌入层的行数（每个训练出的音色都有 109 行）。
+
+## 与原版逐位一致的部分
+
+数值代码是移植而不是重写，并由"golden"测试对照原版：在 CPU、fp32、相同随机种子和相同 16 kHz 输入下比较输出。
+
+- **离线转换**：pm 和 RMVPE 在 v1 40k、v2 40k、v2 40k 无音高引导和 v2 48k 音色上**逐位相同**，覆盖语音、静音和一段超过分块阈值的 70 秒音频，并包含音高偏移和说话人 id；FCPE 也逐位相同。
+- **实时变声**：流式引擎逐块与原版 `rtrvc.RVC.infer` 加上实时 GUI 回调中的处理（门限、TorchGate 输入输出降噪、共振峰、响度混合、SOLA）逐位相同。
+
+离线转换的输出可能比输入短最多两个 10 毫秒帧，这是原版取整方式的结果。
+
+<Callout type="info" title="未在真实硬件上验证">
+
+这些比较在 CPU 上进行。CUDA（fp16、CUDA Graph）、DirectML 和 MPS 上的结果没有在真实硬件上验证，见 [硬件与性能](/docs/advanced-hardware)。
+
+</Callout>

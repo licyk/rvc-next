@@ -1,0 +1,189 @@
+---
+title: "安装"
+description: "本页介绍如何安装 RVC Next：准备一个独立的 Python 环境，先安装适合你硬件的 PyTorch，再安装 RVC Next 本身，最后用 rvc-next doctor 检查安装结果。"
+icon: Download
+---
+
+## 准备工作
+
+| 需要 | 说明 |
+| --- | --- |
+| Python | 3.10 或更新（3.10 至 3.13） |
+| 独立的虚拟环境 | 一个只给 RVC Next 用的 venv 或独立 Python，**不要**与其他应用共用 |
+| PyTorch | 2.7.1 或更新的版本，按你的硬件选择 CUDA 版或 CPU 版，**先于** RVC Next 安装 |
+| 磁盘空间 | 模型另需空间：转换必需的 HuBERT 和 RMVPE 约 353 MB，每个分离模型 300～440 MB，每组训练底模约 350～420 MB |
+| PortAudio（仅 Linux，仅实时变声） | 见下文 |
+
+<Callout type="warn" title="为什么一定要独立环境">
+
+RVC Next 把依赖限定在测试过的版本范围内。例如它需要 `transformers` 5.x，而 `transformers` 依赖的 `tokenizers` 要求 `huggingface_hub` 低于 2；如果同一环境中的其他项目需要 `huggingface_hub` 2.x，两者无法共存。用一个专属的虚拟环境可以避免这类冲突。
+
+</Callout>
+<Callout type="idea" title="不需要 torchaudio">
+
+RVC Next 已经移植了所需的重采样和 FCPE 代码，不再依赖 `torchaudio`，也不需要单独安装 `torchfcpe`。
+
+</Callout>
+## 第一步：创建虚拟环境
+
+<Tabs items={["Windows", "macOS", "Linux"]}>
+<Tab value="Windows">
+
+```powershell
+py -3.11 -m venv rvc-next-env
+rvc-next-env\Scripts\activate
+python -m pip install --upgrade pip
+```
+
+</Tab>
+<Tab value="macOS">
+
+```bash
+python3 -m venv rvc-next-env
+source rvc-next-env/bin/activate
+python -m pip install --upgrade pip
+```
+
+</Tab>
+<Tab value="Linux">
+
+```bash
+python3 -m venv rvc-next-env
+source rvc-next-env/bin/activate
+python -m pip install --upgrade pip
+```
+
+</Tab>
+</Tabs>
+`py -3.11` 只是示例，换成你已安装的 3.10～3.13 中任一版本即可。之后的所有命令都在激活了该环境的终端中执行。
+
+## 第二步：安装 PyTorch
+
+PyTorch 需要按硬件选择对应的构建，所以要**先**单独安装。版本须为 2.7.1 或更新。最可靠的做法是到 [pytorch.org](https://pytorch.org/get-started/locally/) 的选择器中选好系统和 CUDA 版本，复制给出的命令，并把版本号固定在这个范围内。
+
+<Tabs items={["NVIDIA 显卡（CUDA）", "仅 CPU", "macOS", "Windows：AMD / Intel 显卡（DirectML）"]}>
+<Tab value="NVIDIA 显卡（CUDA）">
+
+```bash
+python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128
+```
+
+CUDA 12.8 的构建支持 RTX 50 系列，也适用于较早的 NVIDIA 显卡。如果你的驱动较旧，请在 pytorch.org 上选择该版本提供的其他 CUDA 构建。
+
+</Tab>
+<Tab value="仅 CPU">
+
+```bash
+python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
+```
+
+没有可用的 GPU 时使用。转换和分离都能在 CPU 上运行，只是更慢；训练在 CPU 上会非常慢。
+
+</Tab>
+<Tab value="macOS">
+
+```bash
+python -m pip install torch==2.11.0
+```
+
+macOS 上的 PyTorch 自带 Apple MPS 支持。
+
+</Tab>
+<Tab value="Windows：AMD / Intel 显卡（DirectML）">
+
+先按“仅 CPU”安装 PyTorch，再在第三步安装带 `directml` 附加项的 RVC Next：
+
+```powershell
+python -m pip install "rvc-next[directml]"
+```
+
+该附加项会安装 `torch-directml` 和 `onnxruntime-directml`。`torch-directml` 对 PyTorch 版本有它自己的要求，安装前请确认它支持的版本落在 RVC Next 要求的 2.7.1～2.11 之内。这条路径是实验性的。
+
+</Tab>
+</Tabs>
+<Callout type="warn" title="未在真实硬件上验证">
+
+CUDA（包括 fp16 和 CUDA Graphs）、DirectML 和 MPS 都没有在真实硬件上测试过。CPU 路径已经测试；依赖组合在 torch 2.8 + numpy 1.26 和 torch 2.11 + numpy 2.4 两端都跑通了完整的检查。
+
+</Callout>
+## 第三步：安装 RVC Next
+
+```bash
+python -m pip install rvc-next
+```
+
+由于 PyTorch 已经装好，pip 会认为 `torch` 依赖已满足，不会再替换成别的构建。安装完成后，环境中会多出 `rvc-next` 命令。
+
+### 从源码安装
+
+如果你想使用最新的代码，或者参与开发，可以从源码安装：
+
+```bash
+git clone https://github.com/licyk/rvc-next.git
+cd rvc-next
+python -m pip install -e .
+```
+
+源码中**不包含构建好的网页界面**（`rvc_next/webui/dist` 不在仓库里）。没有它时，`rvc-next webui` 只提供 API，日志中会出现 `No web UI build found`。构建网页界面需要 [bun](https://bun.sh)：
+
+```bash
+python scripts/dev.py web-install   # 等同于在 rvc_next/webui 中运行 bun install
+python scripts/dev.py web           # 构建到 rvc_next/webui/dist
+```
+
+如果要自己打包 wheel，请使用 `python scripts/build_wheel.py`，它会先构建网页界面再打包；直接运行 `python -m build` 得到的包里没有网页界面。开发环境的完整搭建见[开发环境](/docs/development-setup)。
+
+## 第四步（可选）：实时变声所需的 PortAudio
+
+**实时**页面通过 `sounddevice` 使用 PortAudio 访问声卡。
+
+<Tabs items={["Windows", "macOS", "Linux"]}>
+<Tab value="Windows">
+
+无需额外安装。`sounddevice` 的 Windows 包自带 PortAudio（包括 ASIO 支持）。
+
+</Tab>
+<Tab value="macOS">
+
+无需额外安装。`sounddevice` 的 macOS 包自带 PortAudio。
+
+</Tab>
+<Tab value="Linux">
+
+需要系统中的 PortAudio 库。Debian / Ubuntu 上：
+
+```bash
+sudo apt install libportaudio2
+```
+
+其他发行版请安装对应的 PortAudio 包。
+
+</Tab>
+</Tabs>
+只做文件转换、分离和训练时不需要 PortAudio。
+
+## 第五步：验证安装
+
+```bash
+rvc-next version
+```
+
+列出 RVC Next、Python 以及 torch、transformers、faiss-cpu、av、sounddevice、pymss 等主要组件的版本；显示 `not installed` 的组件说明安装不完整。
+
+```bash
+rvc-next doctor
+```
+
+`doctor` 做一次全面检查并给出建议：
+
+- 数据文件夹的位置；
+- torch 版本与 CUDA 版本，自动选择的计算设备和精度，以及每个设备的显存和是否被采用；
+- 是否找到 `ffmpeg`（不是必需的，PyAV 无需它就能解码）；
+- 音频设备是否可用（实时变声需要）；
+- 每个资源（HuBERT、RMVPE、底模、分离模型等）的状态和校验结果。
+
+刚安装时，`doctor` 会提示 HuBERT 和 RMVPE 尚未安装，并给出 `rvc-next assets download hubert` 这样的命令。这是正常的，下一页会处理它。两个命令都支持 `--json` 输出。
+
+## 下一步
+
+继续阅读[首次启动](/docs/first-run)：启动网页界面、下载模型并完成第一次转换。

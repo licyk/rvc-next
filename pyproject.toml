@@ -1,0 +1,149 @@
+[build-system]
+requires = ["setuptools", "pip", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rvc-next"
+description = "Retrieval-based voice conversion: convert, live, separate and train, from one web UI and one command line"
+readme = "README.md"
+requires-python = ">=3.10"
+dynamic = ["version"]
+license = "GPL-3.0-only"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Intended Audience :: End Users/Desktop",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio :: Conversion",
+]
+# Lower bounds are what the code needs (or what a dependency forces); upper bounds stop at the next
+# major release, which has not been tested. rvc-next is meant for its own venv or standalone Python.
+dependencies = [
+    # Web and command line.
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.30,<1",
+    # uvicorn speaks WebSocket only when this is installed; without it socket.io falls back to polling.
+    "websockets>=12",
+    "python-socketio>=5.11,<6",
+    "pydantic>=2.7,<3",
+    "httpx>=0.27,<1",
+    "typer>=0.26.7,<0.28",
+    "rich>=13,<16",
+    "tomli-w>=1,<2",
+    "tomli>=2; python_version < '3.11'",
+    "send2trash>=1.8,<2",
+    # Engine. Install the torch build for your hardware first (see README); pip then finds it satisfied.
+    # numpy 2 is allowed: numpy 1.x has no wheels for Python 3.13.
+    "numpy>=1.26,<3",
+    "scipy>=1.13,<2",
+    # pymss 2.1.7 needs torch 2.7.1 or newer. No upper bound: the user installs the torch build for
+    # their hardware first, and nothing rvc-next depends on pins torch to a release any more.
+    "torch>=2.7.1",
+    # 5.x, because transformers 4.x needs huggingface_hub < 1. Through tokenizers, every release
+    # (5.18 included) still needs huggingface_hub < 2, so an environment shared with projects on
+    # huggingface_hub 2.x cannot hold rvc-next: use a separate venv.
+    "transformers>=5,<6",
+    "faiss-cpu>=1.8,<2",
+    "librosa>=0.10.2,<0.12",
+    "praat-parselmouth>=0.4.5,<0.5",
+    "av>=14,<19",
+    "soundfile>=0.12,<1",
+    # 0.5.1 bundles the ASIO-enabled PortAudio on Windows (SD_ENABLE_ASIO).
+    "sounddevice>=0.5.1,<0.6",
+    # The separation adapter is written against this release's MSSeparator.
+    "pymss==2.1.7",
+]
+
+[project.optional-dependencies]
+directml = ["torch-directml", "onnxruntime-directml"]
+
+[dependency-groups]
+# tomli lets ty resolve the Python 3.10 fallback import on newer Pythons.
+dev = ["pytest", "pytest-cov", "ruff==0.16.9", "ty==0.0.84", "python-docstring-checker", "httpx", "tomli"]
+
+[project.scripts]
+rvc-next = "rvc_next.cli.app:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["rvc_next*"]
+
+[tool.setuptools.package-data]
+"rvc_next.webui" = ["dist/**/*"]
+"rvc_next.core.assets" = ["catalog.json"]
+"rvc_next.core.separation" = ["presets.json"]
+"rvc_next.engine.train" = ["data/mute/**/*"]
+"rvc_next.engine.separate" = ["configs/*.yaml"]
+
+[tool.setuptools.dynamic]
+version = { attr = "rvc_next.version.VERSION" }
+
+[tool.ruff]
+line-length = 180
+indent-width = 4
+extend-exclude = ["rvc_next/webui/dist", "rvc_next/webui/node_modules"]
+
+[tool.ruff.format]
+# Ported numerical files keep the original's layout, so they can be diffed against it.
+exclude = ["rvc_next/engine/models/{attentions,commons,modules,transforms,synthesizer}.py", "rvc_next/engine/f0/rmvpe.py"]
+
+[tool.ruff.lint]
+# Written out so a ruff upgrade cannot change what runs (pinned above as well).
+select = [
+    "E4", "E7", "E9", # pycodestyle errors that ruff checks by default
+    "F",              # pyflakes
+    "I",              # import sorting
+    "UP",             # pyupgrade, for the 3.10 floor
+    "B",              # bugbear
+    "SIM",            # simplify
+    "RUF100",         # unused noqa
+]
+ignore = [
+    "B008",   # FastAPI's Depends/Query in defaults is the framework's idiom
+    "B905",   # zip(strict=) adds noise where lengths are equal by construction
+    "SIM105", # contextlib.suppress reads worse than try/except/pass in short cleanup paths
+    "SIM108", # ternaries are not always clearer than if/else
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Ported numerical code keeps the original's shape, so it can be read side by side with it.
+"rvc_next/engine/models/{attentions,commons,modules,transforms,synthesizer}.py" = ["B", "SIM", "UP", "E402", "E712", "E741", "F841"]
+"rvc_next/engine/f0/rmvpe.py" = ["B", "SIM", "UP", "E402", "E712", "E741", "F841"]
+"rvc_next/engine/audio/denoise.py" = ["B", "SIM", "UP", "E402", "E712", "E741", "F841"]
+"rvc_next/engine/train/{dataset,losses,mel,slicer}.py" = ["B", "SIM", "UP", "E402", "E712", "E722", "E741", "F841"]
+"tests/*" = ["B011", "B017"]
+
+[tool.ty.environment]
+python-version = "3.10"
+
+[tool.ty.terminal]
+output-format = "concise"
+error-on-warning = true
+
+[tool.ty.src]
+include = ["rvc_next", "tests", "scripts"]
+exclude = [
+    "rvc_next/webui/dist",
+    "rvc_next/webui/node_modules",
+    # Ported numerical code, kept as the original wrote it (untyped torch modules).
+    "rvc_next/engine/models/attentions.py",
+    "rvc_next/engine/models/commons.py",
+    "rvc_next/engine/models/modules.py",
+    "rvc_next/engine/models/transforms.py",
+    "rvc_next/engine/models/synthesizer.py",
+    "rvc_next/engine/f0/rmvpe.py",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "live: tests that need something outside this repository (deselected by default)",
+    "golden: parity with the original repository; needs its checkout and the assets (deselected by default)",
+    "assets: tests that need the real HuBERT/RMVPE assets (RVC_NEXT_TEST_ASSETS; deselected by default)",
+]
+addopts = "-m 'not live and not golden and not assets'"

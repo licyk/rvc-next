@@ -1,0 +1,55 @@
+---
+title: "Overview"
+description: "RVC Next is an integrated rewrite of Retrieval-based-Voice-Conversion-WebUI (referred to below as the original RVC)."
+icon: Rocket
+---
+
+RVC Next is an integrated rewrite of [Retrieval-based-Voice-Conversion-WebUI](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI) (referred to below as the “original RVC”). It brings conversion, live voice conversion, vocal separation, training and model management into **one application**: one local server, one web interface and one command-line tool, `rvc-next`.
+
+This section takes you from scratch: install RVC Next, start the web interface, download the required models and complete your first conversion with a demo voice.
+
+## What RVC Next can do
+
+| Feature | Location in the interface | Purpose |
+| --- | --- | --- |
+| Conversion | **Convert** | Convert audio files or an entire folder with a voice; optionally separate vocals first and add the accompaniment back after conversion to make a cover in one operation |
+| Live voice conversion | **Live** | Convert your voice live through the server computer's microphone and output device, with level meters, a test tone and automatic reconnection after device loss |
+| Vocal separation | **Separate** | Use built-in RoFormer models to separate vocals and accompaniment, remove reverb and extract lead vocals |
+| Training | **Train** | Train a voice on your own dataset: scan the dataset, run stages, view loss curves, try checkpoints and export as a voice |
+| Model management | **Models** | A voice library, indexes, base models, separation models, required asset downloads and tools for merging voices and extracting voices from checkpoints |
+
+A few designs shared throughout the application:
+
+- **One voice picker and one set of voice parameters**: Convert, Live and voice details use the same panel, with identical ranges, defaults and help. Each voice has a default preset, so it sounds the same wherever you use it.
+- **Every time-consuming operation is a job**: conversion, separation, training and downloads enter the job queue. You can track progress, cancel, retry and read logs without blocking the interface.
+- **Numerical code is ported rather than rewritten**: the synthesizer, RMVPE, conversion and streaming algorithms are ported line by line from the original and compared with it on CPU using golden tests. Existing `.pth` voices and `added_*.index` indexes work directly and sound the same as in the original. See [Parity with the original](/docs/development-parity).
+- **Models are identified by content**: when importing `.pth`, `.index` and `.zip` files, their contents determine the type and version, rather than their names, and indexes are automatically paired with voices.
+
+## Who it is for
+
+- **Users who want to change the voice in songs or speech**: the **Convert** and **Models** pages are all you need.
+- **Streamers and voice chat users**: use the **Live** page for live voice conversion on the server computer.
+- **Users training their own voices**: the **Train** page organizes the original's steps into stages that can be rerun individually.
+- **Existing users of the original RVC**: voices and assets can be read directly from an original installation; see [Migrating from the original RVC](/docs/advanced-migrate).
+- **Users who prefer the command line or need batch processing**: every interface operation has a corresponding `rvc-next` command; see [Command line](/docs/cli).
+
+<Callout type="info" title="Hardware support">
+
+The machine used to develop RVC Next has no GPU or audio hardware. Conversion, separation and the web interface have been tested on CPU; CUDA (fp16, CUDA Graphs, multi-GPU training and GPU memory statistics), DirectML, Apple MPS and real sound cards (ASIO, WASAPI exclusive mode, etc.) **have not yet been validated on physical hardware**. Please report any problems you encounter in these environments. See [Hardware and performance](/docs/advanced-hardware).
+
+</Callout>
+## Documentation structure
+
+| Section | Contents |
+| --- | --- |
+| **Quick start** (this section) | Installation, first run and first conversion |
+| [User guide](/docs/guide) | Detailed instructions for every page in the web interface and explanations of voice parameters |
+| [Command line](/docs/cli) | All `rvc-next` commands, configuration files and environment variables |
+| [Advanced](/docs/advanced) | Migration from the original, remote access and security, hardware and performance, and common questions |
+| [Development documentation](/docs/development) | Architecture, engine, core services, API, Web UI and tests, for contributors |
+
+## Quick-start path
+
+1. [Installation](/docs/installation): prepare an isolated Python environment, install PyTorch for your hardware, then install RVC Next.
+2. [First run](/docs/first-run): run `rvc-next webui`, download HuBERT and RMVPE, get a demo voice and complete your first conversion.
+3. Then read the [User guide](/docs/guide) as needed: start with the [Interface overview](/docs/guide-interface), then the page you want to use.

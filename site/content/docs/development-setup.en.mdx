@@ -1,0 +1,195 @@
+---
+title: "Development environment"
+description: "How to set up a development environment that passes all checks, what each scripts/dev.py task does, how to build the wheel and documentation site, and why pyproject.toml has its dependency constraints."
+icon: Wrench
+---
+
+## Isolated virtual environment
+
+RVC Next **runs only in its own environment**: an isolated venv or a separate Python installation, never shared with other projects. Dependency constraints require this (see “Dependency constraints” below): `transformers` 5.x requires `huggingface_hub < 2` through `tokenizers`, so it cannot coexist with projects using `huggingface_hub` 2.x; pymss and torchaudio release schedules also confine `torch` to a version window.
+
+The development environment is `.venv` at the repository root (listed in `.gitignore`), created with [uv](https://docs.astral.sh/uv/) from a Python 3.11 interpreter, without inheriting system site-packages:
+
+```bash
+# Run at the repository root
+uv venv .venv --python 3.11          # Without --system-site-packages
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+
+# 1. Install torch first; choose an index for your hardware (CPU / CUDA 12.8 / ...), version 2.7.1 or newer
+uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+# 2. Install the project in editable mode with the development dependency group
+uv pip install -e . --group dev
+
+# 3. Frontend dependencies for the Web UI and documentation site (requires bun)
+python scripts/dev.py web-install site-install
+```
+
+From then on, run everything with `.venv/bin/python` (or `python` after activation), including `python scripts/dev.py ...`: `dev.py` uses **the interpreter running it** (`sys.executable`), rather than the first `python` on `PATH`.
+
+Install torch first for the same reason as in a user installation: `pyproject.toml` declares only `torch>=2.7.1`, without specifying a build variant. Install the build for your hardware from the PyTorch index first; the subsequent `pip install` sees that the constraint is satisfied and will not fetch another build from PyPI (usually a large CUDA package).
+
+<Callout type="info" title="torchaudio and torchfcpe are no longer dependencies">
+
+RVC Next has ported torchaudio's `Resample` and torchfcpe's FCPE inference path and no longer imports either package itself (the layer tests enforce this). Only two kinds of tests use them, and skip automatically when they are absent:
+
+- Cases in `tests/engine/test_sinc_resample.py` and `tests/engine/test_fcpe_model.py` that compare results bit for bit with the original libraries;
+- Code on **the original's side** of the golden tests (the original's live code imports torchaudio, and its FCPE imports torchfcpe).
+
+To run these cases, install torchaudio and torch **as a matching pair** at the same version: torchaudio's final release is 2.11, it declares no torch requirement, and it refuses to load alongside newer torch versions.
+
+</Callout>
+### Other system dependencies
+
+| Dependency | Purpose | Installation |
+| --- | --- | --- |
+| PortAudio (`libportaudio2` on Linux) | `sounddevice` opens audio devices; live voice conversion and device enumeration tests need it | System package manager; CI uses `sudo apt-get install -y libportaudio2` |
+| [bun](https://bun.sh) | Web UI package manager, build and tests | Official installer; `dev.py` and `build_wheel.py` search `PATH`, then `~/.bun/bin/bun`, so a fresh installation works even before a new shell updates `PATH` |
+| `build` | `scripts/build_wheel.py` calls `python -m build` | `uv pip install build` (outside the `dev` group; needed only for packaging) |
+
+### Real assets
+
+Unit tests use randomly initialised tiny models and need no downloads (see [Tests and checks](/docs/development-testing)). To try real models manually, prepare a scratch `assets/` directory in the original layout (`hubert_base/`, `rmvpe/`, `pretrained_v2/`, `pymss_weights/`, etc.; see [Assets and model repositories](/docs/development-assets)) and point an environment variable at it, rather than placing files in the default data directory:
+
+```bash
+export RVC_NEXT_PATHS__ASSETS_DIR=~/scratch/assets
+export RVC_NEXT_DATA_DIR=~/scratch/rvc-next-data   # Optional: leave the default data directory untouched
+```
+
+`RVC_NEXT_TEST_ASSETS` points to the same kind of directory for tests marked `assets` / `golden`; see [Tests and checks](/docs/development-testing).
+
+## `scripts/dev.py`
+
+`scripts/dev.py` is a task runner using only the standard library. The project uses it instead of a Makefile because development and installation on Windows are as common as on Linux, and Windows has no `make`. Tool configuration lives in `pyproject.toml`; `dev.py` only invokes the tools as CI does. Running it without arguments lists all tasks.
+
+```bash
+python scripts/dev.py check                 # One or more tasks, run in order
+python scripts/dev.py lint test-py          # Multiple tasks
+python scripts/dev.py dev --api-port 8000   # Task name first; arguments from the first one starting with - go to that task
+```
+
+Options can only be supplied when running a single task; a task that accepts no options exits with status 2 if given any.
+
+| Task | What it does |
+| --- | --- |
+| `lint` | `ruff check` and `ruff format --check` on `rvc_next`, `tests` and `scripts`, without changing files |
+| `format` | `ruff check --fix` plus `ruff format`, applying safe fixes and formatting |
+| `test-py` | `python -m pytest` (excludes the `live`, `golden` and `assets` markers by default) |
+| `typecheck-py` | `ty check --python <current interpreter>`; accepts additional ty arguments |
+| `web-install` | `bun install` (in `rvc_next/webui/`) |
+| `web` | `bun run build`: `vue-tsc --noEmit`, then `vite build`, outputting to `rvc_next/webui/dist/` |
+| `web-dev` | Starts only the Vite development server (an API server must already be running) |
+| `dev` | Starts the API and Vite development servers together, tagging output by process; see below |
+| `test-web` | `bun run test` (vitest) plus `bun run typecheck` (vue-tsc) |
+| `openapi` | Prints the OpenAPI schema to standard output without starting a server (`scripts/generate_openapi.py`) |
+| `typegen` | Regenerates `webui/src/api/schema.d.ts` and `webui/src/api/paramSpecs.ts` from the OpenAPI schema; commit the results |
+| `typegen-check` | Runs `typegen`, then `git diff --exit-code` on those two files; fails if generated results differ from the committed files |
+| `wheel` | Calls `scripts/build_wheel.py` |
+| `site-install` / `site-dev` / `site` | Documentation site's `bun install`, local preview and build (in `site/`; see below) |
+| `test-site` | Documentation site's `bun run test` (vitest) plus `bun run check` (tsc) |
+| `test` | `test-py`, `test-web` plus `test-site` |
+| `check` | **Everything CI runs**: `lint`, `typecheck-py`, `test-py`, `test-web`, `test-site`, `typegen-check`; stops at the first failure |
+
+Run `python scripts/dev.py check` before committing. After changing the API (routes, request or response models, event models, or `VoiceParamsModel` / `StreamParamsModel` ranges), run `typegen` and commit both generated files, or `typegen-check` will fail. See [API and events](/docs/development-api) for how this works.
+
+### `dev`: run API and Vite together
+
+```bash
+python scripts/dev.py web-install            # First time
+python scripts/dev.py dev [--api-port 7868] [--web-port 5173] [--data-dir DIR]
+```
+
+- The API side runs `python -m rvc_next webui --no-open --port <api-port> --strict-port`. `--strict-port` is used because Vite's proxy target is fixed at startup: if the API silently switches to the next port, Vite keeps proxying to the wrong address. Use another `--api-port` if the port is occupied (for example, another RVC Next is already on 7868).
+- The Web side runs `bun run dev --port <web-port> --strictPort`, with `RVC_NEXT_BACKEND=http://127.0.0.1:<api-port>`. `vite.config.ts` proxies `/api`, `/openapi.json` and `/ws` to that address (default `http://127.0.0.1:7868`); open `http://localhost:<web-port>` in the browser.
+- The two processes share a lifetime: when either exits, the other stops too; Ctrl+C or SIGTERM stops both. Each subprocess has its own process group, and `dev.py` forwards signals centrally, so running in the background also leaves no orphan processes.
+- Vite has hot module replacement; **the API process does not reload automatically**. Restart `dev` after changing Python code. For frequent backend edits, run `rvc-next webui --no-open --strict-port` and `python scripts/dev.py web-dev` in separate terminals and restart only the former. Proxy failures during an API restart are normal; `vite.config.ts` reduces these errors (`ECONNREFUSED`, `ECONNRESET`, etc.) to at most one message every 5 seconds, rather than filling the screen with stack traces.
+
+## Building the wheel
+
+```bash
+python scripts/build_wheel.py [--ci] [--keep-web-dist] [--outdir DIR]
+# Or
+python scripts/dev.py wheel
+```
+
+Order matters: setuptools packages only files that **already exist when it runs**. `pyproject.toml` declares `rvc_next/webui/dist/**/*` as package data, so build the Web UI first. Running `python -m build` directly produces a package without the Web UI; the server only warns "No web UI build found" at startup and serves the API alone.
+
+The script runs: `bun install --frozen-lockfile` → `bun run build` (with `--ci`, the build-only `build:only`, because CI runs type checks and tests separately) → `python -m build --outdir dist/`. Without `--ci` or `--keep-web-dist`, it deletes `rvc_next/webui/dist/` afterwards to leave the local checkout as it was. Environment variables `CI` and `KEEP_WEB_DIST` supply the defaults for these two switches.
+
+Other data shipped in the package (also declared in `[tool.setuptools.package-data]`): `core/assets/catalog.json`, `core/separation/presets.json`, `engine/train/data/mute/**` (silent training samples, replacing the original's separate `mute.zip` download), and `engine/separate/configs/*.yaml` (separation model configurations). Add any new data files read at runtime to this table, or they will be missing in installations from the wheel.
+
+### Publishing
+
+[`.github/workflows/release.yml`](https://github.com/licyk/rvc-next/blob/main/.github/workflows/release.yml) triggers in three cases: a push to `main` changing `rvc_next/version.py`, a `v*` tag, or a manual run. It reuses `ci.yml` for all checks → builds with `build_wheel.py --ci` → verifies that the wheel contains `rvc_next/webui/dist/index.html`, runs `twine check`, installs in a fresh venv and runs `rvc-next version` → publishes to PyPI (the `pypi` environment, which may require approval) → creates a GitHub Release for tag triggers. A tag trigger also checks that the tag matches `VERSION` in `rvc_next/version.py`. The version exists only in `version.py`; `pyproject.toml` reads it through `dynamic = ["version"]`.
+
+## Building the documentation site
+
+The documentation site (home page and these docs) is a separate frontend project under `site/`, following Hanafubuki's website structure: [Fumadocs](https://fumadocs.dev/) on TanStack Start and Vite, dependencies managed with bun, building to static files.
+
+| Path | Contents |
+| --- | --- |
+| `site/content/docs/*.mdx` | Documentation pages. Chinese uses `<page>.mdx`, English uses the matching `<page>.en.mdx`; `meta.json` / `meta.en.json` define sidebar order and groups (`---group---` is a separator heading) |
+| `site/src/routes/` | Page routes: `index.tsx` is the home page, `docs/$.tsx` renders docs, `api/search.ts` generates the static search index |
+| `site/src/components/home/` | Home page sections; copy lives in `site/src/lib/site-copy.ts`, with Chinese and English versions |
+| `site/src/components/mdx.tsx` | Components available in MDX: `Callout`, `Tabs`/`Tab`, `Cards`/`Card`, `Steps`/`Step`, `Accordions`/`Accordion`, `Mermaid` |
+
+```bash
+python scripts/dev.py site-install   # bun install (site/)
+python scripts/dev.py site-dev       # Local preview at http://127.0.0.1:3000, refreshes automatically on changes
+python scripts/dev.py test-site      # vitest and tsc
+python scripts/dev.py site           # Build to site/.output/public
+```
+
+When writing documentation:
+
+- **Every Chinese page needs an English version.** `src/lib/i18n-content.test.ts` checks that each `.mdx` has a matching `.en.mdx` and that the two `meta` files have the same page order; documentation routes load both languages together, so a missing language prevents that page from building.
+- **When adding a page**, add its filename (without extension) to `meta.json` and `meta.en.json`; put its title, description and sidebar icon (lucide icon name) in frontmatter.
+- **Links** always use `/docs/<page>` (optionally with `#anchor`); use `## Heading [#custom-id]` to give a heading a stable anchor.
+- **MDX is not Markdown**: `<`, `{` and `}` in prose are treated as JSX; put them in code or write `&lt;`, `\{`, `\}`.
+- **Mermaid** diagrams use `<Mermaid chart="…" />`, loaded from a CDN and rendered in the browser on demand.
+
+Publishing: [`.github/workflows/site.yml`](https://github.com/licyk/rvc-next/blob/main/.github/workflows/site.yml) runs when `site/**` changes on `main` (or manually): type checks, tests, a build with `VITE_BASE_PATH=/rvc-next/`, then a force-push of `site/.output/public` to the `gh-pages` branch. The same site can also deploy directly to Netlify (`netlify.toml` at the root), Cloudflare Pages (`wrangler.toml`) or Vercel (`site/vercel.json`); those platforms serve from the root path and need no `VITE_BASE_PATH`. The **Documentation site** job in CI (`ci.yml`) performs the same checks and build on every commit.
+
+## Dependency constraints
+
+The principle in `pyproject.toml`: the **lower bound** is the version the code needs or a dependency requires; the **upper bound** stops before the next untested major version. torch is the exception and has no upper bound, since users install the build for their hardware first. Since RVC Next runs in its own environment, upper bounds do not hinder other projects; they prevent `pip install` from resolving to an untested combination someday. The project has been tested at both ends: torch 2.8 with numpy 1.26, and torch 2.11 with numpy 2.4, both passing the full checks.
+
+| Constraint | Reason |
+| --- | --- |
+| `torch>=2.7.1` | Lower bound: pymss 2.1.7 needs torch 2.7.1. No upper bound: users install the torch build for their hardware first, and with torchaudio and torchfcpe gone no dependency ties torch to a release. The original's side of the golden tests still needs a torchaudio matching torch |
+| `transformers>=5,<6` | 4.x needs `huggingface_hub < 1`, while the current `huggingface_hub` is 1.x. The original pins below 4.50; HuBERT layer outputs are unchanged in 5.x, with bit-identical golden tests (see [Parity with the original](/docs/development-parity)). Also, every `tokenizers` version (including 1.0 prereleases) requires `huggingface_hub < 2`, which prevents sharing an environment with projects using `huggingface_hub` 2.x |
+| `numpy>=1.26,<3` | Allows numpy 2: numpy 1.x has no Python 3.13 wheels |
+| `pymss==2.1.7` | Exact pin: the separation adapter was written for this version's `MSSeparator` |
+| `sounddevice>=0.5.1,<0.6` | From 0.5.1, Windows wheels bundle ASIO-enabled PortAudio (selected by `SD_ENABLE_ASIO`) |
+| `websockets>=12` | Without it, uvicorn has no WebSocket support and socket.io falls back to long polling |
+| `pydantic>=2.7,<3` | Pydantic v2 only (FastAPI ≥ 0.100 already requires v2); SD Model Hub's compatibility layer for v1 hosts was removed |
+| `typer>=0.26.7,<0.28` | Upper bound stops before the next minor version: the CLI factory uses Typer's private module `typer._click` (only in `cli/factory.py`); if Typer moves it, CLI tests (command tree snapshot, `--debug`) fail first |
+| `tomli>=2; python_version < '3.11'` | 3.10 has no `tomllib` |
+| Optional group `directml` | `torch-directml`, `onnxruntime-directml`: DirectML for AMD / Intel GPUs on Windows, ONNX for RMVPE |
+
+The `dev` dependency group **pins exactly** `ruff==0.16.9` and `ty==0.0.84`, and lists each `select` rule in `[tool.ruff.lint]` explicitly: ruff upgrades change the default rule set, so pinning makes check results depend only on the code. `tomli` is also in `dev`, allowing ty to resolve the 3.10 fallback import on newer Python versions.
+
+## Code conventions at a glance
+
+Full explanations are spread across the pages; these are the rules most often encountered when editing code:
+
+- **Python ≥ 3.10**. ruff line length 180, indentation 4; ty targets 3.10 with `error-on-warning`. Suppressions must name the rule (`# ty: ignore[invalid-argument-type]`, `# noqa: E402`).
+- **Keep ported files in their original shape**: `engine/models/{attentions,commons,modules,transforms,synthesizer}.py` and `engine/f0/rmvpe.py` are excluded from `ruff format` and ty; these, along with `engine/audio/denoise.py` and `engine/train/{dataset,losses,mel,slicer}.py`, have exemptions for `B`, `SIM`, `UP` and other rules in `[tool.ruff.lint.per-file-ignores]`. This preserves line-by-line diffs against the original, so avoid incidental cleanup (see [Parity with the original](/docs/development-parity)).
+- **Heavy imports go inside functions**: torch, transformers, faiss, av, pymss, sounddevice. This keeps `rvc-next version` and `--help` fast; layer tests also check that importing core does not load torch.
+- **Pydantic v2 only**. Models crossing the API boundary inherit `Record` from `core/record.py`.
+- Do not name a method `list` on a class with `list[...]` annotations (ty resolves `list` to that method): use names such as `list_assets`, `list_jobs`, `list_voices`.
+- For adding CLI commands, API routes, events or assets, see [CLI implementation](/docs/development-cli), [API and events](/docs/development-api) and [Assets and model repositories](/docs/development-assets), respectively.
+
+## Git workflow
+
+Project history is linear commits on `main`, without long-lived branches. Commit conventions:
+
+- State the **result** in one sentence in the title (for example, "Port FCPE; rvc-next no longer depends on torchfcpe or torchaudio"); explain reasons, tradeoffs and validation in the body;
+- One commit is a complete change: code, tests, regenerated `schema.d.ts` / `paramSpecs.ts`, and any needed `AGENTS.md` update belong together;
+- Pass `python scripts/dev.py check` before committing.
+
+<Callout type="info" title="For coding agents">
+
+`AGENTS.md` requires agents to commit or open PRs only when the user asks. This is a constraint on agents, not a workflow requirement for human contributors.
+
+</Callout>

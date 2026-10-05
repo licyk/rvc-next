@@ -1,0 +1,205 @@
+---
+title: "Voice parameters"
+description: "Voice parameters determine the converted sound: pitch, formant, pitch method, index strength, consonant protection and loudness match, plus the speaker for multi-speaker voices. RVC Next uses the same parameter panel in Convert, Live and Default parameters in voice details, with identical names, ranges, defaults, help and order. The command line and API use the same parameters and ranges."
+icon: SlidersHorizontal
+---
+
+This page explains each parameter and how to use presets.
+
+## Parameter panel
+
+The panel is titled **Voice parameters** and contains:
+
+1. **Pitch method**: a segmented control with three choices;
+2. Five sliders: **Pitch**, **Formant**, **Index strength**, **Consonant protection** and **Loudness match**;
+3. The **Presets** menu at the top right.
+
+Each slider shows its current value and a line of help beneath it. When the value differs from the default, a **Reset to default** (↺) button appears beside it. If a parameter has no effect on the current voice, its slider is dimmed and explains why.
+
+The small text beneath the panel explains when changes apply:
+
+- In **Convert** and voice details: “Changes apply to the next conversion.”, meaning you need to click **Preview 15 s** or **Convert** again after editing;
+- In **Live**: “Changes apply as you drag.”; see [Parameters in live voice conversion](#live) below.
+
+## Parameters at a glance
+
+| Parameter | Range | Default | Slider step | Command-line option |
+| --- | --- | --- | --- | --- |
+| **Pitch method** | `pm` / `rmvpe` / `fcpe` | `rmvpe` | — | `--f0` |
+| **Pitch** | −24 to +24 semitones | 0 | 1 | `--pitch` |
+| **Formant** | −2 to +2 semitones | 0 | 0.1 | `--formant` |
+| **Index strength** | 0 to 1 | 0.75 | 0.01 | `--index-rate` |
+| **Consonant protection** | 0 to 0.5 | 0.33 | 0.01 | `--protect` |
+| **Loudness match** | 0 to 1 | 0.25 | 0.01 | `--rms-mix` |
+| **Speaker** | 0 to 109 | 0 | — | `--speaker` |
+
+The server validates these ranges, and the interface reads the server's definitions directly, so it cannot allow a value that the server rejects.
+
+## Pitch method [#f0]
+
+> How the pitch of the input is followed.
+
+RVC first extracts pitch (F0) for each input frame, then has the voice generate sound at that pitch (plus the **Pitch** shift). There are three methods:
+
+| Option | Characteristics | Required download |
+| --- | --- | --- |
+| **pm (fast)** | Traditional Praat-based method, fastest and CPU-friendly; can mistrack singing, breathy voices and noisy recordings | None |
+| **RMVPE (best)** | Neural pitch model, most accurate and noise-resistant, suitable for singing; the default | RMVPE (about 173 MB) |
+| **FCPE** | Lightweight neural pitch model, fast with a small model file | FCPE (about 41 MB) |
+
+Suggestions:
+
+- Keep **RMVPE** in most cases.
+- Without a GPU, if speed matters, try **FCPE**, or **pm** for clean speech.
+- Sudden off-key notes, voice breaks or erratic pitch usually indicate pitch-tracking errors; switching to **RMVPE** often resolves them.
+
+If the selected method's model is not downloaded, the run button is replaced by “**Needs RMVPE**” or “**Needs FCPE**” and a **Download** button.
+
+Voices with **no pitch guidance** (trained with pitch guidance disabled) do not use pitch. This row is dimmed, the selected method has no effect, and no pitch model download is required.
+
+## Pitch [#pitch]
+
+> Shift in semitones: +12 is an octave up. Use about +12 from a male to a female voice.
+
+Shift the input pitch by a number of semitones before passing it to the voice. This is the most commonly adjusted parameter:
+
+| Situation | Suggested value |
+| --- | --- |
+| Male input, female voice model | Around +12 (sometimes +8 to +12 sounds more natural) |
+| Female input, male voice model | Around −12 |
+| Same gender | 0, then fine-tune by ±1 to ±3 as needed |
+| Match the original song's key for a cover | Use mainly multiples of 12 to suit the voice's range and avoid going out of key with the accompaniment |
+
+The goal is to keep the shifted pitch within **the range of the voice's training data**. Straying too far can make the voice sound weak, off-key or distorted.
+
+<Callout type="warn" title="Take care when transposing songs">
+
+If **Separate first** and **Add accompaniment back** are enabled, the accompaniment is not transposed. Use **Pitch** 0 or ±12 where possible; otherwise, the vocals and accompaniment will be in different keys.
+
+</Callout>
+The interface adjusts in steps of 1 semitone; the command line and API accept decimals, such as `--pitch 1.5`. **Pitch** affects only voices with pitch guidance.
+
+## Formant [#formant]
+
+> Shifts the vocal tract colour without changing pitch.
+
+Formants affect how old the speaker sounds. **Positive values** raise formants, making the voice thinner, brighter and younger; **negative values** lower them, making the voice fuller and deeper. Pitch stays the same.
+
+- In cross-gender conversion, if the voice still does not sound right after adjusting **Pitch**, shift **Formant** slightly in the same direction, such as +0.5 to +1 for male-to-female conversion;
+- Avoid large adjustments: ±2 is already a pronounced change, and excessive shifts sound unnatural.
+
+<Callout type="info" title="Difference from the original">
+
+The original RVC offers formant shifting only in live voice conversion. RVC Next applies the same method to file conversion as well; at **Formant** 0, the computation is identical to the original.
+
+</Callout>
+## Index strength [#index-rate]
+
+> How much of the voice's own timbre is drawn from its index.
+
+A voice's index (`.index` file) stores features from its training data. During conversion, RVC finds the features closest to the input and mixes them in at this ratio, making the result closer to the training voice.
+
+- **Higher**: the voice sounds closer to the training data, including the training speaker's accent and articulation; a poor index or too little data can introduce noise, muffling or unclear articulation;
+- **Lower**: preserves more of the input's pronunciation, with clearer articulation but less voice similarity;
+- **0**: does not use the index at all.
+
+Start at the default 0.75; lower to 0.3–0.6 if pronunciation is muffled or noisy.
+
+If the voice has no attached index, this slider is dimmed and shows “This voice has no index, so index strength has no effect. Attach one in Models.” See [Model management](/docs/guide-models) for attaching indexes. Multi-speaker voices can have a separate index for each speaker; conversion uses the selected speaker's index.
+
+## Consonant protection [#protect]
+
+> Keeps breaths and consonants clear; 0.5 turns it off.
+
+Unvoiced consonants (such as s, sh, t and k) and breaths have no pitch. Replacing them with voice features can cause robotic sounds or tearing artifacts. Consonant protection preserves more of the input's features in these unpitched regions.
+
+- **Lower values give stronger protection**; **0.5 disables protection**;
+- The default 0.33 suits most cases;
+- If sibilants or breaths have tearing or electronic artifacts, lower it to 0.2–0.3;
+- Very strong protection (close to 0) makes these regions sound more like the original and weakens the effect of **Index strength**.
+
+Voices with **no pitch guidance** do not use this parameter; the slider is dimmed and shows “This voice has no pitch guidance, so this has no effect.”
+
+## Loudness match [#rms-mix]
+
+> 0 follows the input's loudness, 1 keeps the converted loudness.
+
+Controls which loudness variations (loudness envelope) the output follows:
+
+- **0**: output volume variations fully follow the input, useful for singing where you want to preserve the original dynamics;
+- **1**: keep the model-generated loudness without adjustment;
+- Default **0.25**: mainly follows the input's variations.
+
+Lower it to preserve more of the original dynamics; raise it to stay closer to the model's own loudness. If unsure, keep the default.
+
+## Speaker [#speaker]
+
+Multi-speaker voices (with speaker information in the model file) add a **Speaker** dropdown beneath the voice picker, listing speakers by name and number. Selecting a new voice automatically selects its first speaker.
+
+Single-speaker voices do not show this dropdown and use ID 0. Speaker names can be edited in voice details; see [Model management](/docs/guide-models). Specify one on the command line with `--speaker <id>`.
+
+## Presets [#presets]
+
+A preset is a saved set of voice parameters (excluding speaker). Each preset either **belongs to one voice** or is shared by **all voices**.
+
+### Each voice's default preset
+
+- Every voice has a **default preset**, created automatically on import and named `Default`, with initial values from `convert.default_params` in settings (the defaults in the table above).
+- **Selecting a voice on any page automatically loads its default preset into the parameter panel** (the speaker is unchanged). Save your usual pitch, index strength and other values in the default preset to make the voice ready to use as soon as you select it in **Convert** or **Live**.
+- To edit the default preset, open **Models › Voices**, click a voice to open its details, adjust the **Default parameters** section and click **Save**.
+
+### Apply a preset
+
+Click **Presets** at the top right of the parameter panel. The menu lists:
+
+- Presets for the current voice, with “· default” on the default preset;
+- Presets shared by all voices, labeled “· all voices”;
+- **Save as preset** as the last item.
+
+Click a preset to apply its parameters (the speaker is unchanged); its name appears in a notification at the bottom of the screen.
+
+### Save a preset
+
+1. After adjusting parameters, click **Presets** › **Save as preset**.
+2. Enter a name in **Preset name**.
+3. Check **For this voice only** to make the preset belong to the current voice; uncheck it to save a preset shared by all voices.
+4. With **For this voice only** checked, you can also check **Make it this voice's default** to replace the previous default preset.
+5. Click **Save**.
+
+The interface does not yet support deleting or renaming presets; use the command line:
+
+```bash
+rvc-next preset list --voice kikiV1                     # Presets for this voice and shared presets
+rvc-next preset save male-to-female --voice kikiV1 --pitch 12 --index-rate 0.6
+rvc-next preset save Everyday --voice kikiV1 --pitch 12 --default   # Set as this voice's default preset
+rvc-next preset remove male-to-female --voice kikiV1
+```
+
+`rvc-next convert` starts from the voice's default preset. Use `--preset <name>` to select another preset, then override individual values with options such as `--pitch`.
+
+## Parameters in live voice conversion [#live]
+
+On **Live**, the parameter panel's help changes to “Changes apply as you drag.”: all voice parameters (**Pitch**, **Formant**, **Index strength**, **Consonant protection**, **Loudness match**) apply to the running conversion as you drag their sliders, without stopping and restarting.
+
+- When switching **Pitch method**, the new method's model loads in the background. If it has not been downloaded, conversion continues using the previous method and reports the missing model.
+- Switching **Speaker** also switches to that speaker's index.
+- Switching voices also applies immediately and loads the new voice's default preset.
+- Parameters used on Live are remembered and restored next time you open it.
+
+Live also has **Buffering and clean-up** parameters that control latency and stability:
+
+| Parameter | Range | Default | When changes apply |
+| --- | --- | --- | --- |
+| **Block** | 20–1500 ms | 250 ms | The audio stream briefly rebuffers after a change |
+| **Crossfade** | 10–150 ms | 50 ms | The audio stream briefly rebuffers after a change |
+| **Context** | 50–5000 ms | 2500 ms | The audio stream briefly rebuffers after a change |
+| **Input gate** | −60 to 0 dB (−60 disables it) | −60 dB | Immediately |
+| **Reduce input noise** / **Reduce output noise** | On / off | Off | Immediately |
+
+See [Live voice conversion](/docs/guide-live) for detailed explanations and adjustment tips.
+
+<Callout type="info">
+
+Live voice conversion has not yet been validated on real sound cards; its parameter mathematics match the original live voice conversion block by block (tested on CPU).
+
+</Callout>

@@ -1,0 +1,439 @@
+---
+title: "Core services"
+description: "Core (rvcnext/core/) contains all RVC Next business logic: job scheduling, GPU memory management, asset downloads, the voice library and imports, conversion, vocal separation, training, live voice conversion, and their shared settings, events and database. The API and CLI are thin wrappers; it calls the engine (rvcnext/engine/) through functions and imports torch lazily only inside functions."
+icon: Boxes
+---
+
+This page explains, service by service, what the code does today and why. For the overall picture of layer rules, `build_services()`, error codes, settings precedence and the event bus, see [Architecture](/docs/development-architecture); for the asset catalog and download repositories, see [Assets and model repositories](/docs/development-assets); for engine internals, see [Engine](/docs/development-engine).
+
+## Service overview
+
+`core/context.py:build_services()` constructs each service once in dependency order and places them in the `Services` dataclass:
+
+| Field | Class | Location | Responsibility |
+| --- | --- | --- | --- |
+| `settings` | `SettingsService` | `core/settings/` | `settings.toml`, environment overrides, directory resolution |
+| `events` | `LocalEventBus` | `core/events/` | In-process publish/subscribe |
+| `db` | `Database` | `core/db/` | SQLite (`rvc-next.db`) |
+| `http` | `HttpClientProvider` | `core/net/http.py` | Shared httpx client (tests can inject `transport`) |
+| `compute` | `ComputeService` | `core/compute/` | Engine runtime, GPU lease, GPU memory release |
+| `jobs` | `JobService` | `core/jobs/` | Queue, resources, runners, history |
+| `assets` | `AssetService` | `core/assets/` | Asset catalog, downloads, verification, demo voices |
+| `audio` | `AudioFileService` | `core/audio/` | Uploads, server paths, waveform peaks, output records |
+| `models` | `VoiceModelService` | `core/models/service.py` | Voice library, legacy directories, merging and extraction |
+| `inbox` | `IndexInbox` | `core/models/inbox.py` | Indexes not yet assigned to a voice |
+| `imports` | `ImportService` | `core/models/imports.py` | Import sessions |
+| `base_models` | `BaseModelService` | `core/models/base.py` | Training base models |
+| `separation_models` | `SeparationLibrary` | `core/separation/library.py` | Imported vocal separation models |
+| `presets` | `PresetService` | `core/presets/` | Voice parameter presets |
+| `separation` | `SeparationService` | `core/separation/service.py` | Vocal separation jobs |
+| `conversion` | `ConversionService` | `core/conversion/` | Offline conversion jobs |
+| `training` | `TrainingService` | `core/training/` | Experiments and training stages |
+| `live` | `LiveService` | `core/live/` | Live voice conversion sessions and audio devices |
+
+Several services need each other (the voice library creates default presets, the asset service adds downloaded demo voices to the library, import sessions write base and separation models). Constructors cannot express cyclic dependencies, so `build_services()` connects these attributes after construction: `models.presets`, `assets.models`, `models.imports`, `imports.base`, `imports.separation`, `training.base`, `separation.library`. Follow this approach for new dependencies of this kind instead of passing services to each other in constructors.
+
+`build_services()` calls `models.rescan()` last. With `start_background=True` (the server), it also cleans expired uploads (`audio.cleanup()`), starts idle unloading (`compute.start()`) and job scheduling (`jobs.start()`); the CLI starts none of these, instead running a job in the foreground with `jobs.run_now()`.
+
+## Jobs
+
+Every lengthy operation is a job (`core/jobs/`): one card, one cancel button, one log, consistently across the Web UI, API and CLI. This replaces the original's separate progress displays in each tab and global `TRAIN_TASK` lock.
+
+### Registration and requests
+
+A job kind registers a factory with `JobService.register(kind, factory)`: `request dict → JobSpec(title, run, resources, steps, priority)`. The request itself (plain JSON) is stored in the `jobs.request` column, so **Retry** can resubmit the same request after a server restart (`retry()` is `submit(job.kind, job.request)`). Factories should revalidate requests because a voice or file may have changed by retry time.
+
+| kind | Registered by | Resources | Execution |
+| --- | --- | --- | --- |
+| `convert` | `ConversionService` | `gpu` (`cpu` when `compute.device == "cpu"`) | In-process; starts a separation worker first if separation is a preliminary step |
+| `separate` | `SeparationService` | Same as above | `workers.separate` subprocess |
+| `train` | `TrainingService` | `gpu` (`cpu` when the device or experiment's `fit.gpus` is `cpu`) | One `workers.train` subprocess per stage |
+| `index` | `TrainingService` | `cpu` | `index` stage of `workers.train` |
+| `export` | `TrainingService` | `io` | In-process |
+| `download` | `AssetService` | `io` | In-process (httpx) |
+| `merge`, `extract` | `VoiceModelService` | `cpu` | In-process |
+
+Import is not a job: committing an import is synchronous (see “Import sessions” below).
+
+### States and scheduling
+
+<Mermaid chart={"stateDiagram-v2\n    [*] --> queued: submit()\n    queued --> waiting: Resources full / GPU lease held\n    waiting --> running: Resources released\n    queued --> running: Resources free\n    queued --> cancelled: cancel()\n    waiting --> cancelled: cancel()\n    running --> cancelling: cancel()\n    cancelling --> cancelled\n    running --> completed\n    running --> failed\n    running --> cancelled: JobCancelled / engine Cancelled\n    queued --> interrupted: Server restart\n    waiting --> interrupted: Server restart\n    running --> interrupted: Server restart\n    cancelling --> interrupted: Server restart"} />
+
+The scheduler thread `_schedule_loop()` checks once per second or when awakened by `notify()`: it sorts by `(-priority, created_at)` (preview conversion's `priority` is `PREVIEW_PRIORITY = 10`, so previews always jump the queue) and checks each declared resource for every queued job:
+
+- **Capacity**: `gpu` is `compute.gpu_jobs` (default 1), `cpu` is half the CPU cores, `io` is 4. Full resources put the job in `waiting`, with `waiting_for` set to `gpu` or `cpu`.
+- **GPU lease**: jobs needing `gpu` also need `compute.try_acquire("jobs")`. Multiple GPU jobs can share a lease held by `jobs`; only live voice conversion (holder `live`) blocks them. Blocked jobs have `can_run_anyway = True`, and the UI offers **Run anyway** (`run_anyway()`): bypass the lease and start, at the cost of possible audio glitches in live voice conversion.
+- The last GPU job releases the lease when it ends (`finally` in `_thread_main`).
+
+### Two runners
+
+- **In-process**: `run(ctx)` executes on a separate thread, reporting progress (`progress`), steps (`step`, `add_steps`), logs (`log`) and downloaded bytes (`transfer`) through `JobContext`, checking cancellation with `check_cancel()` or `cancel_token()` (an engine `CancelToken` following job cancellation). Conversion checks cancellation between chunks.
+- **Subprocess**: `ctx.run_worker(module, request, on_event=None, env=None)` writes the request to `jobs/<job id>.<random id>.request.json`, runs `python -m <module> <request.json>` with the current interpreter (`core/process.py:worker_command`, replacing the original's `--pycmd`), and parses stdout JSON events line by line (`rvc_next/protocol/messages.py`). `progress`/`step` apply directly to the job by default, or are handled by the caller when `on_event` is supplied (separation and training map subprocess progress to a range within the whole job); `log` always goes to the job log; `result` becomes the return value; `core/engine_errors.py:worker_error()` reconstructs `error` events as domain errors; a nonzero exit without an `error` event becomes `WorkerExit`. Cancellation calls `kill_process_tree()` on a background thread (`taskkill /t /f` on Windows; `SIGTERM` then `SIGKILL` to the new session's process group elsewhere), because PyMSS and training loops have no reliable internal cancellation points, and killing the process fully returns GPU memory.
+
+Subprocesses always start with `start_process()`: a separate process group, closed `stdin`, `stderr` merged into `stdout`, `PYTHONUNBUFFERED=1`, `PYTHONIOENCODING=utf-8`.
+
+The CLI calls `run_now()`: direct execution on the current thread, with Ctrl+C triggering cancellation and killing the subprocess tree, recording the job as `cancelled`.
+
+### Failures
+
+`_execute()` uses `map_engine_error()` to map engine exceptions (`MissingAssetError`, `ModelFormatError`, `AudioError`, OOM, CUDA errors) to domain errors. Unmapped exceptions and their tracebacks go to the job log—tracebacks only appear in logs, never in the main UI. OOM (`ComputeError`, `detail.reason == "out_of_memory"`) adds an explanatory log line and calls `compute.release_after_oom()`; see “GPU memory” below. There is no automatic retry.
+
+### Progress, logs and persistence
+
+| Content | Throttling | Reason |
+| --- | --- | --- |
+| `job_updated` progress events | At most 4/s per job (`PROGRESS_INTERVAL = 0.25`) | Events carry the full `Job` snapshot, so cannot be sent per audio block |
+| Progress database writes | Every 2 seconds (`DB_PROGRESS_INTERVAL`) | SQLite writes have a cost; progress is only for display |
+| State and step changes | Write and publish immediately | Users must see these transitions |
+| `job_log` | One batch every 0.25 seconds, at most 50 lines (`MAX_LOG_EVENT_LINES`) | Events only signal new logs; full contents use REST |
+| `transfer` | Same as progress | — |
+
+Logs are written to `jobs/<id>.log`. `read_log(job_id, offset, limit_bytes=256 KiB)` reads by **byte offset**, trimming to the last newline if it fills the limit and returning `next_offset`; `job_log` also carries `offset`, letting clients detect missing lines and fetch them.
+
+`Job.transfer` (`Transfer`: `done_bytes`, `total_bytes`, `bytes_per_second`, `eta_seconds`) is calculated by `ctx.transfer(done, total)`: it keeps samples from the last 5 seconds (`TRANSFER_WINDOW`) to calculate speed, requiring a span of at least 0.5 seconds before reporting it; if byte count decreases (a file restarts from scratch), the sample window is cleared. `transfer` is cleared when the job ends.
+
+### Restarts and history
+
+`JobService` calls `_mark_interrupted()` at construction: all rows still in `queued`/`waiting`/`running`/`cancelling` become `interrupted`—**unless** `server.json` in the data directory points to a living process. This exception lets the CLI (for example, `rvc-next jobs list`) open the same database while the server is running without marking the server's jobs interrupted.
+
+`delete()` refuses active jobs; `clear_finished()` removes rows and logs for all finished jobs (leaving output files) and publishes `jobs_cleared`. `list_jobs()` paginates with a `created_at|id` cursor; `state` can be `active`, `finished` or a specific state; active jobs replace database rows with the latest in-memory snapshots.
+
+## GPU memory
+
+`ComputeService` (`core/compute/service.py`) holds the server's (or a command's) own engine runtime and coordinates everything using the GPU. Memory management follows ComfyUI's `comfy/model_management.py`.
+
+- **Runtime is created lazily.** `runtime()` constructs `engine.runtime.Runtime` only on its first call (only then importing torch), so commands such as `version` and `config` never touch torch. The key is `(compute.device, compute.precision, compute.cuda_graph_offline, assets_dir)`; a settings change altering the key makes the listener release the old runtime and rebuild on next use. The runtime caches HuBERT, F0 models, the last 3 voices and indexes (see [Engine](/docs/development-engine)).
+- **GPU lease.** One holder at a time: `jobs` (shared by all concurrent GPU jobs) or `live`. `acquire_live()` takes the lease immediately—already running GPU jobs keep their memory and continue, while new jobs wait. This implements live voice conversion priority, since audio stutter is immediately noticeable. Stopping, errors or worker exit release the lease and wake scheduling with `jobs.notify()`.
+- **`MemoryHolder`.** Each component using GPU memory or models outside the server runtime registers one: jobs registers `jobs` (`busy` = any queued or running job), live voice conversion registers `live` (`busy` = active session or `stopping`; `cached` = loaded models reported in the live worker's last state; `release` = send `P.ReleaseMemory` to the idle worker).
+- **Free GPU memory** (`release()`, `POST /compute/release`): allowed whenever `busy()` is empty, not only when the server has cached models, since an idle live worker still holds HuBERT, voice and F0 models in its own process. A busy holder causes `ConflictError` (409, `detail.reason = "busy"`, reasons in `detail.busy`), because releasing models in use would only reload them immediately. Unloading drops caches, calls `gc.collect()`, then `synchronize`, `empty_cache`, `ipc_collect` (`engine/runtime.soft_empty_cache`). This replaces the original's “unload voice to save GPU memory” button.
+- **Out of memory.** `engine/runtime.is_oom` identifies `torch.OutOfMemoryError`, `AcceleratorError` code 2 and MPS/DirectML error text, normalising them to `compute_unavailable`, `detail.reason = "out_of_memory"`. Whether from in-process jobs, worker `error` events or live worker error states, core calls `release_after_oom()`: unload every model **not in use** (running jobs retain models through their own references until they end; running live voice conversion retains its own), so retries start with an empty GPU. The live worker unloads its own models first.
+- **Idle unloading.** `start()` starts a thread calling `Runtime.release_idle(compute.unload_after_minutes × 60)` every 30 seconds (default 10 minutes, 0 disables unloading).
+- **Reporting.** `usage()` returns `ComputeUsage`: device, used/total GPU memory, caches (live worker models prefixed with `live:`), lease holder, `busy` and `can_release`. `emit_usage()` publishes `compute_changed` at most once per second (immediately with `force=True`); job and live session state transitions force publication, letting the top-bar GPU memory menu enable or disable “Free GPU memory”.
+- `info()` lists each device and precision selected by GPU rules (imports torch), for `GET /compute/devices` and `doctor`.
+
+## Assets
+
+`AssetService` (`core/assets/service.py`) reads packaged `catalog.json`, calculates each asset's state, downloads or verifies through `download` jobs, and manages demo voices. See [Assets and model repositories](/docs/development-assets) for catalog format, the two repositories, resumable downloads and verification cache. This section records how other services use it:
+
+- `require(ids, what)`: operations needing assets call this **before submitting a job**; missing assets raise `AssetMissingError` (409, exit code 7), with ids in `detail.assets` and bytes still needed in `detail.size`, letting the UI's `AssetGate` offer downloads in place. Jobs check again when running because assets may be deleted while queued.
+- Conversion and live voice conversion need `hubert`; pitch-guided voices also need `rmvpe` (`rmvpe-onnx` when `compute.device == "dml"`) or `fcpe`; pm needs no asset. See “Training” below for training preflight checks.
+
+## Voice library
+
+A voice is the unit users choose throughout the app: a small model, its indexes, speakers and default parameters. `VoiceModelService` (`core/models/service.py`) manages them.
+
+### Disk layout and database cache
+
+Every model type under `models/` (`paths.models_dir`, inside the data directory by default) is a folder with a JSON sidecar:
+
+| Folder | Contents | Sidecar | Service |
+| --- | --- | --- | --- |
+| `models/voices/<slug>/` | `model.pth`, `model.index` or `spkid<N>.index` | `voice.json` | `VoiceModelService` |
+| `models/indexes/<id>/` | `model.index` | `index.json` | `IndexInbox` |
+| `models/base/<slug>/` | `G.pth`, optional `D.pth` | `base.json` | `BaseModelService` |
+| `models/separation/<slug>/` | `model.<ext>`, `config.yaml` | `separation.json` | `SeparationLibrary` |
+| `models/attached-indexes/<voice>/` | Indexes copied for legacy or temporary voices | — | `VoiceModelService.set_index` |
+
+Only voices enter the database (`voice_models`), and only as a cache: `rescan()` rebuilds it from `models/voices/` and legacy directories, removing rows whose files are gone. Base models, separation models and inbox indexes scan folders directly on every listing—no query requires them in the database, and folder scans cannot drift from files (one departure in AGENTS.md §8).
+
+`voice.json` records `name`, `description`, `tags`, `speakers` (user-named speakers), `source_files`, `index_sources` (original filenames at index import, for tracing renamed `.index` files), `imported_at`, and provenance fields (`catalog_id`, `merged_from`/`alpha`, `extracted_from`, `experiment`/`checkpoint`). `.pth` itself is never rewritten, so library voices remain directly usable in the original.
+
+Writes first go to a temporary `.<slug>.part` folder, then `rename` the whole folder (`_add_to_library`); sidecars use `.tmp` then `replace`, so failures cannot leave a partial voice. Libraries before 2026-10-04 used `models/<slug>/`; `_migrate_layout()` in `rescan()` moves folders containing `model.pth` whose names are not reserved (`RESERVED`) into `models/voices/`, retaining ids.
+
+`_upsert_from_pth()` checks `(mtime_ns, size, model_path)` for `.pth` changes: unchanged files update only metadata columns; changed files use engine `checkpoint.summarize` to reread sample rate, version, pitch guidance, speakers and `info`. Training checkpoints (G) are rejected with a prompt to extract first.
+
+### Voice ids and locations
+
+| `location` | Id form | Source |
+| --- | --- | --- |
+| `library` | `slugify(name)`, adding `-2`, `-3` on conflict | Import, download, merge, extraction, training export |
+| `legacy:<root id>` | `legacy-<root id>-<slug>` | Original installation's `assets/weights/*.pth`, read in place |
+| `temporary` | `tmp-<first 12 characters of path sha1>` | `.pth` paths supplied directly on the CLI, training “Try” |
+
+`slugify()` preserves Chinese, Japanese, Korean and other scripts, collapsing other symbols to hyphens. Temporary voices are hidden from lists; `resolve(ref)` tries id, name (case-insensitive), then (for the CLI) `.pth` path.
+
+### Speakers
+
+A voice is multi-speaker only when its `.pth` has `speaker_info` (or the user has named speakers). Every trained voice has 109 speaker embedding rows; using row count would make every voice multi-speaker (AGENTS.md §8). `speaker_slots` still reports embedding row count to validate `speaker_id` ranges. Speaker names live in `voice.json` (`legacy-voices.json` for legacy voices), without modifying `.pth`.
+
+### Indexes
+
+Each voice has at most one index per speaker key: `default` or `spk<N>`, with filenames `model.index` and `spkid<N>.index`; attaching another replaces the old one (multiple indexes per key are unsupported, decided during import planning). `index_for(voice, speaker_id)` tries `spk<N>`, then `default`; a multi-speaker voice without the appropriate key does not fall back to another speaker's index.
+
+`set_index()` accepts any filename but first runs `check_index_fits()`: index width must match the voice version (256 ↔ v1, 768 ↔ v2), otherwise `ValidationError` (`detail.reason = "version_mismatch"`); a `trained_` index with `ntotal == 0` raises `empty_index`. Library voices get a copy; legacy or temporary voices record only the path—unless the source is an upload, inbox or import session (`persist`), when it is first copied to `models/attached-indexes/<voice>/`, since legacy installation folders are never written.
+
+### Legacy directories
+
+`paths.legacy_roots` points to original RVC installations. `add_legacy_root()` requires `assets/` under the directory and scans immediately after generating a root id. Scans read `assets/weights/*.pth`; on the first scan and explicit user rescans (only voices whose indexes remain suggestions, `suggested` true), `importers.suggest_index()` suggests indexes using the original's `get_index_path_from_model` scoring: search `assets/indices` and `logs` for `added` indexes containing the experiment name, favouring matching speakers, standard naming, earlier roots and newer files. Suggestions and subsequent user edits live in `legacy-voices.json` in the data directory. Inference never guesses indexes: the original rescored filenames on every model selection, writing the result into a text field the user may have edited.
+
+Legacy voices can only be hidden (`hidden`), not deleted; `import_legacy_root()` (**Import all**) copies them into the library. `remove_legacy_root()` forgets the directory without touching files.
+
+### Merging and extraction
+
+Both are `cpu` jobs, writing into a temporary folder under `uploads/`, then entering the library through `add_model_file()`:
+
+- `merge`: `engine.models.merge.merge_models(a, b, alpha)`, recording `merged_from` and `alpha`.
+- `extract`: extracts a small model from a G checkpoint. `checkpoint` can be an absolute path or `<experiment name>/<filename>`. Sample rate, version, pitch guidance and speakers are read first from `experiment.json` or original `config.json` beside the checkpoint (`_checkpoint_context`); the user supplies sample rate only if it cannot be read—the original required users to fill these in manually, producing broken models when incorrect.
+
+Deleting a library voice moves the whole folder to the system trash (`send2trash`), falling back to the data directory's `trash/` (`core/files.py:trash`).
+
+## Import sessions
+
+All import entry points—the Web UI drop zones, `PUT /models/imports/{sid}/files`, `POST /models/imports/{sid}/paths`, `rvc-next model import`, old one-step `PUT /models/import` and `POST /models/import-path`—use the same import session (`core/models/imports.py`). The goal: correctly pair `.pth` and `.index` files even when their names are unrelated, and independently import four model types (voices, indexes, base models, separation models).
+
+<Mermaid chart={"flowchart LR\n    A[\"create<br/>uploads/imports/sid\"] --> B[\"Stage<br/>add_upload / add_paths<br/>Unpack zip\"]\n    B --> C[\"Identify by content<br/>_inspect → StagedFile\"]\n    C --> D[\"Calculate plan<br/>plan → ImportPlan\"]\n    D -->|confident| F[\"commit\"]\n    D -->|Decisions needed| E[\"ImportReviewDialog<br/>or CLI --pair, etc.\"]\n    E --> F\n    F --> G[\"Voices / indexes / inbox / base models / separation models<br/>models_changed\"]"} />
+
+### Staging
+
+A session is `uploads/imports/<sid>/`, containing `session.json` and `files/<file id>/<original filename>`; creating a session also removes old sessions idle for 24 hours (`SESSION_TTL`).
+
+- Upload: stream the raw request body into `.part`, then move into the session.
+- Server paths: prefer hard links, copying if they fail (avoids copying large files twice). Folders are collected recursively; an original RVC installation (with `assets/weights/`) contributes only `assets/weights/*.pth` and `added_*.index` under `assets/indices`, `logs`.
+- `.zip`: extract supported members individually (skip directories, hidden files, `__MACOSX`; 4 GiB limit per member), keeping archive folders as `group`.
+
+`group` (source folder or archive) is pairing evidence: files in the same group likely belong together.
+
+### Identification by content
+
+The extension only selects a reader; content determines what the file is:
+
+| Reader (extension) | Identification | Information read |
+| --- | --- | --- |
+| faiss (`.index`) | Index | Width `d` (256 → v1, 768 → v2), vector count `ntotal` (0 means `trained_` index), `engine/index/inspect.py` |
+| torch (`.pth`, `.pt`) | Has `weight` and `config` → voice (small model) | Version, sample rate, pitch guidance, speakers |
+| Same | State dict has `discriminators.*` → discriminator D | Sub-discriminator count: 7 → v1, 9 → v2 (D has no sample rate) |
+| Same | State dict has `dec.*` → generator G | `enc_p.emb_phone` width determines version, `enc_q.pre` input width and upsampling kernels determine rate, `dec.m_source` means pitch guidance (`engine/models/checkpoint.py:inspect_checkpoint`) |
+| Same | Other | Vocal separation checkpoint (some separation models ship as `.pth`, claimed by YAML in the same import) |
+| YAML (`.yaml`, `.yml`) | Vocal separation configuration | pymss_core's `detect_model_type`, `training.instruments`, `target_instrument` |
+| `.ckpt`, `.bin`, `.safetensors`, `.chpt` | Vocal separation checkpoint | Not read; verified by trial loading in the separation worker at commit |
+
+Unreadable files become `unsupported` with a reason and are listed in `skipped` at commit.
+
+### Pairing rules
+
+`core/models/pairing.py` contains pure functions using only identification results, suitable for table-driven tests.
+
+**Index ↔ voice** (`pair_indexes`):
+
+1. **Hard checks**: `ntotal == 0` → `empty`; width other than 256/768 → `incompatible`; version-compatible candidates come from this import first, considering library voices **only when this import has no suitable voice**—otherwise a similarly named library voice could compete with a “new voice + its index” import. No candidates → `incompatible`.
+2. **Name scoring** (`name_score`): the experiment name parsed from `added_IVF<n>_Flat_nprobe_1_<exp>_<v1|v2>[_spkid<N>]` equals the voice name with `_e<N>_s<N>` removed → 1.0 (`experiment_name`); one contains the other (at least 3 characters) → 0.8 (`name_contains`); otherwise token-set Jaccard × 0.7 after removing boilerplate tokens (`similar_name`). Bonuses: same folder/archive +0.2 (`same_folder`), matching version suffix +0.1, `_spkid<N>` matches a voice speaker +0.1 (`speaker`, also setting the key to `spk<N>`).
+3. **Decision**:
+    - `unique`: only one compatible voice in this import, and only this compatible index competing for the same key → automatic pairing, `confident`, regardless of names (“pair by version”).
+    - `evidence`: highest score ≥ 0.5 with a lead ≥ 0.25 over second place → proposal; `confident` only when the target is a voice in this import and score ≥ 0.8.
+    - `choose`: all other cases; no proposal, user chooses a candidate.
+    - `duplicate`: two indexes proposed for the same voice and key leave the lower-scoring one for the user to decide.
+
+**G ↔ D, YAML ↔ checkpoint** (`pair_partners`): pair directly when one-to-one (G/D also require matching versions); otherwise replacing `G` with `D` in the G name (`G_TO_D`: `f0G40k` ↔ `f0D40k`, `G_2333333` ↔ `D_2333333`) gives 1.0 for an exact match, plus token-set similarity and same-group bonuses, with the same thresholds as indexes.
+
+`plan()` recalculates on every request, always reflecting the current voice library. A plan is `confident` when: it has actionable contents; every non-`empty` index is `confident`; every YAML has a checkpoint; every D is paired with G. Primary/secondary stems for separation plans are inferred from `target_instrument`; the `vocals`/`other` pair defaults the secondary label to `instrumental`.
+
+### Commit
+
+`commit(sid, decisions)` first uses `apply()` to overlay user decisions (`ImportDecisions`; omitted lists retain proposals) on the plan. `_validate()` repeats hard checks (empty indexes, version mismatch, two indexes for the same voice and key), then executes **synchronously**: import voices with their assigned indexes; pass indexes assigned to library voices to `set_index()`; put unassigned indexes or those assigned to skipped voices in the inbox; make G a base model (`base`) or extract it as a voice (`extract`) according to `action`; add YAML plus checkpoint to the separation library. Finally, delete the session and publish one `models_changed`.
+
+The plan originally proposed committing as a job with a new `imports_changed` event; in practice everything is local copying, with separation trial loading the slowest step (seconds), so it directly returns `ImportResult` (`voices`, `attached`, `inbox`, `base_models`, `separation_models`, `checkpoints`, `skipped`).
+
+`import_now()` is one-step import (CLI, old routes, all “direct imports” except demo voices): create session, stage, calculate plan; `name` applies only with exactly one voice; `--index` can pair only one voice; a non-`confident` plan without decisions raises `ConflictError` with the full plan in `detail.plan`—API returns 409, CLI prints the plan and exits with 3, with `--pair`, `--keep-unassigned`, `--extract` supplying decisions. The session is deleted on success or failure.
+
+## Index inbox
+
+`IndexInbox` (`core/models/inbox.py`) stores indexes with no paired voice: `models/indexes/<id>/model.index` plus `index.json` (import name, width, vector count, time). `list_indexes()` reruns `pair_indexes` against library voices every time, returning compatible candidates and proposals; `assign()` attaches through `set_index()` (including version checks), then removes the inbox entry; `delete()` moves it to trash. Inbox ids in events have an `index:` prefix.
+
+## Base models
+
+`BaseModelService` (`core/models/base.py`) lists official and imported base models together:
+
+- Official: 12 combinations of `v1`/`v2` × `32k`/`40k`/`48k` × pitch/no pitch, with ids `official-<version>-<sample rate>[-f0]`; files are `[f0]G<rate>.pth` and `[f0]D<rate>.pth` under the asset directory's `pretrained/` or `pretrained_v2/`, belonging to `pretrained-<version>-<sample rate>` (4 files per asset: a G/D pair with and without pitch guidance).
+- Imported: `models/base/<slug>/G.pth` (plus optional `D.pth`) and `base.json`. Sample rate, version and pitch guidance are read from G's weights; users fill in nothing. Missing D is allowed (the discriminator trains from scratch, also allowed by the original).
+
+`list_base(sample_rate, version, pitch_guidance)` returns only matching base models, so the training selector shows only usable ones; `check_fits()` rejects mismatches (`detail.reason = "base_model_mismatch"`). Deleting an official base model removes only its G/D pair (`AssetService.delete_files`), leaving its asset `partial` and available to download again; imported base models go to trash.
+
+## Presets
+
+`PresetService` (`core/presets/`) stores `VoiceParamsModel` (and `StreamParamsModel` for live voice conversion presets). Every voice has exactly one default preset (named `Default`), created by `ensure_default()` from `convert.default_params` when it enters the library; deleting the default immediately recreates one. Selecting a voice anywhere loads its default preset, so the same voice sounds the same in Convert and Live. Presets with empty `model_id` are global; `resolve()` prioritises the voice's own presets when looking up by name. Making a preset default clears the other default flags for that voice in the same transaction.
+
+`VoiceParamsModel` and `StreamParamsModel` (`core/params.py`) mirror the engine's frozen dataclasses, with ranges as field constraints; `to_engine()` does not import torch. Web UI `paramSpecs.ts` is generated from these constraints by `typegen`, keeping ranges, defaults and help consistent across interfaces.
+
+## Audio files and outputs
+
+`AudioFileService` (`core/audio/service.py`) unifies three input sources as `AudioRef`:
+
+| `kind` | Meaning |
+| --- | --- |
+| `upload` | Raw `PUT` request body written to `uploads/<id>/<name>` (`.part` first), probed by PyAV, then recorded in `audio_files` |
+| `path` | Server file or folder; folders expand to audio files (`recursive` recurses) |
+| `output` / `output-source` | A previous output itself, or the input used to produce it |
+
+Server paths must be inside `paths.browse_roots`—checked in the **API** (routes call `check_refs()`, with checks also in `browse()` and `resolve_path()`); the CLI belongs to the local user and is unrestricted. Empty `browse_roots` defaults to the user's home, legacy directories, data directory and every drive/mounted volume (`SettingsService.browse_roots()`).
+
+- **Peaks**: `peaks(path, points)` limits points to 64–4096 and caches in `cache/peaks/<xx>/<key>.json` keyed by `sha1(path|size|mtime|points)`. Browsers never decode a whole file just to draw a waveform.
+- **Outputs**: jobs write to `outputs/<local date>/<job id>/` (`convert.output_dir` can relocate this), with `output_path()` generating `<stem>.<suffix>.<format>` and adding numbers on conflicts, never overwriting. Each output has an `outputs` row with source path, voice id and `VoiceParamsModel`, so results can be auditioned, A/B compared with their source, used as the next input or rerun with the same settings; `add_output()` publishes `outputs_added`.
+- `zip_outputs()` yields as it writes using `ZIP_STORED`, without assembling the whole zip in memory or on disk first.
+- `cleanup()` (at server startup) deletes uploads older than 24 hours unless referenced by outputs (import sessions also live under `uploads/` and use the same expiry), and removes old outputs according to `convert.keep_outputs_days` (0 keeps forever).
+
+## Conversion
+
+`ConversionService` (`core/conversion/`) creates one job per request, one step per input:
+
+1. `validate()` (before submission): speaker in range, assets present, separation preset available, `remix` requires `separate`.
+2. With `separate`, all inputs are separated first in **one** separation worker (first 40% of progress), with intermediate stems in `<output directory>/stems/`.
+3. Load voice through the server runtime (immediate on cache hit); load index when `index_rate > 0` and an index exists (cached by path and mtime, loaded once for the entire job—the original calls `read_index` per file).
+4. Decode each input to 16 kHz mono (only the first `preview_seconds` for previews); `OfflineConverter.convert()` converts the primary stem (the preset's `primary_stem`).
+5. With `remix`, mix converted vocals at `vocal_gain_db` with accompaniment at `gain_db` (prefer labels `instrumental`/`accompaniment`/`other`/`no_vocals`) into stereo, scaling the whole mix if peak exceeds 0.99.
+6. Write `<stem>.<voice slug>[.preview].<format>`, record outputs (`converted`, `remix` or `preview`), then delete intermediate stems.
+
+Only CLI `-o` with `--overwrite` overwrites existing files.
+
+## Vocal separation
+
+`SeparationService` (`core/separation/service.py`) has two preset sources: built-in `core/separation/presets.json` read by the engine (five single-model presets `vocals`, `vocals-aggressive`, `dereverb`, `dereverb-aggressive`, `karaoke`, and two chains `vocals-clean` (vocals → dereverb), `lead-clean` (vocals → lead vocals → dereverb)); and one single-step preset per imported separation model (`source: "imported"`, id `user-<slug>`). Presets declare `stems`, `primary_stem` (the stem converted in a preliminary separation step) and `assets`.
+
+`run_files()` is shared by Separate, conversion's preliminary step and training's cleaning stage: all inputs, preset and model specs (built-ins resolved by `engine.separate.presets.resolve()`, imported ones from `SeparationLibrary.spec()`) go into one request, with one `workers.separate` subprocess handling all inputs. Worker `output` events collect stems by source and label, registering them as `stem` outputs when needed. `EXIT_RETRY = 75` means fp16 failed on DirectML; core retries once in fp32, retaining the original's `pymss_webui.py` approach.
+
+Imported separation models (`SeparationLibrary`) are loaded once with the separation worker's `check` action before entering the library (`_check_loads()`, 600-second timeout); mismatched YAML and checkpoints fail at import (`detail.reason = "separation_load"`), rather than first use. Stem labels allow only letters, digits, `-`, `_`, and the two must differ. User-defined separation chains are not yet supported.
+
+## Training
+
+`TrainingService` (`core/training/service.py`). Experiments are not in the database: each is an `experiments/<name>/` folder with `experiment.json` and original stage subdirectories (`0_gt_wavs/`, `1_16k_wavs/`, `2a_f0/`, `2b-f0nsf/`, `3_feature256|768/`, G/D checkpoints, `added_*.index`…), so folders copied from elsewhere appear directly in lists.
+
+- Folders with stage directories but no `experiment.json` are read as **legacy experiments** (`engine.train.experiment.read_legacy`: reads sample rate, version and speakers from `config.json`, `multispeaker_manifest.json`); stages with existing output become `done`, then `experiment.json` is written. `import_legacy()` copies the original's `logs/<exp>` (ignoring `eval`).
+- `experiment.json` writes use `.tmp` then replace; corruption raises `ValidationError` instead of silently recreating it.
+
+### Stages
+
+| Stage | When applicable | Fingerprint inputs |
+| --- | --- | --- |
+| `clean` | `dataset.clean_preset` is set | Dataset folder + preset |
+| `slice` | Always | `dataset_clean/` (when cleaning) or dataset folder + sample rate + speaker table |
+| `f0` | With pitch guidance | `1_16k_wavs/` + F0 method |
+| `features` | Always | `1_16k_wavs/` + version |
+| `fit` | Always | Feature directory, `0_gt_wavs/`, (`2b-f0nsf/` with pitch guidance) + sample rate, version, pitch guidance, speaker table |
+| `index` | Always | Feature directory + version |
+
+Fingerprints (`engine/train/fingerprint.py:of_paths`) are SHA-1 hashes of each filename, size and mtime under the path, plus settings determining output; missing paths and empty folders hash differently. A completed stage records its fingerprint in `StageState.fingerprint`.
+
+**Run all** (`plan()`, empty `RunRequest.stages`) executes applicable stages whose state is not `done`, plus `fit` when `epochs` exceeds the last completed count (`counts["epochs"]`)—continuing training only requires increasing epochs and clicking again. `force` reruns selected stages.
+
+**Stale marking**: when `update()` edits an experiment, changed fields mark the relevant stage and its subsequent `done` stages as `stale`:
+
+| Change | Stale from stage |
+| --- | --- |
+| Cleaning preset | `clean` |
+| Dataset (folder, speaker table) | `slice` |
+| Sample rate | `slice` |
+| Pitch guidance, F0 method | `f0` |
+| Version | `features` |
+
+After a rerun completes, later `done` stages outside this run are also marked `stale`. Rerunning a `stale` stage passes `clean: true` to the worker to discard old output; indexing also has its own fingerprint file (`index_fingerprint.json`, see [Engine](/docs/development-engine)) and rebuilds when features change—the original skips whenever any `added_*.index` exists.
+
+“Run all” (no stages specified) is decided by `plan()`: unfinished stages and stages whose stored fingerprints differ from recalculated ones (for example, files added to or removed from the dataset folder directly) run, with all subsequent applicable stages rerun in the same job from the first such stage, since they read its output; stages without fingerprints (legacy experiments) are treated as unchanged. Increasing only `epochs` continues only `fit`.
+
+### Execution
+
+`run()` submits selected stages as **one** `train` job (one step per stage, weighted by `STAGE_WEIGHT`, with `fit` taking the largest share). Only one run per experiment is allowed (`BusyError`); running experiments cannot be edited or deleted. Before submission, `_preflight()` checks: `slice` needs a dataset; `features` needs `hubert`; RMVPE F0 extraction needs `rmvpe`; `fit` needs the selected base model (`fit.base_model`, through `check_fits`) or the matching official `pretrained-<version>-<sample rate>`; `clean` needs its preset's assets.
+
+Each stage starts a `workers.train` subprocess (except `clean`, which calls separation's `run_files()` and writes each speaker's primary stem to `dataset_clean/<speaker id>/`). Separate processes have the same rationale as the original: cancellation kills the process tree, CUDA contexts stay clean, and DDP needs its own processes anyway. Worker `metric` events become `train_metrics` (sent to the Web UI's Pinia store for loss curves); full metrics are in the experiment's `metrics.jsonl`, read by `metrics(name, since)`.
+
+Other defaults: `training.f0_method = "auto"` uses `rmvpe` if an eligible CUDA device exists, otherwise `pm`; `training.gpus = "auto"` defaults new experiments' `fit.gpus`, with training selecting cards from the experiment's `fit.gpus` (`auto` uses all eligible CUDA devices, or the original's `0-1` syntax; `train run --gpus` writes to the experiment); empty `batch_size` uses smallest GPU memory (GiB) ÷ 2, as in the original; empty `cpu_workers` uses CPU count ÷ 1.5. Slicing `per` is 3.7 seconds with a GPU, 3.0 seconds on CPU alone, following the original.
+
+### Results
+
+- `export` (`io` job): take the selected or latest small model (otherwise the latest G, extracting first, including speaker names for multi-speaker experiments), add it to the voice library with the experiment's `added_*.index` (keys by `_spkid<N>`), and write `voice_id` back to the experiment.
+- `try_checkpoint()`: register a saved small model or G checkpoint as a temporary voice with the experiment's indexes for auditioning in Convert; G is first extracted to a small model cached in the experiment's `.try/` (re-extracted only when the checkpoint changes); D checkpoints are rejected.
+- `build_index_for_voice()` (`index` job): build an index for an existing voice from an experiment's extracted features.
+
+## Live voice conversion
+
+`LiveService` (`core/live/service.py`) manages one session at a time. It does not process audio in the server; it supervises a persistent `workers.live` process owning audio devices and real-time threads, isolated from the server's event loop, GIL contention and possible crashes.
+
+<Mermaid chart={"stateDiagram-v2\n    [*] --> stopped\n    stopped --> starting: start()\n    starting --> loading\n    loading --> prewarming\n    prewarming --> running\n    running --> reconnecting: Device lost\n    reconnecting --> running: Device returns (exact / matched)\n    running --> stopping: stop()\n    stopping --> stopped\n    starting --> error\n    loading --> error\n    running --> error\n    error --> starting: start()"} />
+
+### Worker and connection
+
+`LiveSupervisor` (`core/live/supervisor.py`) starts the worker on demand: opens a `multiprocessing.connection.Listener` on a random `127.0.0.1` port with a random 32-byte authkey; writes address, authkey and runtime parameters to a request file; starts `python -m rvc_next.workers.live <request.json>`; waits up to 60 seconds for connection (fails immediately if the worker exits first). A reader thread then passes messages (JSON-encoded dataclasses in `rvc_next/protocol/live.py`) to `LiveService._on_event`; worker stdout/stderr goes to server logs. Disconnection calls `on_exit(expected)` once; unexpected exit puts the session in `error`.
+
+The worker stays running after sessions stop (for meters and quick restarts), with models in its own process, which is why “Free GPU memory” must notify it (`P.ReleaseMemory`).
+
+### Control lock and voice switching
+
+`start`, `update_voice`, `update_stream`, `set_voice`, `set_devices` perform “read state → send message → write state” under `_control`, because switching a voice and resetting its speaker are two consecutive messages that must not interleave with another request.
+
+When switching voices, the worker replies with a `State` containing `voice_path` for **the voice actually converting now**: the new voice, or the old one retained after loading failure. The service looks it up in `_voice_ids` (model path → voice id), making state follow the worker rather than the request, and updates `live.last_voice` to the actual voice in use. A speaker out of range for the new voice resets to 0. F0 method changes check assets first; if the worker cannot load the new method, it keeps the old one.
+
+The worker announces `stopped` immediately after connecting; `_awaiting_start` makes the service ignore it until `Start` is processed, avoiding a flash back to “Stopped” in the UI during startup.
+
+### Devices
+
+- **Enumeration** runs in a short-lived `workers.devices` subprocess (`action: enumerate`), importing sounddevice but not torch. The original refreshes devices by calling private `sd._terminate()`/`sd._initialize()` and stopping streams; a separate process never disturbs active streams. Results are cached; `devices(refresh=True)` re-enumerates and publishes `devices_changed` when the signature (without timestamps or PortAudio indexes) changes. With `live.enable_asio`, the subprocess gets `SD_ENABLE_ASIO=1`.
+- **Resolution** (`engine/audio_io/devices.py:resolve_selection`) runs on a fresh list before every start and device change, trying in order:
+
+    | Order | Match | State |
+    | --- | --- | --- |
+    | 1 | Same `device_id` | `exact` |
+    | 2 | Same physical device key, same host API | `matched` |
+    | 3 | Same physical device key, recommended host API | `matched` |
+    | 4 | Same name (including prefix matching for MME's 31-character truncation), any host API | `matched` |
+    | 5 | System default device | `default_fallback` |
+    | — | No default device either | `missing` |
+
+    An unspecified device follows the system default and counts as `exact`.
+
+- **Output fallback requires confirmation.** The original silently switches to default when a saved device disappears; sending converted audio to speakers instead of a virtual sound card is an immediately noticeable mishap. When output resolves to `default_fallback`, `start()` therefore raises `DeviceError` (`detail.fallback = true`) unless the request has `allow_output_fallback`. Input or monitor fallback is only a notice.
+- `check()` (`POST /live/devices/check`) resolves first, then asks the device subprocess's `check` action whether PortAudio can open the exact configuration (device, channels, sample rate, exclusive mode), returning topology (`duplex`/`split`), sample rate, estimated latency and issues with suggested actions (`choose`, `use_48k`, `disable_exclusive`, `grant_permission`). `test_tone()` plays a chime in the device subprocess.
+- **Reconnection**: after worker `DeviceLost` (with `live.auto_reconnect` enabled), a thread re-enumerates every 2 seconds; when the lost role resolves to `exact` or `matched`, it sends `SetDevices` to reopen without reloading the voice. With automatic reconnection disabled, entering `reconnecting` sends `Stop` immediately.
+
+### Relationships with other services
+
+- On devices other than `cpu`, starting takes the GPU lease with `compute.acquire_live()`; `stopped`/`error`/worker exit releases it.
+- `start()` saves devices, stream parameters, `last_voice`, `last_params` to settings (the `live` group), so **Start** without arguments restores the last session; `rvc-next live run` reads the same values. Devices belong to the server machine, so they live in settings rather than browser client state.
+- Worker `Stats` (about 10 Hz) become `live_stats`, and state changes become `live_state`. When the live worker reports OOM, it unloads its models first, then core calls `release_after_oom("Live")`.
+- Meters (`meter`) and passthrough (`passthrough`) start the worker on demand even without a running session; running sessions show their own levels.
+
+## Settings
+
+`SettingsService` (`core/settings/`) owns `settings.toml`. Effective value precedence (later overrides earlier): model defaults &lt; file &lt; environment `RVC_NEXT_<GROUP>__<FIELD>` (`__` separates levels, values parsed as JSON if possible, otherwise strings) &lt; construction-time `overrides`. Environment variables and overrides never write back to the file; `env_override_names()` lets the UI mark pinned fields.
+
+- Groups: `server`, `paths`, `compute`, `downloads`, `convert`, `separation`, `training`, `live` (models in `core/settings/models.py`).
+- `update(patch)` deep-merges into the **file layer** (merge dictionaries, replace other values, `None` clears optional values), validates the file layer then effective values, writes atomically (`.toml.tmp` → `replace`), omits `None` before saving because TOML has no null, then calls listeners synchronously (`ComputeService` uses this to rebuild the runtime). `mutate(fn)` makes arbitrary edits to the file-layer dictionary and saves (used for legacy directory additions/removals). `set_value()` serves `config set`, allowing only existing keys (dictionary groups may add keys).
+- `view()` returns `SettingsView`: replaces `access_token` with `access_token_configured`, keeping the token on the server; also includes `resolved_paths`.
+- Empty folder settings mean “inside the data directory”: `models_dir`, `experiments_dir`, `outputs_dir` (`convert.output_dir` takes precedence), `assets_dir`. The data directory itself comes from `RVC_NEXT_DATA_DIR` or the platform user data directory (`core/paths.py`).
+
+After every actual change, `SettingsService` calculates changed dotted keys with `changed_keys()`, notifying `on_change` (new settings) and `on_keys_change` (key names). Changes can come from `update()` or another process writing `settings.toml`: reading `settings` compares mtime and size at most once per `FILE_CHECK_INTERVAL` (1 second), rereading on change (parse or validation failures log a warning and retain previous settings); `update()` forces a check before writing, merging onto current file contents. The key listener registered in `core/context.py` publishes `settings_changed` and calls `models.rescan()` when `paths.*` changes.
+
+## Events
+
+`core/events/models.py` defines all events (`EventBase` subclasses, event name in `__event_name__`), with `LocalEventBus` calling subscribers synchronously on the publishing thread; see [API and events](/docs/development-api) for the Socket.IO bridge and OpenAPI event schemas. Every event carries a **snapshot** (for example, `job.model_copy(deep=True)`), because the bridge serialises later on the event loop while worker threads continue modifying the original object.
+
+| Event | Payload | Publisher |
+| --- | --- | --- |
+| `job_updated` | Entire `Job` | `JobService` (progress at most 4/s) |
+| `job_log` | `job_id`, `offset`, `lines` (≤ 50) | `JobService` |
+| `jobs_cleared` | `ids` | `JobService.delete`/`clear_finished` |
+| `outputs_added` / `outputs_removed` | Output records / `ids` | `AudioFileService` |
+| `models_changed` | `added`, `updated`, `removed` (prefixes `base:` for base models, `index:` for inbox, `user-` for separation models) | Voice library, imports, inbox, base models, separation library |
+| `presets_changed` | `voice_id` | `PresetService` |
+| `assets_changed` | All `AssetStatus` | `AssetService` |
+| `experiment_changed` | `name`, `stages`, `running_job`, `removed` | `TrainingService` |
+| `train_metrics` | `name`, `epoch`, `step`, `losses`, `lr` | `TrainingService` (from worker `metric`) |
+| `live_state` / `live_stats` | `LiveState` / `LiveStats` | `LiveService` |
+| `devices_changed` | `DeviceList` | `LiveService` (when list signature changes) |
+| `compute_changed` | `ComputeUsage` | `ComputeService` (at most 1/s, forced at transitions) |
+| `settings_changed` | Dotted keys | `SettingsService` key listener (`core/context.py`), changes from any source |
+
+## Database
+
+`core/db/database.py`: one shared `sqlite3` connection protected by `RLock`, `journal_mode=WAL`, `foreign_keys=ON`, `synchronous=NORMAL`, `busy_timeout=5000` (CLI reads and writes the same file while the server writes). Migrations are an append-only `MIGRATIONS` list, never modified; `PRAGMA user_version` records how many have run:
+
+1. `voice_models`, `presets`, `jobs`, `outputs`, `audio_files`, `client_state`;
+2. `voice_models.catalog_id` (demo voice downloads).
+
+| Table | Role | Cost of deleting the database |
+| --- | --- | --- |
+| `voice_models` | Cache, rebuilt by `rescan()` | None (legacy voice index pairing lives in `legacy-voices.json`) |
+| `presets` | Record | Custom presets (defaults are recreated) |
+| `jobs` | Record | Job history and retry |
+| `outputs` | Record | Output provenance |
+| `audio_files` | Record | Upload and server path registration |
+| `client_state` | Record | UI preferences (server-side copy) |
+
+Experiments, base models, separation models and inbox indexes are all outside the database. Append a migration when adding a table or column; do not create a table for something expressible as “folder + JSON sidecar”.

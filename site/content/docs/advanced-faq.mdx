@@ -1,0 +1,251 @@
+---
+title: "常见问题"
+description: "按主题整理的常见问题。点开问题查看解答。遇到问题时，先运行 rvc-next doctor：它会检查 torch 和 CUDA、音频设备和资源，并给出修复命令。"
+icon: CircleQuestionMark
+---
+
+## 安装与启动
+
+<Accordions>
+<Accordion title="启动时提示端口被占用怎么办？">
+
+默认端口是 7868。被占用时服务器会自动尝试 7869、7870……（最多 20 个），日志中提示 "Port 7868 is unavailable. Using port 7869."，浏览器会打开实际使用的端口。
+
+想固定用某个端口：
+
+```bash
+rvc-next webui --port 8000              # 只是这一次
+rvc-next config set server.port 8000    # 以后都用（下次启动服务器时生效）
+```
+
+加 `--strict-port`（或设置 `server.strict_port` 为 `true`）后，端口被占用时直接失败（退出码 3），不会换端口。
+
+</Accordion>
+<Accordion title="数据（音色、实验、结果）保存在哪里？">
+
+默认在数据目录：Windows 为 `%APPDATA%\rvc-next`，macOS 为 `~/Library/Application Support/rvc-next`，Linux 为 `~/.local/share/rvc-next`（或 `$XDG_DATA_HOME/rvc-next`）。`rvc-next config show` 的 `data_dir` 或 Web UI **设置** › **关于** 的 **数据文件夹** 显示当前位置。
+
+用环境变量 `RVC_NEXT_DATA_DIR` 或 `rvc-next webui --data-dir <路径>` 换到其他位置；只想移动某一类文件，改 **设置** › **存储** 中的 **音色**、**实验**、**结果**、**资源** 文件夹。目录结构见 [配置与环境变量](/docs/cli-config#data-dir)。
+
+</Accordion>
+<Accordion title="怎样把设置恢复为默认值？">
+
+先停止服务器，再删除或改名数据目录中的 `settings.toml`（`rvc-next config path` 打印它的路径）。下次启动时使用全部默认值；音色库、实验和结果不受影响。
+
+只想恢复某一项，用 `rvc-next config set <键> <默认值>` 写回，默认值见 [配置与环境变量](/docs/cli-config#all-settings)。注意 `RVC_NEXT_<GROUP>__<FIELD>` 环境变量设置的值始终优先。
+
+</Accordion>
+<Accordion title="用 rvc-next config set 改了设置，服务器没有变化？">
+
+服务器会在约 1 秒内读到 `settings.toml` 的改动，Web UI 也会刷新。如果仍然没有变化：先看服务器日志里有没有 “Ignored a change to … settings.toml” 的警告（文件写错了）；再确认这个设置是否没有被同名环境变量覆盖（`rvc-next config show` 会标出）；端口、监听地址等少数设置需要重启服务器。
+
+</Accordion>
+<Accordion title="可以在服务器运行时使用命令行吗？">
+
+可以。命令行在自己的进程里运行任务，任务记录写入同一个数据库，所以 Web UI 的 **任务** 面板和 `rvc-next jobs list` 都能看到双方的任务。需要注意两点：命令行任务不参与服务器的 GPU 排队，同时运行会争用显存；修改设置请参考上一个问题。
+
+</Accordion>
+</Accordions>
+## 资源与模型下载
+
+<Accordions>
+<Accordion title="提示缺少 HuBERT、RMVPE 或其他资源怎么办？">
+
+转换至少需要 HuBERT，音高算法为 RMVPE 时还需要 RMVPE。界面上缺少资源时会显示 **需要 …** 和 **下载（大小）** 按钮，点击即可下载；也可以在 **模型** › **资源** 中下载。命令行出错时会提示具体命令（退出码 7），例如：
+
+```bash
+rvc-next assets download          # HuBERT 和 RMVPE
+rvc-next assets download fcpe     # FCPE
+rvc-next assets download pretrained-v2-40k   # 训练用底模
+```
+
+如果你有原版 RVC，可以把 `paths.assets_dir` 指向它的 `assets` 文件夹，免去下载，见 [从原版 RVC 迁移](/docs/advanced-migrate)。
+
+</Accordion>
+<Accordion title="选了 FCPE 音高算法后报错缺少资源？">
+
+FCPE 的模型（`fcpe`，约 41 MB）是一项资源，包含在默认下载的 `inference` 分组里：不带参数的 `rvc-next assets download` 会一并下载它。只缺它时，选择 FCPE 后界面会提示下载；命令行也可以单独运行 `rvc-next assets download fcpe`。
+
+</Accordion>
+<Accordion title="下载很慢或连不上 Hugging Face？">
+
+切换到 hf-mirror 镜像端点：
+
+<Tabs items={["Web UI", "命令行"]}>
+<Tab value="Web UI">
+
+**设置** › **下载** › **下载端点** 选择 **hf-mirror.com**。也可以选 **自定义**，在 **自定义地址** 中填写其他镜像。
+
+</Tab>
+<Tab value="命令行">
+
+```bash
+rvc-next assets download --source hf-mirror
+# 或
+rvc-next config set downloads.source hf-mirror
+```
+
+</Tab>
+</Tabs>
+下载支持断点续传：中断后再次下载会从 `.part` 文件继续，失败时自动重试。**模型仓库** 可以在 `rvc-model`（默认，含示例音色）和官方仓库之间切换，两者的模型文件相同。
+
+</Accordion>
+<Accordion title="资源显示“校验不符”？">
+
+文件的 SHA-256 与目录中的不一致，通常是下载不完整或文件被替换。在 **模型** › **资源** 中重新下载该资源，或运行 `rvc-next assets download <id>`。`rvc-next assets verify` 可以重新校验所有已安装的资源。
+
+</Accordion>
+</Accordions>
+## 转换
+
+<Accordions>
+<Accordion title="在 CPU 上转换很慢怎么办？">
+
+先确认是否真的在用 GPU：`rvc-next doctor` 的 "Selected" 一行显示选中的设备。显示 CPU 的常见原因：
+
+- 安装的是 CPU 版 PyTorch，需要换成 CUDA 版（见 [安装](/docs/installation)）；
+- 显卡不满足 GPU 规则（显存不足 4 GiB 或计算能力太低），见 [硬件与性能](/docs/advanced-hardware#gpu-rule)；
+- `compute.device` 被设成了 `cpu`。
+
+确实只能用 CPU 时：音高算法改用 **pm（快速）**；先用 **预览 15 秒** 调好参数再转换整首；人声分离在 CPU 上尤其慢，能不分离就不分离。
+
+</Accordion>
+<Accordion title="音色显示“无索引”，有什么影响？">
+
+没有索引时 **索引强度** 不起作用（界面会提示），转换仍然可以进行，只是音色特征全部来自模型本身。附加索引的方法：
+
+- 在音色页面点 **附加索引**，上传或选择服务器上的 `.index` 文件（文件名不限，但版本必须与音色相符：v1 音色用 256 维索引，v2 用 768 维）；
+- 有训练实验时点 **从实验构建**；
+- 命令行：`rvc-next model index attach <音色> <文件>`，或 `rvc-next model index build <音色> --experiment <实验>`。
+
+`trained_*.index` 不含特征向量，不能使用，请用 `added_*.index`。
+
+</Accordion>
+<Accordion title="多说话人音色怎么选择说话人？">
+
+`.pth` 中带有说话人信息的音色是多说话人音色，音色卡片上显示 **N 个说话人**，参数面板里会出现 **说话人** 选项。命令行用 `--speaker <id>`，`rvc-next model info <音色> --speakers` 列出说话人。可以给说话人起名字：`rvc-next model edit <音色> --speaker-name 0=Alice`。多说话人音色也可以为每个说话人附加自己的索引（`--speaker`）。实时变声同样使用所选的说话人。
+
+</Accordion>
+<Accordion title="转换结果保存在哪里？">
+
+默认在数据目录的 `outputs/<日期>/<任务 id>/`，文件名为 `<原文件名>.<音色>.<格式>`，同名时不会覆盖。在 Web UI 的 **结果** 列表中可以播放、下载（**全部下载** 打包为 zip），或点 **在文件夹中显示**（仅限服务器本机的浏览器）。命令行用 `-o` 指定输出文件夹，结束时打印每个结果的路径。
+
+想换默认位置，修改 **设置** › **存储** 的 **结果** 文件夹；**结果保留天数（0：一直保留）** 大于 0 时，服务器启动时会删除过期的结果。
+
+</Accordion>
+<Accordion title="导入时提示需要“检查导入”？">
+
+导入的索引无法确定属于哪个音色（例如同一次导入里有多个同版本的音色，名称又对不上），Web UI 会打开 **检查导入**，每个索引只列出版本兼容的音色供你选择，也可以选 **暂不分配**，之后在 **模型** › **音色** 的 **未分配的索引** 中再分配。命令行会打印导入计划并以退出码 3 结束，用 `--pair 音色.pth=索引.index` 或 `--keep-unassigned` 重新运行。
+
+</Accordion>
+</Accordions>
+## 实时变声
+
+<Accordions>
+<Accordion title="实时页面没有音频设备，或提示音频设备不可用（Linux）？">
+
+实时变声通过 PortAudio 访问声卡。Linux 上需要安装系统的 PortAudio 库：
+
+```bash
+sudo apt install libportaudio2        # Debian / Ubuntu
+```
+
+然后运行 `rvc-next doctor` 查看 "Audio devices" 一行，或 `rvc-next live devices` 列出设备。页面显示 **此服务器暂不支持实时转换。** 表示服务器的 Python 环境里没有安装 `sounddevice`。
+
+另外请记住：列出的是**服务器所在电脑**的设备。从另一台电脑或手机打开 Web UI 时，看不到也用不了那台设备的麦克风，见 [远程访问与安全](/docs/advanced-remote#live-devices)。
+
+</Accordion>
+<Accordion title="实时变声有爆音、断断续续？">
+
+推理跟不上块长时就会断音。看实时页面的 **负载**：超过 80% 时会出现 **将块长增加到 … 毫秒**，点它即可。也可以手动增大 **块长**，或：
+
+- 减小 **上下文**，关闭 **输入降噪**、**输出降噪**；
+- 音高算法改用 pm；
+- 停止同时运行的转换或训练任务（它们会和实时变声争用 GPU）；
+- 确认实际在用 GPU（CPU 上通常需要很长的块长）。
+
+**欠载**、**溢出** 计数持续增加也说明需要更大的块长。详见 [硬件与性能](/docs/advanced-hardware#live-latency)。
+
+</Accordion>
+<Accordion title="启动实时变声时提示保存的输出设备不存在？">
+
+上次使用的输出设备没有连接（例如拔掉了耳机或声卡）。界面会提示 **保存的输出设备不存在，将使用系统默认设备。**，点 **使用默认输出启动** 确认，或在设备面板里选择其他设备。命令行加 `--allow-fallback`。开启 **自动重新连接丢失的设备** 时，运行中丢失的设备重新接上后会自动恢复。
+
+</Accordion>
+</Accordions>
+## 显存与性能
+
+<Accordions>
+<Accordion title="提示“GPU 不可用或显存不足”？">
+
+显存不足时，失败的任务不会自动重试，服务器会卸载所有没在使用的模型。可以：
+
+1. 停止实时变声和其他任务，在顶栏 **显存** 菜单中点 **释放显存**；
+2. 在 **任务** 中点 **重试**；
+3. 仍然不足时，把 **同时运行的 GPU 任务数** 设为 1、训练时减小批大小、关闭 **将数据集缓存到显存**，或把 **精度** 设为 fp16（显卡支持时）。
+
+详见 [硬件与性能](/docs/advanced-hardware#out-of-memory)。
+
+</Accordion>
+<Accordion title="任务一直显示“等待 GPU”？">
+
+GPU 任务数量达到 **同时运行的 GPU 任务数** 时，其余任务会排队；实时变声运行时，新的 GPU 任务也会等待，以免影响实时音频。任务卡片上的 **仍然运行** 可以不等实时变声结束就开始（可能导致实时声音卡顿）。
+
+</Accordion>
+<Accordion title="服务器重启后，任务显示“已中断”？">
+
+服务器退出时还在排队或运行的任务，下次启动时会标记为 **已中断**。任务的请求保存在数据库里，点 **重试** 即可重新运行；训练会从最近保存的检查点继续。
+
+</Accordion>
+</Accordions>
+## 文件与远程访问
+
+<Accordions>
+<Accordion title="服务器文件里看不到 D 盘（或其他磁盘）？">
+
+默认情况下，**服务器文件** 可以浏览所有驱动器（Windows 的 `C:\`、`D:\` 等）和已挂载的卷（macOS 的 `/Volumes/*`，Linux 的 `/media/<用户>/*`、`/run/media/<用户>/*`、`/mnt/*`），以及用户主目录、数据目录和原版 RVC 安装。
+
+如果看不到，通常是因为设置了 **浏览器可打开的文件夹**（`paths.browse_roots`）：一旦设置，就只能浏览列出的文件夹。把需要的磁盘加进去，或清空它恢复默认：
+
+```bash
+rvc-next config set paths.browse_roots '[]'
+```
+
+命令行不受这个限制。
+
+</Accordion>
+<Accordion title="从另一台电脑访问 Web UI 需要做什么？">
+
+先设置访问令牌，再绑定到所有网卡：
+
+```bash
+rvc-next config set server.access_token "一个足够长的随机字符串"
+rvc-next webui --host 0.0.0.0
+```
+
+在另一台电脑打开 `http://<服务器 IP>:7868`，在 **访问令牌** 对话框中输入令牌。没有令牌时服务器拒绝绑定到非本机地址。详见 [远程访问与安全](/docs/advanced-remote)。
+
+</Accordion>
+<Accordion title="忘记了访问令牌？">
+
+令牌不会以明文显示（`config show` 只显示是否已设置）。在服务器那台电脑上停止服务器，然后设置一个新令牌或清除它：
+
+```bash
+rvc-next config set server.access_token "新的令牌"
+rvc-next config set server.access_token null    # 清除（之后只能从本机访问）
+```
+
+设置令牌后，所有浏览器（包括服务器本机的浏览器）都需要输入令牌，所以忘记令牌时只能用命令行重设。浏览器会弹出 **访问令牌** 对话框，输入新令牌即可。
+
+</Accordion>
+<Accordion title="可以直接使用原版 RVC 的音色和模型文件吗？">
+
+可以。在 **模型** › **音色** 的 **原版 RVC 安装** 中 **添加 RVC 安装**，原版 `assets/weights` 中的音色会直接出现在音色列表里（带 **旧版** 标记），索引按原版规则自动推荐；把 `paths.assets_dir` 指向原版的 `assets` 文件夹可以复用 HuBERT、RMVPE、底模和分离模型。详见 [从原版 RVC 迁移](/docs/advanced-migrate)。
+
+</Accordion>
+<Accordion title="删除的音色去哪了？">
+
+音色库中的音色被移到系统回收站（系统没有回收站时，移到数据目录的 `trash/`），可以从那里找回。原版 RVC 安装中的音色只是隐藏，文件不会被改动；在音色列表中打开 **显示隐藏的**，或用 `rvc-next model list --all` 可以看到它们。
+
+</Accordion>
+</Accordions>

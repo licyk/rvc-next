@@ -1,0 +1,574 @@
+{
+  "repositories": {
+    "rvc-model": {
+      "repo": "licyk/rvc-model",
+      "revision": "main",
+      "title": "rvc-model: every model rvc-next uses, by category, and the demo voices"
+    },
+    "official": {
+      "repo": "lj1995/VoiceConversionWebUI",
+      "revision": "main",
+      "title": "The official RVC repository (no demo voices)"
+    }
+  },
+  "assets": [
+    {
+      "id": "hubert",
+      "title": "HuBERT",
+      "description": "Content features for every conversion and for training",
+      "group": "inference",
+      "files": [
+        {
+          "path": "hubert_base/config.json",
+          "size": 1492,
+          "sha256": "0346950779dfb7f9316fa74ed846e2b8a22a08eedfdc5387b73f327cb1a4a7cf",
+          "sources": {
+            "rvc-model": "hubert/hubert_base/config.json",
+            "official": "hubert_base/config.json"
+          }
+        },
+        {
+          "path": "hubert_base/preprocessor_config.json",
+          "size": 225,
+          "sha256": "7c1976a680fb7acc757cd36fb08eef878fa36c70b4c9d2d595df9c608bbbbf0e",
+          "sources": {
+            "rvc-model": "hubert/hubert_base/preprocessor_config.json",
+            "official": "hubert_base/preprocessor_config.json"
+          }
+        },
+        {
+          "path": "hubert_base/pytorch_model.bin",
+          "size": 189206711,
+          "sha256": "cc8c20f4b90a520757260197a3ff2505705a7adbd20ad9eeaa4e1a9b38442ef5",
+          "sources": {
+            "rvc-model": "hubert/hubert_base/pytorch_model.bin",
+            "official": "hubert_base/pytorch_model.bin"
+          }
+        }
+      ]
+    },
+    {
+      "id": "rmvpe",
+      "title": "RMVPE",
+      "description": "Pitch extraction (the default method)",
+      "group": "inference",
+      "files": [
+        {
+          "path": "rmvpe/rmvpe.pt",
+          "size": 181184272,
+          "sha256": "6d62215f4306e3ca278246188607209f09af3dc77ed4232efdd069798c4ec193",
+          "sources": {
+            "rvc-model": "rmvpe/rmvpe.pt",
+            "official": "rmvpe.pt"
+          }
+        }
+      ]
+    },
+    {
+      "id": "rmvpe-onnx",
+      "title": "RMVPE (ONNX)",
+      "description": "Pitch extraction on DirectML",
+      "group": "inference",
+      "files": [
+        {
+          "path": "rmvpe/rmvpe.onnx",
+          "size": 361688443,
+          "sha256": "5370e71ac80af8b4b7c793d27efd51fd8bf962de3a7ede0766dac0befa3660fd",
+          "sources": {
+            "rvc-model": "rmvpe/rmvpe.onnx",
+            "official": "rmvpe.onnx"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fcpe",
+      "title": "FCPE",
+      "description": "Pitch extraction with FCPE (fast; the model torchfcpe bundles)",
+      "group": "inference",
+      "files": [
+        {
+          "path": "fcpe/fcpe_c_v001.pt",
+          "size": 43363260,
+          "sha256": "b9aeaeb673436eeda50ceafd632aa681aa63417e52eae4207503d180c9b10015",
+          "sources": {
+            "rvc-model": "fcpe/fcpe_c_v001.pt"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pretrained-v1-32k",
+      "title": "Base models v1 32k",
+      "description": "Starting weights for training v1 voices at 32k, with and without pitch guidance",
+      "group": "training",
+      "files": [
+        {
+          "path": "pretrained/f0G32k.pth",
+          "size": 72795627,
+          "sha256": "285f524bf48bb692c76ad7bd0bc654c12bd9e5edeb784dddf7f61a789a608574",
+          "sources": {
+            "rvc-model": "pretrained/v1/f0G32k.pth",
+            "official": "pretrained/f0G32k.pth"
+          }
+        },
+        {
+          "path": "pretrained/f0D32k.pth",
+          "size": 109978943,
+          "sha256": "294db3087236e2c75260d6179056791c9231245daf5d0485545d9e54c4057c77",
+          "sources": {
+            "rvc-model": "pretrained/v1/f0D32k.pth",
+            "official": "pretrained/f0D32k.pth"
+          }
+        },
+        {
+          "path": "pretrained/G32k.pth",
+          "size": 72653893,
+          "sha256": "81817645cde7ed2e2d83f23ef883f33dda564924b497e84d792743912eca4c23",
+          "sources": {
+            "rvc-model": "pretrained/v1/G32k.pth",
+            "official": "pretrained/G32k.pth"
+          }
+        },
+        {
+          "path": "pretrained/D32k.pth",
+          "size": 109978943,
+          "sha256": "2ab20645829460fdad0d3c44254f1ab53c32cae50c22a66c926ae5aa30abda6f",
+          "sources": {
+            "rvc-model": "pretrained/v1/D32k.pth",
+            "official": "pretrained/D32k.pth"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pretrained-v1-40k",
+      "title": "Base models v1 40k",
+      "description": "Starting weights for training v1 voices at 40k, with and without pitch guidance",
+      "group": "training",
+      "files": [
+        {
+          "path": "pretrained/f0G40k.pth",
+          "size": 72909665,
+          "sha256": "9115654aeef1995f7dd3c6fc4140bebbef0ca9760bed798105a2380a34299831",
+          "sources": {
+            "rvc-model": "pretrained/v1/f0G40k.pth",
+            "official": "pretrained/f0G40k.pth"
+          }
+        },
+        {
+          "path": "pretrained/f0D40k.pth",
+          "size": 109978943,
+          "sha256": "7d4f5a441594b470d67579958b2fd4c6b992852ded28ff9e72eda67abcebe423",
+          "sources": {
+            "rvc-model": "pretrained/v1/f0D40k.pth",
+            "official": "pretrained/f0D40k.pth"
+          }
+        },
+        {
+          "path": "pretrained/G40k.pth",
+          "size": 72763063,
+          "sha256": "e428573bda1124b0ae0ae843fd8dcded6027d3993444790b3e9b0100938b2113",
+          "sources": {
+            "rvc-model": "pretrained/v1/G40k.pth",
+            "official": "pretrained/G40k.pth"
+          }
+        },
+        {
+          "path": "pretrained/D40k.pth",
+          "size": 109978943,
+          "sha256": "547f66dbbcd9023b9051ed244d12ab043ba8a4e854b154cc28761ac7c002909b",
+          "sources": {
+            "rvc-model": "pretrained/v1/D40k.pth",
+            "official": "pretrained/D40k.pth"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pretrained-v1-48k",
+      "title": "Base models v1 48k",
+      "description": "Starting weights for training v1 voices at 48k, with and without pitch guidance",
+      "group": "training",
+      "files": [
+        {
+          "path": "pretrained/f0G48k.pth",
+          "size": 73008619,
+          "sha256": "78bc9cab27e34bcfc194f93029374d871d8b3e663ddedea32a9709e894cc8fe8",
+          "sources": {
+            "rvc-model": "pretrained/v1/f0G48k.pth",
+            "official": "pretrained/f0G48k.pth"
+          }
+        },
+        {
+          "path": "pretrained/f0D48k.pth",
+          "size": 109978943,
+          "sha256": "1b84c8bf347ad1e539c842e8f2a4c36ecd9e7fb23c16041189e4877e9b07925c",
+          "sources": {
+            "rvc-model": "pretrained/v1/f0D48k.pth",
+            "official": "pretrained/f0D48k.pth"
+          }
+        },
+        {
+          "path": "pretrained/G48k.pth",
+          "size": 72850501,
+          "sha256": "3862a67ea6313e8ffefc05cee6bee656ef3e089442e9ecf4a6618d60721f3e95",
+          "sources": {
+            "rvc-model": "pretrained/v1/G48k.pth",
+            "official": "pretrained/G48k.pth"
+          }
+        },
+        {
+          "path": "pretrained/D48k.pth",
+          "size": 109978943,
+          "sha256": "8cc013fa60ed9c3f902f5bd99f48c7e3b9352d763d4d3cd6bc241c37b0bfd9ad",
+          "sources": {
+            "rvc-model": "pretrained/v1/D48k.pth",
+            "official": "pretrained/D48k.pth"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pretrained-v2-32k",
+      "title": "Base models v2 32k",
+      "description": "Starting weights for training v2 voices at 32k, with and without pitch guidance",
+      "group": "training",
+      "files": [
+        {
+          "path": "pretrained_v2/f0G32k.pth",
+          "size": 73950049,
+          "sha256": "2332611297b8d88c7436de8f17ef5f07a2119353e962cd93cda5806d59a1133d",
+          "sources": {
+            "rvc-model": "pretrained/v2/f0G32k.pth",
+            "official": "pretrained_v2/f0G32k.pth"
+          }
+        },
+        {
+          "path": "pretrained_v2/f0D32k.pth",
+          "size": 142875703,
+          "sha256": "bd7134e7793674c85474d5145d2d982e3c5d8124fc7bb6c20f710ed65808fa8a",
+          "sources": {
+            "rvc-model": "pretrained/v2/f0D32k.pth",
+            "official": "pretrained_v2/f0D32k.pth"
+          }
+        },
+        {
+          "path": "pretrained_v2/G32k.pth",
+          "size": 73811639,
+          "sha256": "869b26a47f75168d6126f64ac39e6de5247017a8658cfd68aca600f7323efb9f",
+          "sources": {
+            "rvc-model": "pretrained/v2/G32k.pth",
+            "official": "pretrained_v2/G32k.pth"
+          }
+        },
+        {
+          "path": "pretrained_v2/D32k.pth",
+          "size": 142875703,
+          "sha256": "d8043378cc6619083d385f5a045de09b83fb3bf8de45c433ca863b71723ac3ca",
+          "sources": {
+            "rvc-model": "pretrained/v2/D32k.pth",
+            "official": "pretrained_v2/D32k.pth"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pretrained-v2-40k",
+      "title": "Base models v2 40k",
+      "description": "Starting weights for training v2 voices at 40k, with and without pitch guidance",
+      "group": "training",
+      "files": [
+        {
+          "path": "pretrained_v2/f0G40k.pth",
+          "size": 73106273,
+          "sha256": "3b2c44035e782c4b14ddc0bede9e2f4a724d025cd073f736d4f43708453adfcb",
+          "sources": {
+            "rvc-model": "pretrained/v2/f0G40k.pth",
+            "official": "pretrained_v2/f0G40k.pth"
+          }
+        },
+        {
+          "path": "pretrained_v2/f0D40k.pth",
+          "size": 142875703,
+          "sha256": "6b6ab091e70801b28e3f41f335f2fc5f3f35c75b39ae2628d419644ec2b0fa09",
+          "sources": {
+            "rvc-model": "pretrained/v2/f0D40k.pth",
+            "official": "pretrained_v2/f0D40k.pth"
+          }
+        },
+        {
+          "path": "pretrained_v2/G40k.pth",
+          "size": 72959671,
+          "sha256": "a3843da7fde33db1dab176146c70d6c2df06eafe9457f4e3aa10024e9c6a4b69",
+          "sources": {
+            "rvc-model": "pretrained/v2/G40k.pth",
+            "official": "pretrained_v2/G40k.pth"
+          }
+        },
+        {
+          "path": "pretrained_v2/D40k.pth",
+          "size": 142875703,
+          "sha256": "471378e894e7191f89a94eda8288c5947b16bbe0b10c3f1f17efdb7a1d998242",
+          "sources": {
+            "rvc-model": "pretrained/v2/D40k.pth",
+            "official": "pretrained_v2/D40k.pth"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pretrained-v2-48k",
+      "title": "Base models v2 48k",
+      "description": "Starting weights for training v2 voices at 48k, with and without pitch guidance",
+      "group": "training",
+      "files": [
+        {
+          "path": "pretrained_v2/f0G48k.pth",
+          "size": 75465569,
+          "sha256": "b5d51f589cc3632d4eae36a315b4179397695042edc01d15312e1bddc2b764a4",
+          "sources": {
+            "rvc-model": "pretrained/v2/f0G48k.pth",
+            "official": "pretrained_v2/f0G48k.pth"
+          }
+        },
+        {
+          "path": "pretrained_v2/f0D48k.pth",
+          "size": 142875703,
+          "sha256": "2269b73c7a4cf34da09aea99274dabf99b2ddb8a42cbfb065fb3c0aa9a2fc748",
+          "sources": {
+            "rvc-model": "pretrained/v2/f0D48k.pth",
+            "official": "pretrained_v2/f0D48k.pth"
+          }
+        },
+        {
+          "path": "pretrained_v2/G48k.pth",
+          "size": 75318967,
+          "sha256": "2e2b1581a436d07a76b10b9d38765f64aa02836dc65c7dee1ce4140c11ea158b",
+          "sources": {
+            "rvc-model": "pretrained/v2/G48k.pth",
+            "official": "pretrained_v2/G48k.pth"
+          }
+        },
+        {
+          "path": "pretrained_v2/D48k.pth",
+          "size": 142875703,
+          "sha256": "db01094a93c09868a278e03dafe8bb781bfcc1a5ba8df168c948bf9168c84d82",
+          "sources": {
+            "rvc-model": "pretrained/v2/D48k.pth",
+            "official": "pretrained_v2/D48k.pth"
+          }
+        }
+      ]
+    },
+    {
+      "id": "separation-dereverb",
+      "title": "Separation: Remove reverb",
+      "description": "Remove reverb and echo from a vocal (Mel-RoFormer, SDR 18.81).",
+      "group": "separation",
+      "files": [
+        {
+          "path": "pymss_weights/dereverb_mel_band_roformer_less_aggressive_anvuew_sdr_18.8050.ckpt",
+          "size": 456754215,
+          "sha256": "9399701da33d179e328a436e882fe2c79ae2f118a3d49603dbc7210bfeb428ea",
+          "sources": {
+            "rvc-model": "separation/dereverb_mel_band_roformer_less_aggressive_anvuew_sdr_18.8050.ckpt",
+            "official": "pymss_weights/dereverb_mel_band_roformer_less_aggressive_anvuew_sdr_18.8050.ckpt"
+          }
+        }
+      ]
+    },
+    {
+      "id": "separation-dereverb-aggressive",
+      "title": "Separation: Remove reverb, aggressive",
+      "description": "Remove reverb and echo more strongly (Mel-RoFormer, SDR 19.17).",
+      "group": "separation",
+      "files": [
+        {
+          "path": "pymss_weights/dereverb_mel_band_roformer_anvuew_sdr_19.1729.ckpt",
+          "size": 456706759,
+          "sha256": "4fcbfc9d419abfd1f07a24f920d83f80d51727ca3cde3e9d84c99398418d35f3",
+          "sources": {
+            "rvc-model": "separation/dereverb_mel_band_roformer_anvuew_sdr_19.1729.ckpt",
+            "official": "pymss_weights/dereverb_mel_band_roformer_anvuew_sdr_19.1729.ckpt"
+          }
+        }
+      ]
+    },
+    {
+      "id": "separation-vocals",
+      "title": "Separation: Vocals",
+      "description": "Split vocals from the accompaniment (BS-RoFormer, SDR 12.96).",
+      "group": "separation",
+      "files": [
+        {
+          "path": "pymss_weights/model_bs_roformer_ep_368_sdr_12.9628.ckpt",
+          "size": 319821424,
+          "sha256": "97c9e1011924ff647d147b474638c161b80586fd5b9e83fab59cbbb70014bf62",
+          "sources": {
+            "rvc-model": "separation/model_bs_roformer_ep_368_sdr_12.9628.ckpt",
+            "official": "pymss_weights/model_bs_roformer_ep_368_sdr_12.9628.ckpt"
+          }
+        }
+      ]
+    },
+    {
+      "id": "separation-vocals-aggressive",
+      "title": "Separation: Vocals, aggressive",
+      "description": "Split vocals from the accompaniment more strongly (BS-RoFormer, SDR 12.98).",
+      "group": "separation",
+      "files": [
+        {
+          "path": "pymss_weights/model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+          "size": 319821424,
+          "sha256": "4deed31719b7b92195530a9d0e86ea1c8d5c4aa9f0e2dd967c1f05419ebf96d5",
+          "sources": {
+            "rvc-model": "separation/model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+            "official": "pymss_weights/model_bs_roformer_ep_317_sdr_12.9755.ckpt"
+          }
+        }
+      ]
+    },
+    {
+      "id": "separation-karaoke",
+      "title": "Separation: Lead vocal",
+      "description": "Keep the lead vocal and split off backing vocals; run it on a vocal stem (Mel-RoFormer karaoke, SDR 10.20).",
+      "group": "separation",
+      "files": [
+        {
+          "path": "pymss_weights/model_mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt",
+          "size": 456715871,
+          "sha256": "6603c56e16e85f0eab78d471e43341b789ddc654230b9bcc81a25a8d1457a8c1",
+          "sources": {
+            "rvc-model": "separation/model_mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt",
+            "official": "pymss_weights/model_mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"
+          }
+        }
+      ]
+    }
+  ],
+  "voices": [
+    {
+      "id": "kikiv1",
+      "name": "kikiV1",
+      "description": "Official RVC demo voice (v1, 40 kHz)",
+      "sample_rate": 40000,
+      "version": "v1",
+      "pitch_guidance": true,
+      "files": [
+        {
+          "role": "model",
+          "size": 55025320,
+          "sha256": "fb48c0a982317073c343e440e0c88337c3c605908429d81d420ea123bc83b5b5",
+          "sources": {
+            "rvc-model": "voices/kikiV1/kikiV1.pth"
+          }
+        },
+        {
+          "role": "index",
+          "size": 58956235,
+          "sha256": "5f20e83f2e232f2077fed5a064bc92865899e2330a1ff10f2c54b2bae834c647",
+          "sources": {
+            "rvc-model": "voices/kikiV1/kikiV1.index"
+          }
+        }
+      ]
+    },
+    {
+      "id": "keruanv1",
+      "name": "keruanV1",
+      "description": "Official RVC demo voice (v1, 40 kHz)",
+      "sample_rate": 40000,
+      "version": "v1",
+      "pitch_guidance": true,
+      "files": [
+        {
+          "role": "model",
+          "size": 55024861,
+          "sha256": "9b3808d83e99b7c7b01cc1e33cee79ab8f1ebed08708b72066917465ea336e56",
+          "sources": {
+            "rvc-model": "voices/keruanV1/keruanV1.pth"
+          }
+        },
+        {
+          "role": "index",
+          "size": 41683651,
+          "sha256": "8e8d2000be4c6dce12102fe417e03ac13c338328da424e33a8e71d94eb1b3380",
+          "sources": {
+            "rvc-model": "voices/keruanV1/keruanV1.index"
+          }
+        }
+      ]
+    },
+    {
+      "id": "guanguanv1",
+      "name": "guanguanV1",
+      "description": "Official RVC demo voice (v1, 40 kHz)",
+      "sample_rate": 40000,
+      "version": "v1",
+      "pitch_guidance": true,
+      "files": [
+        {
+          "role": "model",
+          "size": 55024402,
+          "sha256": "5a4920ef7b8c28be41dbd3afe2bd8cc852bccc5da82ac0590afb2a160ca81bb2",
+          "sources": {
+            "rvc-model": "voices/guanguanV1/guanguanV1.pth"
+          }
+        },
+        {
+          "role": "index",
+          "size": 33496795,
+          "sha256": "d04454f009988ad7e3d830d3d8870b3d107978738e2e3b10bd415038ed882cac",
+          "sources": {
+            "rvc-model": "voices/guanguanV1/guanguanV1.index"
+          }
+        }
+      ]
+    },
+    {
+      "id": "zhanzhanv2-xi",
+      "name": "zhanzhanv2-xi",
+      "description": "Official RVC demo voice (v2, 40 kHz, 500 epochs)",
+      "sample_rate": 40000,
+      "version": "v2",
+      "pitch_guidance": true,
+      "files": [
+        {
+          "role": "model",
+          "size": 55222703,
+          "sha256": "c957d999a39ab2c787a15f2105934176c536288625cacfc239b8fd416ffc766c",
+          "sources": {
+            "rvc-model": "voices/zhanzhanv2-xi/zhanzhanv2-xi.pth"
+          }
+        },
+        {
+          "role": "index",
+          "size": 250792219,
+          "sha256": "91f14f20f342f7585d050e6df96e4b451761608e7a483e8454c9490cced67eee",
+          "sources": {
+            "rvc-model": "voices/zhanzhanv2-xi/zhanzhanv2-xi.index"
+          }
+        }
+      ]
+    },
+    {
+      "id": "youzhanv2-xi",
+      "name": "youzhanv2-xi",
+      "description": "Official RVC demo voice (v2, 48 kHz, 300 epochs); no index was published",
+      "sample_rate": 48000,
+      "version": "v2",
+      "pitch_guidance": true,
+      "files": [
+        {
+          "role": "model",
+          "size": 57551491,
+          "sha256": "88ad512ce774a929972ed27650aa80687fbe220ecdc20809a164c65dca4a408c",
+          "sources": {
+            "rvc-model": "voices/youzhanv2-xi/youzhanv2-xi.pth"
+          }
+        }
+      ]
+    }
+  ]
+}

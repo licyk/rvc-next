@@ -1,0 +1,53 @@
+"""Voice and stream parameters, as the API and settings see them.
+
+They mirror the engine's frozen dataclasses (``engine/convert/params.py``,
+``engine/stream/params.py``) and carry the ranges as field constraints, so every client shows the
+same limits. ``to_engine()`` converts without importing torch.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Literal
+
+from pydantic import Field
+
+from rvc_next.core.record import Record
+
+if TYPE_CHECKING:
+    from rvc_next.engine.convert.params import VoiceParams
+    from rvc_next.engine.stream.params import StreamParams
+
+F0Method = Literal["pm", "rmvpe", "fcpe"]
+
+
+class VoiceParamsModel(Record):
+    """The one parameter set for Convert, Live, the command line and the API."""
+
+    speaker_id: int = Field(default=0, ge=0, le=109, description="Speaker of a multi-speaker voice")
+    pitch: float = Field(default=0.0, ge=-24, le=24, description="Pitch shift in semitones")
+    formant: float = Field(default=0.0, ge=-2, le=2, description="Formant shift in semitones")
+    f0_method: F0Method = Field(default="rmvpe", description="Pitch extraction method")
+    index_rate: float = Field(default=0.75, ge=0, le=1, description="Index strength: how much of the voice's own timbre is drawn from the index")
+    protect: float = Field(default=0.33, ge=0, le=0.5, description="Consonant protection; 0.5 turns it off")
+    rms_mix_rate: float = Field(default=0.25, ge=0, le=1, description="Loudness match; 1 keeps the converted loudness unchanged")
+
+    def to_engine(self) -> VoiceParams:
+        from rvc_next.engine.convert.params import VoiceParams
+
+        return VoiceParams(**self.model_dump())
+
+
+class StreamParamsModel(Record):
+    """Live buffering and clean-up; the defaults are the original realtime GUI's."""
+
+    block_ms: int = Field(default=250, ge=20, le=1500, description="Audio processed per step")
+    crossfade_ms: int = Field(default=50, ge=10, le=150, description="Crossfade between blocks")
+    context_ms: int = Field(default=2500, ge=50, le=5000, description="Past audio the model sees with each block")
+    threshold_db: float = Field(default=-60.0, ge=-60, le=0, description="Input gate; -60 turns it off")
+    input_denoise: bool = False
+    output_denoise: bool = False
+
+    def to_engine(self) -> StreamParams:
+        from rvc_next.engine.stream.params import StreamParams
+
+        return StreamParams(**self.model_dump())

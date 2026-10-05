@@ -1,0 +1,439 @@
+---
+title: "核心服务"
+description: "核心层（rvcnext/core/）是 RVC Next 的全部业务逻辑：任务调度、显存管理、资源下载、音色库与导入、转换、人声分离、训练、实时变声，以及它们共用的设置、事件和数据库。API 与命令行都只是它的薄外壳，引擎（rvcnext/engine/）只被它以函数调用的方式使用，且只在函数内部惰性导入 torch。"
+icon: Boxes
+---
+
+本页逐个服务说明「代码现在怎么做、为什么这样做」。分层规则、`build_services()`、错误码表、设置分层与事件总线的总体图景见 [整体架构](/docs/development-architecture)；资源目录与下载仓库见 [资源与模型仓库](/docs/development-assets)；引擎内部见 [引擎](/docs/development-engine)。
+
+## 服务一览
+
+`core/context.py:build_services()` 按依赖顺序把所有服务各建一次，装进 `Services` 数据类：
+
+| 字段 | 类 | 位置 | 职责 |
+| --- | --- | --- | --- |
+| `settings` | `SettingsService` | `core/settings/` | `settings.toml`、环境变量覆盖、目录解析 |
+| `events` | `LocalEventBus` | `core/events/` | 进程内发布/订阅 |
+| `db` | `Database` | `core/db/` | SQLite（`rvc-next.db`） |
+| `http` | `HttpClientProvider` | `core/net/http.py` | 共享 httpx 客户端（测试可注入 `transport`） |
+| `compute` | `ComputeService` | `core/compute/` | 引擎运行时、GPU 租约、显存释放 |
+| `jobs` | `JobService` | `core/jobs/` | 队列、资源、运行器、历史 |
+| `assets` | `AssetService` | `core/assets/` | 资源目录、下载、校验、示例音色 |
+| `audio` | `AudioFileService` | `core/audio/` | 上传、服务器路径、波形峰值、输出记录 |
+| `models` | `VoiceModelService` | `core/models/service.py` | 音色库、旧版目录、合并与提取 |
+| `inbox` | `IndexInbox` | `core/models/inbox.py` | 尚未分配音色的索引 |
+| `imports` | `ImportService` | `core/models/imports.py` | 导入会话 |
+| `base_models` | `BaseModelService` | `core/models/base.py` | 训练底模 |
+| `separation_models` | `SeparationLibrary` | `core/separation/library.py` | 导入的人声分离模型 |
+| `presets` | `PresetService` | `core/presets/` | 音色参数预设 |
+| `separation` | `SeparationService` | `core/separation/service.py` | 人声分离任务 |
+| `conversion` | `ConversionService` | `core/conversion/` | 离线转换任务 |
+| `training` | `TrainingService` | `core/training/` | 实验与训练阶段 |
+| `live` | `LiveService` | `core/live/` | 实时变声会话与音频设备 |
+
+几处服务彼此需要对方（音色库要建默认预设，资源服务要把下载的示例音色放进音色库，导入会话要写底模和分离模型），构造函数无法表达环形依赖，所以 `build_services()` 在构造后用属性补上：`models.presets`、`assets.models`、`models.imports`、`imports.base`、`imports.separation`、`training.base`、`separation.library`。新增此类依赖时沿用这一做法，不要在构造函数里互相传递。
+
+`build_services()` 最后调用 `models.rescan()`。`start_background=True`（服务器）还会清理过期上传（`audio.cleanup()`）、启动空闲卸载线程（`compute.start()`）和任务调度线程（`jobs.start()`）；命令行不启动它们，而是用 `jobs.run_now()` 在前台跑一个任务。
+
+## 任务
+
+每个耗时操作都是一个任务（`core/jobs/`）：一张卡片、一个取消按钮、一份日志，在 Web UI、API 和命令行里一致。这取代了原版各标签页各自的进度显示和全局 `TRAIN_TASK` 锁。
+
+### 注册与请求
+
+某种任务（kind）向 `JobService.register(kind, factory)` 注册一个工厂：`request dict → JobSpec(title, run, resources, steps, priority)`。请求本身（纯 JSON）存入 `jobs.request` 列，所以服务器重启之后 **Retry** 仍能用同一请求重新提交（`retry()` 即 `submit(job.kind, job.request)`）。工厂里应当重新校验请求，因为重试时音色或文件可能已经变了。
+
+| kind | 注册者 | 资源 | 运行方式 |
+| --- | --- | --- | --- |
+| `convert` | `ConversionService` | `gpu`（`compute.device == "cpu"` 时为 `cpu`） | 进程内；带人声分离前置步骤时先起分离 worker |
+| `separate` | `SeparationService` | 同上 | `workers.separate` 子进程 |
+| `train` | `TrainingService` | `gpu`（设备或实验的 `fit.gpus` 为 `cpu` 时为 `cpu`） | 每个阶段一个 `workers.train` 子进程 |
+| `index` | `TrainingService` | `cpu` | `workers.train` 的 `index` 阶段 |
+| `export` | `TrainingService` | `io` | 进程内 |
+| `download` | `AssetService` | `io` | 进程内（httpx） |
+| `merge`、`extract` | `VoiceModelService` | `cpu` | 进程内 |
+
+导入不是任务：导入提交是同步的（见下文「导入会话」一节）。
+
+### 状态与调度
+
+<Mermaid chart={"stateDiagram-v2\n    [*] --> queued: submit()\n    queued --> waiting: 资源已满 / GPU 租约被占\n    waiting --> running: 资源释放\n    queued --> running: 资源空闲\n    queued --> cancelled: cancel()\n    waiting --> cancelled: cancel()\n    running --> cancelling: cancel()\n    cancelling --> cancelled\n    running --> completed\n    running --> failed\n    running --> cancelled: JobCancelled / engine Cancelled\n    queued --> interrupted: 服务器重启\n    waiting --> interrupted: 服务器重启\n    running --> interrupted: 服务器重启\n    cancelling --> interrupted: 服务器重启"} />
+
+调度线程 `_schedule_loop()` 每秒或被 `notify()` 唤醒时检查一遍：按 `(-priority, created_at)` 排序（预览转换的 `priority` 为 `PREVIEW_PRIORITY = 10`，所以试听总是插队），对每个排队任务检查它声明的每种资源：
+
+- **容量**：`gpu` 为 `compute.gpu_jobs`（默认 1），`cpu` 为 CPU 核数的一半，`io` 为 4。资源满时任务进入 `waiting`，`waiting_for` 为 `gpu` 或 `cpu`。
+- **GPU 租约**：需要 `gpu` 的任务还要 `compute.try_acquire("jobs")`。租约持有者是 `jobs` 时，多个 GPU 任务可以共用；只有实时变声（持有者 `live`）会把它们挡在外面。被实时变声挡住的任务 `can_run_anyway = True`，界面提供 **仍然运行**（`run_anyway()`）：绕过租约启动，代价是实时变声可能出现爆音。
+- 最后一个 GPU 任务结束时释放租约（`_thread_main` 的 `finally`）。
+
+### 两种运行器
+
+- **进程内**：`run(ctx)` 在一个独立线程上执行，通过 `JobContext` 报告进度（`progress`）、步骤（`step`、`add_steps`）、日志（`log`）和下载字节数（`transfer`），用 `check_cancel()` 或 `cancel_token()`（一个跟随任务取消的引擎 `CancelToken`）检查取消。转换在两个分块之间检查取消。
+- **子进程**：`ctx.run_worker(module, request, on_event=None, env=None)` 把请求写成 `jobs/<job id>.<随机 id>.request.json`，用当前解释器执行 `python -m <module> <request.json>`（`core/process.py:worker_command`，原版的 `--pycmd` 不再需要），逐行解析标准输出上的 JSON 事件（`rvc_next/protocol/messages.py`）。`progress`/`step` 默认直接作用于任务，传入 `on_event` 时由调用方处理（分离和训练要把子进程的进度映射到整个任务的区间）；`log` 总是写入任务日志；`result` 成为返回值；`error` 事件经 `core/engine_errors.py:worker_error()` 还原成对应的领域错误；无 `error` 事件的非零退出码变成 `WorkerExit`。取消就是在后台线程里 `kill_process_tree()`（Windows 用 `taskkill /t /f`，其他平台对新会话的进程组先 `SIGTERM` 后 `SIGKILL`），因为 PyMSS 和训练循环都没有可靠的内部取消点，杀进程也能把显存完整归还。
+
+子进程总是用 `start_process()` 启动：独立进程组、`stdin` 关闭、`stderr` 合并进 `stdout`、`PYTHONUNBUFFERED=1`、`PYTHONIOENCODING=utf-8`。
+
+命令行调用 `run_now()`：在当前线程直接执行，Ctrl+C 触发取消并杀掉子进程树，任务记为 `cancelled`。
+
+### 失败
+
+`_execute()` 用 `map_engine_error()` 把引擎异常（`MissingAssetError`、`ModelFormatError`、`AudioError`、显存不足、CUDA 错误）映射成领域错误。未能映射的异常连同 traceback 写入任务日志——traceback 只进日志，从不进主界面。显存不足（`ComputeError`，`detail.reason == "out_of_memory"`）时额外写一行说明并调用 `compute.release_after_oom()`，见下文「显存」一节。不会自动重试。
+
+### 进度、日志与持久化
+
+| 内容 | 节流 | 原因 |
+| --- | --- | --- |
+| `job_updated` 进度事件 | 每任务每秒最多 4 次（`PROGRESS_INTERVAL = 0.25`） | 事件携带整个 `Job` 快照，不能每块音频都发 |
+| 进度写库 | 每 2 秒（`DB_PROGRESS_INTERVAL`） | SQLite 写入有代价，进度只是展示用 |
+| 状态与步骤变化 | 立即写库并发布 | 这些是用户必须看到的转折 |
+| `job_log` | 0.25 秒一批，每批最多 50 行（`MAX_LOG_EVENT_LINES`） | 事件只是「有新日志」的提示，完整内容走 REST |
+| `transfer` | 与进度同节流 | — |
+
+日志写在 `jobs/<id>.log`。`read_log(job_id, offset, limit_bytes=256 KiB)` 按**字节偏移**读取，读满时截到最后一个换行，返回 `next_offset`；`job_log` 事件也带 `offset`，客户端据此判断是否漏了行再去补读。
+
+`Job.transfer`（`Transfer`：`done_bytes`、`total_bytes`、`bytes_per_second`、`eta_seconds`）由 `ctx.transfer(done, total)` 计算：保留最近 5 秒（`TRANSFER_WINDOW`）的采样点求速度，至少 0.5 秒的跨度才给出速度；字节数倒退（某个文件从头重下）时清空采样窗口。任务结束时 `transfer` 置空。
+
+### 重启与历史
+
+`JobService` 构造时调用 `_mark_interrupted()`：把所有仍处于 `queued`/`waiting`/`running`/`cancelling` 的行改成 `interrupted`——**除非**数据目录里的 `server.json` 指向一个仍存活的进程。这一例外让命令行（例如 `rvc-next jobs list`）在服务器运行时打开同一数据库，不会把服务器正在跑的任务误标为中断。
+
+`delete()` 拒绝删除活动任务；`clear_finished()` 删除所有已结束任务的行和日志（不删输出文件），并发布 `jobs_cleared`。`list_jobs()` 用 `created_at|id` 游标分页，`state` 可取 `active`、`finished` 或具体状态；活动任务以内存中的最新快照替换数据库行。
+
+## 显存
+
+`ComputeService`（`core/compute/service.py`）持有服务器（或一条命令）自己的引擎运行时，并协调所有占用 GPU 的东西。显存管理的思路来自 ComfyUI 的 `comfy/model_management.py`。
+
+- **运行时惰性创建。** `runtime()` 第一次被调用时才构造 `engine.runtime.Runtime`（这时才导入 torch），所以 `version`、`config` 等命令永远不碰 torch。键为 `(compute.device, compute.precision, compute.cuda_graph_offline, assets_dir)`；设置变化导致键变化时，监听器释放旧运行时，下次使用时重建。运行时缓存 HuBERT、F0 模型、最近 3 个音色和索引（见 [引擎](/docs/development-engine)）。
+- **GPU 租约。** 同一时刻只有一个持有者：`jobs`（所有并发 GPU 任务共享）或 `live`。`acquire_live()` 立即夺取租约——已在运行的 GPU 任务保留其显存继续跑，新任务等待；这是「实时变声优先」的落实方式，因为实时变声卡顿是用户最先注意到的问题。实时变声停止、出错或 worker 退出时释放租约并 `jobs.notify()` 唤醒调度。
+- **`MemoryHolder`。** 服务器运行时之外占用显存或正在使用模型的东西各注册一个：任务服务注册 `jobs`（`busy` = 有任何排队或运行中的任务），实时变声注册 `live`（`busy` = 会话处于活动状态或 `stopping`；`cached` = live worker 上次状态消息里报告的已加载模型；`release` = 向空闲的 worker 发送 `P.ReleaseMemory`）。
+- **释放显存**（`release()`，`POST /compute/release`）：只要 `busy()` 为空就允许——不只是服务器缓存里有模型时，因为空闲的 live worker 在它自己的进程里仍持有 HuBERT、音色和 F0 模型。有任何持有者忙时抛 `ConflictError`（409，`detail.reason = "busy"`，`detail.busy` 列出原因），因为正在用的模型释放了也只会被立刻重新加载。卸载即丢弃缓存、`gc.collect()`，再 `synchronize`、`empty_cache`、`ipc_collect`（`engine/runtime.soft_empty_cache`）。这取代了原版的「卸载音色省显存」按钮。
+- **显存不足。** `engine/runtime.is_oom` 识别 `torch.OutOfMemoryError`、错误码 2 的 `AcceleratorError` 以及 MPS/DirectML 的报错文本，统一成 `compute_unavailable`、`detail.reason = "out_of_memory"`。无论来自进程内任务、worker 的 `error` 事件还是 live worker 的错误状态，核心层都调用 `release_after_oom()`：卸载每个**未在使用**的模型（正在运行的任务通过自身引用保留其模型，结束后才释放；运行中的实时变声保留自己的），让重试从空 GPU 开始。live worker 会先卸载它自己的模型。
+- **空闲卸载。** `start()` 起一个线程，每 30 秒调用 `Runtime.release_idle(compute.unload_after_minutes × 60)`（默认 10 分钟，0 表示不卸载）。
+- **上报。** `usage()` 返回 `ComputeUsage`：设备、已用/总显存、缓存列表（live worker 的模型带 `live:` 前缀）、租约持有者、`busy` 和 `can_release`。`emit_usage()` 每秒最多发布一次 `compute_changed`（`force=True` 时立即发）；任务与实时变声的状态转换都会强制发布，顶栏的显存菜单据此启用或禁用「释放显存」。
+- `info()` 列出每个设备及 GPU 规则选择的精度（会导入 torch），供 `GET /compute/devices` 和 `doctor` 使用。
+
+## 资源
+
+`AssetService`（`core/assets/service.py`）读取随包分发的 `catalog.json`，计算每个资源的状态，以 `download` 任务下载或校验，并管理示例音色。目录格式、两个下载仓库、断点续传与校验缓存详见 [资源与模型仓库](/docs/development-assets)。这里只记录其他服务如何使用它：
+
+- `require(ids, what)`：任何需要资源的操作在**提交任务前**调用，缺失时抛 `AssetMissingError`（409，退出码 7），`detail.assets` 列出资源 id，`detail.size` 给出还需下载的字节数，界面的 `AssetGate` 据此原地提供下载。任务运行时会再检查一次，因为排队期间资源可能被删除。
+- 转换与实时变声所需资源：`hubert`；有音高引导的音色再加 `rmvpe`（`compute.device == "dml"` 时为 `rmvpe-onnx`）或 `fcpe`；pm 不需要资源。训练前置检查见下文「训练」一节。
+
+## 音色库
+
+音色（voice）是用户在各处选择的单位：一个小模型、它的索引、它的说话人和它的默认参数。`VoiceModelService`（`core/models/service.py`）管理它们。
+
+### 磁盘布局与数据库缓存
+
+`models/`（`paths.models_dir`，默认在数据目录内）下的每种模型都是文件夹加 JSON 附属文件：
+
+| 文件夹 | 内容 | 附属文件 | 服务 |
+| --- | --- | --- | --- |
+| `models/voices/<slug>/` | `model.pth`、`model.index` 或 `spkid<N>.index` | `voice.json` | `VoiceModelService` |
+| `models/indexes/<id>/` | `model.index` | `index.json` | `IndexInbox` |
+| `models/base/<slug>/` | `G.pth`、可选 `D.pth` | `base.json` | `BaseModelService` |
+| `models/separation/<slug>/` | `model.<ext>`、`config.yaml` | `separation.json` | `SeparationLibrary` |
+| `models/attached-indexes/<voice>/` | 为旧版或临时音色复制的索引 | — | `VoiceModelService.set_index` |
+
+只有音色进数据库（`voice_models` 表），而且只是缓存：`rescan()` 从 `models/voices/` 和各旧版目录重建它，删掉对应文件已不存在的行。底模、分离模型和收件箱索引每次列出时直接扫描文件夹——没有查询需要它们进数据库，而扫描文件夹不会与文件产生偏差（AGENTS.md §8 的偏离之一）。
+
+`voice.json` 记录 `name`、`description`、`tags`、`speakers`（用户命名的说话人）、`source_files`、`index_sources`（各索引导入时的原文件名，便于追溯改过名的 `.index`）、`imported_at`，以及来源字段（`catalog_id`、`merged_from`/`alpha`、`extracted_from`、`experiment`/`checkpoint`）。`.pth` 本身从不改写，所以库里的音色仍能直接拿回原版使用。
+
+写入一律先写到 `.<slug>.part` 临时文件夹再整体 `rename`（`_add_to_library`），附属文件先写 `.tmp` 再 `replace`，中途失败不会留下半个音色。2026-10-04 之前的库位于 `models/<slug>/`，`rescan()` 里的 `_migrate_layout()` 会把含 `model.pth` 且不属于保留名（`RESERVED`）的文件夹逐个移到 `models/voices/` 下，id 不变。
+
+`_upsert_from_pth()` 以 `(mtime_ns, size, model_path)` 判断 `.pth` 是否变化：未变化时只更新元数据列，变化时才用引擎的 `checkpoint.summarize` 重新读取采样率、版本、音高引导、说话人和 `info`。读到的是训练检查点（G）而非小模型时拒绝，并提示先提取。
+
+### 音色 id 与位置
+
+| `location` | id 形式 | 来源 |
+| --- | --- | --- |
+| `library` | `slugify(name)`，冲突时加 `-2`、`-3` | 导入、下载、合并、提取、训练导出 |
+| `legacy:<root id>` | `legacy-<root id>-<slug>` | 原版安装的 `assets/weights/*.pth`，原地读取 |
+| `temporary` | `tmp-<路径 sha1 前 12 位>` | 命令行直接给的 `.pth` 路径、训练「试听」 |
+
+`slugify()` 保留中日韩等文字，只把其他符号折叠成连字符。临时音色不出现在列表里；`resolve(ref)` 依次按 id、按名称（不区分大小写）、最后（命令行）按 `.pth` 路径查找。
+
+### 说话人
+
+一个音色只有在 `.pth` 带 `speaker_info`（或用户命名过说话人）时才算多说话人。每个训练出的音色都有 109 行说话人嵌入，若按行数判断，所有音色都会变成多说话人（AGENTS.md §8）。`speaker_slots` 仍报告嵌入行数，用来校验 `speaker_id` 的范围。说话人名称保存在 `voice.json`（旧版音色保存在 `legacy-voices.json`），不改 `.pth`。
+
+### 索引
+
+每个音色每个说话人键最多一个索引：键为 `default` 或 `spk<N>`，文件名分别为 `model.index` 与 `spkid<N>.index`；再挂一个会替换旧的（不支持同键多索引，这是导入计划时的决定）。`index_for(voice, speaker_id)` 先找 `spk<N>`，再找 `default`；多说话人音色找不到对应键时不退而求其次地用别人的索引。
+
+`set_index()` 接受任意文件名，但先用 `check_index_fits()` 检查：索引宽度必须与音色版本一致（256 ↔ v1，768 ↔ v2），否则抛 `ValidationError`（`detail.reason = "version_mismatch"`）；`ntotal == 0` 的 `trained_` 索引抛 `empty_index`。库音色得到一份复制；旧版或临时音色只记路径——若来源是上传、收件箱或导入会话（`persist`），先复制到 `models/attached-indexes/<voice>/`，因为旧版安装的文件夹永远不写。
+
+### 旧版目录
+
+`paths.legacy_roots` 指向原版 RVC 安装。`add_legacy_root()` 要求目录下有 `assets/`，生成 root id 后立即扫描。扫描读取 `assets/weights/*.pth`，并在第一次扫描、以及用户显式重新扫描时（只针对索引仍是建议、`suggested` 为真的音色）用 `importers.suggest_index()`——原版 `get_index_path_from_model` 的打分：在 `assets/indices` 与 `logs` 下找名字含实验名的 `added` 索引，说话人匹配、标准命名、靠前的根目录、较新的文件优先——为每个音色建议索引。建议与用户之后的修改一起存在数据目录的 `legacy-voices.json`。推理时从不猜测索引：原版每次选模型都按文件名重新打分，结果落在一个用户可能改过的文本框里。
+
+旧版音色不能删除，只能隐藏（`hidden`）；`import_legacy_root()`（**全部导入**）把它们复制进库。`remove_legacy_root()` 只忘记该目录，不动文件。
+
+### 合并与提取
+
+两者都是 `cpu` 任务，产物写到 `uploads/` 下的临时文件夹再经 `add_model_file()` 进库：
+
+- `merge`：`engine.models.merge.merge_models(a, b, alpha)`，记录 `merged_from` 与 `alpha`。
+- `extract`：从 G 检查点提取小模型。`checkpoint` 可以是绝对路径或 `<实验名>/<文件名>`。采样率、版本、音高引导与说话人优先从检查点所在文件夹的 `experiment.json` 或原版 `config.json` 读取（`_checkpoint_context`），读不到采样率时才要求用户给出——原版要用户手填这些，填错就得到坏模型。
+
+删除库音色会把整个文件夹移到系统回收站（`send2trash`），不可用时移到数据目录的 `trash/`（`core/files.py:trash`）。
+
+## 导入会话
+
+所有导入入口——Web UI 的拖放区、`PUT /models/imports/{sid}/files`、`POST /models/imports/{sid}/paths`、`rvc-next model import`、旧的一步式 `PUT /models/import` 与 `POST /models/import-path`——都经过同一个导入会话（`core/models/imports.py`）。设计目标：`.pth` 与 `.index` 文件名毫无关联时也能正确配对，且四种模型（音色、索引、底模、分离模型）各自独立导入。
+
+<Mermaid chart={"flowchart LR\n    A[\"create<br/>uploads/imports/sid\"] --> B[\"暂存<br/>add_upload / add_paths<br/>zip 解包\"]\n    B --> C[\"按内容识别<br/>_inspect → StagedFile\"]\n    C --> D[\"计算计划<br/>plan → ImportPlan\"]\n    D -->|confident| F[\"commit\"]\n    D -->|需要决定| E[\"ImportReviewDialog<br/>或 CLI --pair 等\"]\n    E --> F\n    F --> G[\"音色 / 索引 / 收件箱 / 底模 / 分离模型<br/>models_changed\"]"} />
+
+### 暂存
+
+会话是 `uploads/imports/<sid>/`，含 `session.json` 和 `files/<file id>/<原文件名>`；创建新会话时顺带清除 24 小时（`SESSION_TTL`）未动的旧会话。
+
+- 上传：原始请求体流式写入 `.part`，再移入会话。
+- 服务器路径：优先硬链接，失败则复制（大文件不复制两次）。文件夹会被递归收集；若是原版 RVC 安装（有 `assets/weights/`），只取 `assets/weights/*.pth` 和 `assets/indices`、`logs` 下的 `added_*.index`。
+- `.zip`：逐个解出受支持的成员（跳过目录、隐藏文件、`__MACOSX`，单个成员上限 4 GiB），保留压缩包内的文件夹作为 `group`。
+
+`group`（来源文件夹或压缩包）是配对的证据之一：同一组里的文件很可能属于一起。
+
+### 按内容识别
+
+扩展名只决定用哪个读取器；文件是什么由内容决定：
+
+| 读取器（扩展名） | 判定 | 读出的信息 |
+| --- | --- | --- |
+| faiss（`.index`） | 索引 | 宽度 `d`（256 → v1，768 → v2）、向量数 `ntotal`（0 即 `trained_` 索引），`engine/index/inspect.py` |
+| torch（`.pth`、`.pt`） | 有 `weight` 与 `config` → 音色（小模型） | 版本、采样率、音高引导、说话人 |
+| 同上 | 状态字典有 `discriminators.*` → 判别器 D | 子判别器数：7 → v1，9 → v2（D 不含采样率） |
+| 同上 | 状态字典有 `dec.*` → 生成器 G | `enc_p.emb_phone` 宽度定版本，`enc_q.pre` 输入宽度与上采样核定采样率，`dec.m_source` 存在即有音高引导（`engine/models/checkpoint.py:inspect_checkpoint`） |
+| 同上 | 其他 | 人声分离检查点（有些分离模型以 `.pth` 发布，由同次导入的 YAML 认领） |
+| YAML（`.yaml`、`.yml`） | 人声分离配置 | pymss_core 的 `detect_model_type`、`training.instruments`、`target_instrument` |
+| `.ckpt`、`.bin`、`.safetensors`、`.chpt` | 人声分离检查点 | 不读取，提交时由分离 worker 试加载验证 |
+
+读取失败的文件记为 `unsupported`，附上原因，提交时列入 `skipped`。
+
+### 配对规则
+
+`core/models/pairing.py` 是纯函数，只看识别结果，便于表格化测试。
+
+**索引 ↔ 音色**（`pair_indexes`）：
+
+1. **硬性检查**：`ntotal == 0` → 状态 `empty`；宽度不是 256/768 → `incompatible`；版本相符的候选音色先取本次导入里的音色，**只有本次导入没有合适音色时**才考虑库里的音色——否则一次导入「新音色 + 它的索引」时，名字相近的库音色会来抢。没有候选 → `incompatible`。
+2. **名称打分**（`name_score`）：索引名按 `added_IVF<n>_Flat_nprobe_1_<exp>_<v1|v2>[_spkid<N>]` 解析出的实验名等于音色去掉 `_e<N>_s<N>` 后的名字 → 1.0（`experiment_name`）；一方包含另一方（至少 3 个字符）→ 0.8（`name_contains`）；否则为去掉样板词后的词集 Jaccard × 0.7（`similar_name`）。另加：同一文件夹/压缩包 +0.2（`same_folder`），名字里的版本后缀相符 +0.1，`_spkid<N>` 与音色的说话人相符 +0.1（`speaker`，并把键设为 `spk<N>`）。
+3. **决定**：
+    - `unique`：本次导入里只有一个兼容音色，且只有这一个兼容索引竞争同一个键 → 自动配对，`confident`，不管名字（「按版本配对」）。
+    - `evidence`：最高分 ≥ 0.5 且领先第二名 ≥ 0.25 → 提议；只有对象是本次导入的音色且得分 ≥ 0.8 时才 `confident`。
+    - `choose`：其余情况，不提议，由用户在候选里选。
+    - `duplicate`：两个索引提议给同一音色同一键时，得分低的一个让给用户决定。
+
+**G ↔ D、YAML ↔ 检查点**（`pair_partners`）：一对一时直接配对（G/D 还要求版本相同）；否则把 G 名里的 `G` 换成 `D`（`G_TO_D`：`f0G40k` ↔ `f0D40k`、`G_2333333` ↔ `D_2333333`）后完全相同得 1.0，再加词集相似度与同组加分，阈值与索引相同。
+
+`plan()` 每次被请求时重新计算，所以总是反映音色库的当前状态。计划 `confident` 的条件：有可执行的内容；每个非 `empty` 索引都 `confident`；每个 YAML 都有检查点；每个 D 都配上了 G。分离计划的主副音轨由 `target_instrument` 推断，`vocals`/`other` 组合的副音轨标签默认 `instrumental`。
+
+### 提交
+
+`commit(sid, decisions)` 先用 `apply()` 把用户的决定（`ImportDecisions`，省略的列表保留提议）覆盖到计划上，`_validate()` 再做一次硬检查（空索引、版本不符、同一音色同一键两个索引），然后**同步**执行：导入音色（连同配给它的索引）、把配给库音色的索引交给 `set_index()`、未分配或配给被跳过音色的索引放进收件箱、G 按 `action` 成为底模（`base`）或提取成音色（`extract`）、YAML 加检查点进入分离模型库。最后删除会话并发布一次 `models_changed`。
+
+计划中曾设想把提交做成任务并新增 `imports_changed` 事件；实际全是本地复制，最慢的一步是分离模型的试加载（几秒），所以直接返回 `ImportResult`（`voices`、`attached`、`inbox`、`base_models`、`separation_models`、`checkpoints`、`skipped`）。
+
+`import_now()` 是一步式导入（命令行、旧路由、示例音色以外的所有「直接导入」）：建会话、暂存、计算计划；`name` 只在恰好一个音色时生效；`--index` 只能配一个音色；计划不 `confident` 且没有决定时抛 `ConflictError`，`detail.plan` 带完整计划——API 返回 409，命令行打印计划并以退出码 3 结束，由 `--pair`、`--keep-unassigned`、`--extract` 补充决定。会话无论成败都会删除。
+
+## 索引收件箱
+
+`IndexInbox`（`core/models/inbox.py`）保存没有音色可配的索引：`models/indexes/<id>/model.index` 加 `index.json`（导入名、宽度、向量数、时间）。`list_indexes()` 每次都对库音色重新运行 `pair_indexes`，给出兼容候选与提议；`assign()` 经 `set_index()`（含版本检查）挂到音色上后删除收件箱条目；`delete()` 移入回收站。事件里收件箱条目的 id 以 `index:` 为前缀。
+
+## 底模
+
+`BaseModelService`（`core/models/base.py`）把官方底模和导入的底模并列：
+
+- 官方：`v1`/`v2` × `32k`/`40k`/`48k` × 有无音高共 12 个，id 为 `official-<版本>-<采样率>[-f0]`，文件就是资源目录里的 `pretrained/` 或 `pretrained_v2/` 下的 `[f0]G<rate>.pth` 与 `[f0]D<rate>.pth`，所属资源为 `pretrained-<版本>-<采样率>`（每个资源 4 个文件：有无音高各一对 G/D）。
+- 导入：`models/base/<slug>/G.pth`（加可选 `D.pth`）与 `base.json`。采样率、版本、音高引导都从 G 的权重读出，用户什么都不用填；缺 D 允许（判别器从头训练，原版也允许）。
+
+`list_base(sample_rate, version, pitch_guidance)` 只返回匹配的底模，训练设置里的选择器因此只显示能用的；`check_fits()` 拒绝不匹配（`detail.reason = "base_model_mismatch"`）。删除官方底模只删它自己的那一对 G/D（`AssetService.delete_files`），所属资源变成 `partial`，可以再下载；导入的底模移入回收站。
+
+## 预设
+
+`PresetService`（`core/presets/`）存 `VoiceParamsModel`（以及实时变声预设的 `StreamParamsModel`）。每个音色有且只有一个默认预设（名为 `Default`），在音色入库时由 `ensure_default()` 用 `convert.default_params` 创建；删除默认预设会立刻再建一个。在任何界面选中一个音色都会载入它的默认预设，所以同一音色在转换和实时变声里听起来一样。`model_id` 为空的是全局预设；`resolve()` 按名称查找时音色自己的预设优先。设为默认时同一事务里清掉该音色其他预设的默认标记。
+
+`VoiceParamsModel` 与 `StreamParamsModel`（`core/params.py`）镜像引擎的冻结数据类，取值范围写成字段约束，`to_engine()` 转换时不导入 torch。Web UI 的 `paramSpecs.ts` 由 `typegen` 从这些约束生成，所以各端显示的范围、默认值和说明一致。
+
+## 音频文件与输出
+
+`AudioFileService`（`core/audio/service.py`）把三种输入来源统一成 `AudioRef`：
+
+| `kind` | 含义 |
+| --- | --- |
+| `upload` | `PUT` 原始请求体写入 `uploads/<id>/<name>`（先 `.part`），PyAV 探测后记入 `audio_files` |
+| `path` | 服务器上的文件或文件夹；文件夹展开成其中的音频文件（`recursive` 时递归） |
+| `output` / `output-source` | 之前某个输出本身，或生成该输出时用的输入 |
+
+服务器路径必须位于 `paths.browse_roots` 之内——这个检查在 **API** 里做（路由调用 `check_refs()`，`browse()` 与 `resolve_path()` 也检查），命令行属于本机用户，不受限制。`browse_roots` 为空时默认为用户主目录、各旧版目录、数据目录以及每个盘符/挂载卷（`SettingsService.browse_roots()`）。
+
+- **峰值**：`peaks(path, points)` 把点数限制在 64–4096，以 `sha1(路径|大小|mtime|点数)` 为键缓存到 `cache/peaks/<xx>/<key>.json`。浏览器从不为了画波形解码整个文件。
+- **输出**：任务写到 `outputs/<本地日期>/<job id>/`（`convert.output_dir` 可整体改位置），文件名 `output_path()` 生成 `<stem>.<后缀>.<格式>`，冲突时加数字，从不覆盖。每个输出一行 `outputs`，带来源路径、音色 id 和 `VoiceParamsModel`，所以结果可以试听、与源 A/B、作为下一步输入、或用同样设置重跑；`add_output()` 发布 `outputs_added`。
+- `zip_outputs()` 以 `ZIP_STORED` 边写边产出，不在内存或磁盘上先拼出整个 zip。
+- `cleanup()`（服务器启动时）删除 24 小时以前且没有输出引用的上传（导入会话目录也在 `uploads/` 下，按同样的期限清理），并按 `convert.keep_outputs_days`（0 表示永久保留）删除旧输出。
+
+## 转换
+
+`ConversionService`（`core/conversion/`）一次请求一个任务，每个输入一个步骤：
+
+1. `validate()`（提交前）：说话人在范围内、资源齐全、分离预设可用、`remix` 必须配 `separate`。
+2. 有 `separate` 时，所有输入在**一个**分离 worker 里先分离（占进度的前 40%），中间音轨写到 `<输出目录>/stems/`。
+3. 用服务器运行时加载音色（缓存命中时立即开始），`index_rate > 0` 且有索引时加载索引（按路径与 mtime 缓存，整个任务只加载一次——原版每个文件都 `read_index`）。
+4. 每个输入解码为 16 kHz 单声道（预览只解码前 `preview_seconds` 秒），`OfflineConverter.convert()` 转换主音轨（分离预设的 `primary_stem`）。
+5. 有 `remix` 时把转换后的人声按 `vocal_gain_db` 与伴奏（优先 `instrumental`/`accompaniment`/`other`/`no_vocals` 标签）按 `gain_db` 混成立体声，峰值超过 0.99 时整体缩放。
+6. 写出 `<stem>.<音色 slug>[.preview].<格式>`，记录输出（`converted`、`remix` 或 `preview`），最后删除中间音轨。
+
+只有命令行的 `-o` 加 `--overwrite` 会覆盖同名文件。
+
+## 人声分离
+
+`SeparationService`（`core/separation/service.py`）的预设来自两处：引擎读取的内置 `core/separation/presets.json`（`vocals`、`vocals-aggressive`、`dereverb`、`dereverb-aggressive`、`karaoke` 五个单模型预设，以及 `vocals-clean`（人声 → 去混响）和 `lead-clean`（人声 → 主唱 → 去混响）两条链），和每个导入分离模型各一个单步预设（`source: "imported"`，id `user-<slug>`）。预设声明 `stems`、`primary_stem`（转换前置步骤要转换的那条）和 `assets`。
+
+`run_files()` 是分离页面、转换前置步骤和训练清理阶段共用的入口：把所有输入、预设和模型规格（内置的由 `engine.separate.presets.resolve()` 解析，导入的由 `SeparationLibrary.spec()` 给出）放进一个请求，一个 `workers.separate` 子进程处理全部输入。worker 的 `output` 事件按来源与标签收集音轨，需要时登记为 `stem` 输出。退出码 `EXIT_RETRY = 75` 表示 DirectML 上 fp16 失败，核心层用 fp32 重跑一次——保留原版 `pymss_webui.py` 的做法。
+
+导入的分离模型（`SeparationLibrary`）入库前会在分离 worker 里以 `check` 动作加载一次（`_check_loads()`，超时 600 秒），YAML 与检查点不匹配时在导入时就报错（`detail.reason = "separation_load"`），而不是第一次分离时。音轨标签只能用字母、数字、`-`、`_`，且两条不同。用户自定义的分离链暂不支持。
+
+## 训练
+
+`TrainingService`（`core/training/service.py`）。实验不进数据库：每个实验是 `experiments/<name>/` 一个文件夹，含 `experiment.json` 和原版的阶段子目录（`0_gt_wavs/`、`1_16k_wavs/`、`2a_f0/`、`2b-f0nsf/`、`3_feature256|768/`、G/D 检查点、`added_*.index`……），所以从别处复制进来的文件夹直接出现在列表里。
+
+- 没有 `experiment.json` 但有阶段目录的文件夹按**旧版实验**读取（`engine.train.experiment.read_legacy`：从 `config.json` 与 `multispeaker_manifest.json` 读采样率、版本、说话人表），输出已存在的阶段标为 `done`，然后写出 `experiment.json`。`import_legacy()` 把原版 `logs/<exp>` 复制进来（忽略 `eval`）。
+- `experiment.json` 的写入先写 `.tmp` 再替换；损坏时报 `ValidationError` 而不是静默重建。
+
+### 阶段
+
+| 阶段 | 何时适用 | 指纹输入 |
+| --- | --- | --- |
+| `clean` | 设置了 `dataset.clean_preset` | 数据集文件夹 + 预设 |
+| `slice` | 总是 | `dataset_clean/`（有清理时）或数据集文件夹 + 采样率 + 说话人表 |
+| `f0` | 有音高引导 | `1_16k_wavs/` + F0 方法 |
+| `features` | 总是 | `1_16k_wavs/` + 版本 |
+| `fit` | 总是 | 特征目录、`0_gt_wavs/`、（有音高时）`2b-f0nsf/` + 采样率、版本、音高、说话人表 |
+| `index` | 总是 | 特征目录 + 版本 |
+
+指纹（`engine/train/fingerprint.py:of_paths`）是对路径下每个文件名、大小和 mtime 再加上决定输出的设置做的 SHA-1；路径不存在与空文件夹的哈希不同。阶段完成时把指纹记入 `StageState.fingerprint`。
+
+**全部运行**（`plan()`，`RunRequest.stages` 为空）执行适用阶段中状态不是 `done` 的那些，以及 `epochs` 比上次完成时更大的 `fit`（`counts["epochs"]`）——所以加训只需把轮数调大再点一次。`force` 重跑选中的阶段。
+
+**过期标记**：`update()` 修改实验时，按改动项把对应阶段及其后续阶段中 `done` 的标成 `stale`：
+
+| 改动 | 从哪一阶段起过期 |
+| --- | --- |
+| 清理预设 | `clean` |
+| 数据集（文件夹、说话人表） | `slice` |
+| 采样率 | `slice` |
+| 音高引导、F0 方法 | `f0` |
+| 版本 | `features` |
+
+某个阶段重跑完成后，未在本次运行中的后续 `done` 阶段也标成 `stale`。`stale` 阶段重跑时向 worker 传 `clean: true`，丢弃旧输出；索引阶段另有自己的指纹文件（`index_fingerprint.json`，见 [引擎](/docs/development-engine)），特征变化时重建——原版只要存在任何 `added_*.index` 就跳过。
+
+「全部运行」（不指定阶段）由 `plan()` 决定：未完成的阶段、以及存储的指纹与当前重新计算的指纹不一致的阶段（例如有人直接往数据集文件夹里加删文件）都要跑，并且从第一个这样的阶段起，其后所有适用的阶段都在同一个任务里重跑，因为它们读取前者的输出；没有指纹的阶段（旧版实验）视为未变。只是 `epochs` 增大时，只续训 `fit`。
+
+### 运行
+
+`run()` 把选中的阶段作为**一个** `train` 任务提交（每个阶段一个步骤，进度按 `STAGE_WEIGHT` 加权，`fit` 占大头）。同一实验同时只能有一个运行（`BusyError`）；运行中不能修改或删除实验。提交前 `_preflight()` 检查：`slice` 需要数据集；`features` 需要 `hubert`；RMVPE 提取 F0 需要 `rmvpe`；`fit` 需要所选底模（`fit.base_model`，经 `check_fits`）或对应的官方 `pretrained-<版本>-<采样率>`；`clean` 需要其预设的资源。
+
+每个阶段起一个 `workers.train` 子进程（`clean` 除外，它调用分离服务的 `run_files()`，把每个说话人的主音轨写到 `dataset_clean/<说话人 id>/`）。每个阶段独立进程的理由与原版相同：取消就是杀进程树，CUDA 上下文干净，DDP 本来就需要自己的进程。worker 的 `metric` 事件转成 `train_metrics` 事件（送进 Web UI 的 Pinia store 画损失曲线），完整指标在实验目录的 `metrics.jsonl`，`metrics(name, since)` 读取。
+
+其他默认值：`training.f0_method = "auto"` 在有合格 CUDA 设备时用 `rmvpe`，否则 `pm`；`training.gpus = "auto"` 是新实验 `fit.gpus` 的默认值，训练按实验的 `fit.gpus` 选卡（`auto` 取所有合格 CUDA 设备，也可写成原版的 `0-1`；`train run --gpus` 写入实验）；`batch_size` 为空时取最小 GPU 显存（GiB）÷ 2，与原版相同；`cpu_workers` 为空时取 CPU 数 ÷ 1.5。切片的 `per` 在有 GPU 时为 3.7 秒、纯 CPU 时为 3.0 秒，沿用原版。
+
+### 结果
+
+- `export`（`io` 任务）：取指定或最新的小模型（没有则最新 G，先提取，多说话人实验带上说话人名），连同实验的 `added_*.index`（按 `_spkid<N>` 分键）加入音色库，并把 `voice_id` 写回实验。
+- `try_checkpoint()`：把某个已保存的小模型或 G 检查点注册成临时音色，带上实验的索引，供转换页试听；G 检查点先提取成小模型，缓存在实验的 `.try/` 中（检查点更新时才重新提取），D 检查点会被拒绝。
+- `build_index_for_voice()`（`index` 任务）：用某个实验已提取的特征为一个已有音色构建索引。
+
+## 实时变声
+
+`LiveService`（`core/live/service.py`）同一时刻只管理一个会话，它不在服务器进程里处理音频，而是监督一个长期存活的 `workers.live` 进程：音频设备和实时线程归那个进程，与服务器的事件循环、GIL 竞争和可能的崩溃隔开。
+
+<Mermaid chart={"stateDiagram-v2\n    [*] --> stopped\n    stopped --> starting: start()\n    starting --> loading\n    loading --> prewarming\n    prewarming --> running\n    running --> reconnecting: 设备丢失\n    reconnecting --> running: 设备回来（exact / matched）\n    running --> stopping: stop()\n    stopping --> stopped\n    starting --> error\n    loading --> error\n    running --> error\n    error --> starting: start()"} />
+
+### worker 与连接
+
+`LiveSupervisor`（`core/live/supervisor.py`）按需启动 worker：在 `127.0.0.1` 随机端口开一个 `multiprocessing.connection.Listener`，带 32 字节随机 authkey；把地址和 authkey 连同运行参数写进请求文件，以 `python -m rvc_next.workers.live <request.json>` 启动；最多等 60 秒连接（worker 先退出则立即失败）。之后一个读线程把收到的消息（`rvc_next/protocol/live.py` 的数据类，JSON 编码）交给 `LiveService._on_event`；worker 的 stdout/stderr 转入服务器日志。连接断开时调用一次 `on_exit(expected)`，非预期退出时会话进入 `error`。
+
+worker 在会话停止后仍保持运行（为了电平表和快速再启动），模型留在它自己的进程里，这正是「释放显存」要通知它的原因（`P.ReleaseMemory`）。
+
+### 控制锁与音色切换
+
+`start`、`update_voice`、`update_stream`、`set_voice`、`set_devices` 都在 `_control` 锁里执行「读状态 → 发消息 → 写回状态」，因为切换音色及其引起的说话人重置是两条紧挨着的消息，不能与另一个请求交错。
+
+切换音色时 worker 用带 `voice_path` 的 `State` 消息回答**现在实际在转换的音色**：新音色，或新音色加载失败时保留的旧音色。服务用 `_voice_ids`（模型路径 → 音色 id）反查，让状态跟随 worker 而不是跟随请求，并把 `live.last_voice` 更新为实际在用的那个。切换后说话人超出新音色范围时重置为 0。修改 F0 方法时先检查对应资源，worker 加载不了新方法时保留原方法。
+
+worker 一连上就会宣告一次 `stopped`；`_awaiting_start` 让服务忽略这条，直到 `Start` 被处理，否则界面会在启动时闪回「已停止」。
+
+### 设备
+
+- **枚举**在一个短命子进程 `workers.devices` 里完成（`action: enumerate`），只导入 sounddevice、不导入 torch。原版刷新设备要调用私有的 `sd._terminate()`/`sd._initialize()` 并停止音频流；放在别的进程里则永远不会打扰正在运行的流。结果缓存；`devices(refresh=True)` 重新枚举，签名（去掉时间戳和 PortAudio 序号）不同时发布 `devices_changed`。`live.enable_asio` 打开时给子进程设置 `SD_ENABLE_ASIO=1`。
+- **解析**（`engine/audio_io/devices.py:resolve_selection`）在每次启动和每次换设备前对新列表执行，依次尝试：
+
+    | 顺序 | 匹配 | 状态 |
+    | --- | --- | --- |
+    | 1 | 同一 `device_id` | `exact` |
+    | 2 | 同一物理设备键、同一宿主 API | `matched` |
+    | 3 | 同一物理设备键、推荐的宿主 API | `matched` |
+    | 4 | 同名（含 MME 31 字符截断名的前缀匹配），任意宿主 API | `matched` |
+    | 5 | 系统默认设备 | `default_fallback` |
+    | — | 连默认设备都没有 | `missing` |
+
+    未指定设备的选择跟随系统默认，算 `exact`。
+
+- **输出回退需要确认。** 原版在保存的设备丢失时静默换成默认设备；把转换后的声音送到扬声器而不是虚拟声卡，是用户最容易发现的事故。所以输出解析为 `default_fallback` 时，`start()` 抛 `DeviceError`（`detail.fallback = true`），除非请求带 `allow_output_fallback`。输入或监听回退只作为提示。
+- `check()`（`POST /live/devices/check`）先解析，再让设备子进程用 `check` 动作按确切配置（设备、声道、采样率、独占）问 PortAudio 能否打开，返回拓扑（`duplex`/`split`）、采样率、估计延迟和带建议操作的问题（`choose`、`use_48k`、`disable_exclusive`、`grant_permission`）。`test_tone()` 在设备子进程里播放提示音。
+- **重连**：worker 报告 `DeviceLost` 后（且 `live.auto_reconnect` 开启），一个线程每 2 秒重新枚举，丢失的角色重新解析为 `exact` 或 `matched` 时发 `SetDevices` 重新打开，音色不重新加载。自动重连关闭时，进入 `reconnecting` 即发送 `Stop`。
+
+### 与其他服务的关系
+
+- 设备不是 `cpu` 时，启动即 `compute.acquire_live()` 夺取 GPU 租约；`stopped`/`error`/worker 退出时释放。
+- `start()` 把设备、流参数、`last_voice`、`last_params` 写回设置（`live` 组），所以不带参数的 **Start** 恢复上一次会话，`rvc-next live run` 读的也是同样的值。设备属于服务器所在的机器，因此放在设置里而不是浏览器的客户端状态里。
+- worker 的 `Stats` 消息（约 10 Hz）转成 `live_stats` 事件，状态变化转成 `live_state`。live worker 报告显存不足时，它先卸载自己的模型，核心层再调用 `release_after_oom("Live")`。
+- 电平表（`meter`）和直通（`passthrough`）在会话未运行时也会按需启动 worker；会话运行时显示会话自己的电平。
+
+## 设置
+
+`SettingsService`（`core/settings/`）拥有 `settings.toml`。生效值的层次（后者覆盖前者）：模型默认值 &lt; 文件 &lt; 环境变量 `RVC_NEXT_<GROUP>__<FIELD>`（`__` 分隔层级，值能按 JSON 解析就按 JSON，否则当字符串）&lt; 构造时传入的 `overrides`。环境变量和覆盖值从不写回文件；`env_override_names()` 让界面标出被固定的字段。
+
+- 分组：`server`、`paths`、`compute`、`downloads`、`convert`、`separation`、`training`、`live`（模型见 `core/settings/models.py`）。
+- `update(patch)` 深合并进**文件层**（字典合并，其他值替换，`None` 清除可选值），先校验文件层、再校验生效值，原子写入（`.toml.tmp` → `replace`），TOML 没有 null 所以保存前去掉 `None`，最后同步调用监听器（`ComputeService` 借此重建运行时）。`mutate(fn)` 在文件层字典上做任意修改后保存（旧版目录的增删用它）。`set_value()` 供 `config set` 使用，只允许已有的键（字典型分组内可新增键）。
+- `view()` 返回 `SettingsView`：`access_token` 换成 `access_token_configured`，令牌永不离开服务器；另附 `resolved_paths`。
+- 文件夹设置为空表示「在数据目录里」：`models_dir`、`experiments_dir`、`outputs_dir`（`convert.output_dir` 优先）、`assets_dir`。数据目录本身由 `RVC_NEXT_DATA_DIR` 或平台用户数据目录决定（`core/paths.py`）。
+
+`SettingsService` 在每次实际改动后用 `changed_keys()` 算出改动的点分键，通知 `on_change`（新设置）与 `on_keys_change`（键名）监听器。改动可以来自 `update()`，也可以来自其他进程写的 `settings.toml`：读取 `settings` 时最多每 `FILE_CHECK_INTERVAL`（1 秒）比较一次文件的 mtime 与大小，变了就重新读取（解析或校验失败时记警告并保留原设置）；`update()` 写入前强制检查一次，在文件当前内容上合并。`core/context.py` 注册的键监听器发布 `settings_changed`，并在 `paths.*` 改变时调用 `models.rescan()`。
+
+## 事件
+
+`core/events/models.py` 定义所有事件（`EventBase` 子类，`__event_name__` 为事件名），`LocalEventBus` 在发布线程上同步调用订阅者；Socket.IO 桥接与 OpenAPI 中的事件模式见 [API 与事件](/docs/development-api)。每个事件都携带**快照**（例如 `job.model_copy(deep=True)`），因为桥接会在事件循环上稍后序列化，而 worker 线程仍在修改原对象。
+
+| 事件 | 载荷 | 发布者 |
+| --- | --- | --- |
+| `job_updated` | 整个 `Job` | `JobService`（进度每秒最多 4 次） |
+| `job_log` | `job_id`、`offset`、`lines`（≤ 50） | `JobService` |
+| `jobs_cleared` | `ids` | `JobService.delete`/`clear_finished` |
+| `outputs_added` / `outputs_removed` | 输出记录 / `ids` | `AudioFileService` |
+| `models_changed` | `added`、`updated`、`removed`（底模 `base:`、收件箱 `index:`、分离模型 `user-` 前缀） | 音色库、导入、收件箱、底模、分离模型库 |
+| `presets_changed` | `voice_id` | `PresetService` |
+| `assets_changed` | 全部 `AssetStatus` | `AssetService` |
+| `experiment_changed` | `name`、`stages`、`running_job`、`removed` | `TrainingService` |
+| `train_metrics` | `name`、`epoch`、`step`、`losses`、`lr` | `TrainingService`（来自 worker 的 `metric`） |
+| `live_state` / `live_stats` | `LiveState` / `LiveStats` | `LiveService` |
+| `devices_changed` | `DeviceList` | `LiveService`（列表签名变化时） |
+| `compute_changed` | `ComputeUsage` | `ComputeService`（每秒最多 1 次，转换点强制） |
+| `settings_changed` | 点分键 | `SettingsService` 的键监听器（`core/context.py`），任何来源的改动 |
+
+## 数据库
+
+`core/db/database.py`：一个共享的 `sqlite3` 连接，`RLock` 保护，`journal_mode=WAL`、`foreign_keys=ON`、`synchronous=NORMAL`、`busy_timeout=5000`（服务器写的同时命令行也会读写同一文件）。迁移是 `MIGRATIONS` 列表，只追加不修改，`PRAGMA user_version` 记录已执行条数：
+
+1. `voice_models`、`presets`、`jobs`、`outputs`、`audio_files`、`client_state`；
+2. `voice_models.catalog_id`（示例音色下载）。
+
+| 表 | 性质 | 删掉数据库的代价 |
+| --- | --- | --- |
+| `voice_models` | 缓存，`rescan()` 重建 | 无（旧版音色的索引配对在 `legacy-voices.json`） |
+| `presets` | 记录 | 自定义预设（默认预设会重建） |
+| `jobs` | 记录 | 任务历史与重试 |
+| `outputs` | 记录 | 输出的来源信息 |
+| `audio_files` | 记录 | 上传与服务器路径的登记 |
+| `client_state` | 记录 | 界面偏好（服务器端副本） |
+
+实验、底模、分离模型和收件箱索引都不在数据库里。新增表或列时追加一条迁移；能用「文件夹 + 附属 JSON」表达的就不要建表。

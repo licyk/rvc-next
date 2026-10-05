@@ -1,0 +1,147 @@
+---
+title: "Migrate from original RVC"
+description: "RVC Next is a rewrite of Retrieval-based-Voice-Conversion-WebUI (based on commit 81eed5e)."
+icon: ArrowRightLeft
+---
+
+RVC Next is a rewrite of Retrieval-based-Voice-Conversion-WebUI (based on commit `81eed5e`). The original model file format is unchanged: voices, indexes, base models, and experiments from the original can be used directly, and voices trained with RVC Next use the same format. This page explains how to reuse an existing original RVC installation and how the two differ in behavior.
+
+Migration does not modify any files in the original installation, so you can use both side by side.
+
+## 1. Reuse the original `assets` folder
+
+RVC Next's asset folder has the same structure as the original `assets/`:
+
+| Asset | Path |
+| --- | --- |
+| HuBERT | `hubert_base/` |
+| RMVPE | `rmvpe/rmvpe.pt` (`rmvpe/rmvpe.onnx` for DirectML) |
+| Base models | `pretrained/`, `pretrained_v2/` (e.g. `f0G40k.pth`, `f0D40k.pth`) |
+| Separation models | `pymss_weights/` |
+| FCPE | `fcpe/fcpe_c_v001.pt` (bundled with torchfcpe in the original; RVC Next needs a separate download) |
+
+Point `paths.assets_dir` to the original `assets` folder to avoid downloading these files again:
+
+<Tabs items={["Web UI", "Command line"]}>
+<Tab value="Web UI">
+
+Under **Settings** › **Storage** › **Folders**, set **Assets** to the path of the original RVC `assets` folder.
+
+</Tab>
+<Tab value="Command line">
+
+```bash
+rvc-next config set paths.assets_dir "D:/RVC/assets"
+rvc-next assets list      # Confirm that hubert, rmvpe, etc. show as installed
+rvc-next assets verify    # Optional: verify existing files against SHA-256 checksums
+```
+
+</Tab>
+</Tabs>
+<Callout type="info">
+
+Once you point to the original `assets` folder, assets downloaded later in RVC Next (such as FCPE or missing base models) are also written there.
+
+</Callout>
+## 2. Use original voices directly
+
+After adding the original installation as an "Original RVC installation" (`paths.legacy_roots` in settings), its voices are **read directly without copying**:
+
+- Voices come from `<RVC>/assets/weights/*.pth`;
+- Indexes are searched for in `<RVC>/assets/indices` and `<RVC>/logs`. The original `get_index_path_from_model` scoring rules (experiment name, speaker, and old/new) recommend an `added_*.index` for each voice; indexes with `trained` in their names are excluded.
+
+In the Web UI: at the bottom of **Models** › **Voices**, find **Original RVC installs**, click **Add an RVC install**, and choose the RVC root directory (it must contain an `assets` folder). Then:
+
+- These voices are marked **legacy**, appear in all voice pickers, and can be used directly for conversion and live voice conversion.
+- **Scan**: rereads `assets/weights` and recommends indexes using the original rules for voices whose indexes have not yet been chosen. Voices whose indexes you have manually added or removed keep your choices.
+- **Import all**: copies all voices from this installation into the RVC Next voice library.
+
+Recommendations and subsequent edits (renaming, speaker names, changing indexes, hiding) are saved in `legacy-voices.json` in the data directory; the original folder is never written to. Uploaded indexes attached to legacy voices are copied to `models/attached-indexes/<voice>/`; indexes supplied as server paths are recorded by path only. Deleting a legacy voice only hides it (`rvc-next model list --all` still lists it), without changing files in the RVC installation.
+
+To add an installation from the command line, write the same settings. The next command or server start reads them and recommends indexes:
+
+```bash
+rvc-next config set paths.legacy_roots '[{"id": "rvc", "path": "D:/RVC", "name": "RVC"}]'
+rvc-next model list
+```
+
+By default, the Web UI allows browsing files in added original RVC installations (see the browsing scope in [Remote access and security](/docs/advanced-remote)).
+
+## 3. Copy voices into the voice library
+
+Import voices if you want them to be independent of the original installation (for example, if you plan to delete it). Each file is identified by content during import; `.pth` and `.index` file names do not need to match:
+
+- Index width determines the compatible version (256 dimensions for v1, 768 for v2); incompatible versions are never paired;
+- If an import contains only one compatible voice, pairing is automatic. With multiple voices, scores use experiment names, name similarity, and whether files share a folder. If the match is uncertain, you choose (the Web UI opens **Review the import**; the command line prints the plan and exits with code 3).
+
+<Tabs items={["Web UI", "Command line"]}>
+<Tab value="Web UI">
+
+Drop `.pth`, `.index`, or `.zip` files into the import area in **Models** › **Voices**. For legacy voices, you can also click **Import all** under **Original RVC installs**.
+
+</Tab>
+<Tab value="Command line">
+
+```bash
+rvc-next model import D:/RVC/assets/weights/alice.pth D:/RVC/logs/alice/added_IVF1024_Flat_nprobe_1_alice_v2.index
+rvc-next model import alice.zip
+rvc-next model import D:/RVC            # Entire installation: voices in weights, and added_*.index in indices and logs
+```
+
+</Tab>
+</Tabs>
+Training `G_*.pth`/`D_*.pth` files are imported as **Base models** by default (you can then select them in experiment settings). To turn a G checkpoint directly into a voice, add `--extract` or extract it in **Models** › **Tools**.
+
+## 4. Import original training experiments
+
+An original experiment folder, `logs/<name>`, can be copied in for continued use:
+
+<Tabs items={["Web UI", "Command line"]}>
+<Tab value="Web UI">
+
+On **Train**, click **Import experiment** and enter the **Original experiment folder (logs/&lt;name>)**.
+
+</Tab>
+<Tab value="Command line">
+
+```bash
+rvc-next train import D:/RVC/logs/alice --name alice
+rvc-next train status alice
+```
+
+</Tab>
+</Tabs>
+The folder must contain `0_gt_wavs` or `config.json`. The `eval` folder is skipped when copying. Stages whose outputs already exist (slice, pitch, features, fit, index) are marked complete; you can then run unfinished stages or increase the epoch count to continue training. If an experiment folder has no `experiment.json`, RVC Next reads it as an original experiment.
+
+## Behavior differences from the original
+
+These changes are intentional (all other numerical calculations correspond line by line to the original):
+
+| Area | Original | RVC Next |
+| --- | --- | --- |
+| Slicing | Every slice except the last loses its tail (a regression in the original) | Keeps every slice's tail |
+| Speaker in live voice conversion | Fixed to speaker 0 | Uses the selected speaker; multi-speaker voices work with live voice conversion |
+| Index rebuilding | Skipped whenever `added_*.index` exists | Records feature file fingerprints (name, size, modification time) and rebuilds when they change |
+| Index loading | Rereads the index for every file | Caches by path and modification time; loads only once |
+| Pitch methods | Only pm and rmvpe on the command line | Conversion, the command line, and live voice conversion all support pm, rmvpe, and fcpe (training still uses pm and rmvpe) |
+| Formant | Supported only in live voice conversion | Also supported offline, using the live method; a formant value of 0 gives bit-identical results to the original |
+| Paths | The live GUI rejects non-ASCII paths | Any path accepted by the system |
+| Live inference | Runs in the audio callback | The callback only moves data; inference runs on a separate thread |
+| Changing live block length, crossfade, and context | Requires stopping the audio stream | Rebuffers without reloading the model |
+
+Single-speaker slicing also processes only top-level audio files in the dataset folder (matching dataset scanning). A voice is considered multi-speaker based on speaker information in the `.pth`, rather than the number of embedding rows (every trained voice has 109 rows).
+
+## Bit-identical behavior
+
+Numerical code is ported rather than rewritten and checked against the original with golden tests: outputs are compared on CPU, in fp32, with the same random seed and the same 16 kHz input.
+
+- **Offline conversion**: pm and RMVPE are **bit-identical** for v1 40k, v2 40k, v2 40k without pitch guidance, and v2 48k voices, covering speech, silence, and a 70-second clip exceeding the chunking threshold, with pitch shift and speaker IDs. FCPE is also bit-identical.
+- **Live voice conversion**: the streaming engine is bit-identical block by block to the original `rtrvc.RVC.infer` plus the live GUI callback processing (gate, TorchGate input/output denoising, formant, loudness mixing, SOLA).
+
+Offline output may be up to two 10-millisecond frames shorter than the input, due to the original's flooring behavior.
+
+<Callout type="info" title="Not verified on real hardware">
+
+These comparisons run on CPU. Results on CUDA (fp16, CUDA Graph), DirectML, and MPS have not been verified on real hardware; see [Hardware and performance](/docs/advanced-hardware).
+
+</Callout>

@@ -1,0 +1,112 @@
+name: CI
+
+# Lint on pull requests as well as pushes; ty across the supported Pythons and platforms.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint and format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.11'
+      - run: pip install "ruff==0.16.9"
+      - run: python -m ruff check rvc_next tests scripts
+      - run: python -m ruff format --check rvc_next tests scripts
+
+  types:
+    name: ty / Python ${{ matrix.python }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ['3.10', '3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      # The CPU torch build keeps the job small; ty only needs the packages to resolve imports.
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -e . --group dev
+      - name: ty
+        shell: bash
+        run: |
+          platform=$(python -c "import sys; print({'win32': 'win32', 'darwin': 'darwin'}.get(sys.platform, 'linux'))")
+          python -m ty check --python "$(python -c 'import sys; print(sys.executable)')" --python-version "${{ matrix.python }}" --python-platform "$platform" --output-format github --error-on-warning
+
+  tests:
+    name: Tests / Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: sudo apt-get update && sudo apt-get install -y libportaudio2
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -e . --group dev
+      - run: python -m pytest -q
+
+  web:
+    name: Web UI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.11'
+          cache: pip
+      - uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: latest
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -e . --group dev
+      - run: bun install --frozen-lockfile
+        working-directory: rvc_next/webui
+      - name: Tests, type-check and build
+        run: |
+          bun run test
+          bun run typecheck
+          bun run build
+        working-directory: rvc_next/webui
+      - name: The committed API types match the schema
+        run: python scripts/dev.py typegen-check
+
+  site:
+    name: Documentation site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+        working-directory: site
+      - name: Type-check, tests and build
+        run: |
+          bun run check
+          bun run test
+          bun run build
+        working-directory: site

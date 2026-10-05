@@ -1,0 +1,155 @@
+---
+title: "Hardware and performance"
+description: "This page explains how RVC Next selects compute devices and precision, manages GPU memory, and which settings affect speed and live latency."
+icon: Cpu
+---
+
+This page explains how RVC Next selects compute devices and precision, manages GPU memory, and which settings affect speed and live latency. Related settings are in the `compute` group (**Settings** › **Compute** in the Web UI). For the full list, see [Configuration and environment variables](/docs/cli-config).
+
+<Callout type="warn" title="Not verified on real hardware">
+
+The development machine has no GPU or audio hardware. CUDA (fp16, CUDA Graph, multi-GPU training, GPU memory reporting), DirectML, MPS, real PortAudio streams, ASIO, and WASAPI exclusive mode have **not been verified on real hardware**. This page describes the code's behavior; please report any issues you encounter on these platforms.
+
+</Callout>
+## Select a device
+
+`compute.device` (**Settings** › **Compute** › **Device**) accepts:
+
+| Value | Meaning |
+| --- | --- |
+| `auto` (default) | Selects the most suitable CUDA GPU using the rules below. If no CUDA GPU is available, tries DirectML, then CPU. `auto` does not select MPS |
+| `cpu` | CPU only |
+| `cuda:N` | NVIDIA GPU N (numbered from 0). Also uses cards the GPU rules would skip (in fp32); falls back to CPU if the ID does not exist |
+| `dml` | DirectML (AMD, Intel, and other GPUs on Windows). Falls back to CPU if unavailable |
+| `mps` | Metal on Apple Silicon (**experimental**). Falls back to CPU if unavailable |
+
+### GPU rules [#gpu-rule]
+
+`auto` follows the original RVC rules (`configs/config.py`), checking each CUDA GPU:
+
+| GPU | Result |
+| --- | --- |
+| Less than 4 GiB of memory, or compute capability below 5.3 | Not used |
+| Compute capability 6.1 (Pascal, e.g. GTX 10 series), or GTX 16xx | Used, fp32 |
+| Compute capability above 6.1 (RTX 20 series and newer) | Used, fp16 |
+| Others (compute capability between 5.3 and 6.1) | Not used |
+
+If several GPUs qualify, the one with the highest compute capability is selected; ties are resolved by the largest memory size. `rvc-next doctor` and the device list under **Settings** › **Compute** show each device, the precision assigned by the rules, and the reason (e.g. "Pascal SM 6.1 and GTX 16xx cards run in fp32").
+
+### Precision
+
+`compute.precision` (**Precision**):
+
+- `auto`: follows the GPU rules;
+- `fp32`: always uses fp32;
+- `fp16`: forces fp16 on CUDA (including GPUs assigned fp32 by the rules).
+
+DirectML, MPS, and CPU always use fp32 (except vocal separation on DirectML; see below). fp16 is faster and uses less GPU memory; if a card produces abnormal output in fp16, switch to `fp32`.
+
+Precision also determines chunk sizes for long audio (as in the original): CUDA cards with at most 4 GiB of memory use the smallest chunks, fp16 uses larger chunks, and other cases use medium chunks.
+
+### Install the appropriate PyTorch
+
+Device availability depends on the installed PyTorch: NVIDIA GPUs need a CUDA build of torch (RTX 50 series needs the CUDA 12.8 build). With only a CPU build installed, `auto` selects CPU. For installation instructions, see [Installation](/docs/installation); `rvc-next doctor` shows the torch version and its bundled CUDA version.
+
+## CUDA Graph
+
+CUDA Graph records an inference run and replays it directly afterward, reducing CPU scheduling overhead. It helps most with small blocks in live voice conversion:
+
+| Setting | UI label | Default |
+| --- | --- | --- |
+| `compute.cuda_graph_offline` | **CUDA Graph for conversion** | Off |
+| `compute.cuda_graph_live` | **CUDA Graph for Live** | On |
+
+It works only on CUDA. Recordings are cached by input shape (up to 8 per call site, adjustable with `RVC_NEXT_CUDA_GRAPH_MAX_CACHE`). If recording fails, inference automatically falls back to normal mode. Offline inputs vary in length, making recordings hard to reuse, so it is disabled by default.
+
+## DirectML
+
+- Install DirectML support: `pip install "rvc-next[directml]"` (installs `torch-directml` and `onnxruntime-directml`).
+- RMVPE uses its ONNX version on DirectML and needs the `rmvpe-onnx` asset: `rvc-next assets download rmvpe-onnx`. It is not in the `all` group; the UI and command line prompt you to download it if missing.
+- Vocal separation runs in fp16 by default on DirectML, with smaller chunks. If fp16 fails, the job automatically reruns once in fp32 (the log includes "Retrying in fp32").
+
+## Apple Silicon (MPS)
+
+Set `compute.device` to `mps` to use Metal; `auto` does not select it. MPS runs in fp32 and is experimental.
+
+## GPU memory management
+
+### Model cache
+
+Models loaded by the server remain in memory (GPU memory), so they need not be reloaded next time: HuBERT, the various pitch models, and the last 3 voices and their indexes. Live voice conversion keeps its own copy in its worker process.
+
+The top bar's **GPU memory** indicator shows used/total GPU memory and the **Loaded:** model list (or **Nothing loaded** if empty).
+
+### Idle unloading
+
+`compute.unload_after_minutes` (**Unload models after idle minutes (0: never)**, default: 10): models in the server are automatically unloaded after this many idle minutes. The server checks every 30 seconds.
+
+### Free GPU memory
+
+Click **Free GPU memory** in the top bar's **GPU memory** menu to immediately unload all cached models, including models in an idle live worker, and return GPU memory to the driver.
+
+Memory can be freed only when **no jobs are queued or running and live voice conversion is stopped**. Otherwise, the menu item reads **Free GPU memory (wait: a job is running)** or **Free GPU memory (wait: Live is running)**, because these models are in use and would need to be reloaded immediately.
+
+The command line has no separate release command: each command's process exits when finished, releasing its GPU memory.
+
+### Out of memory [#out-of-memory]
+
+When inference or training reports an out-of-memory error (CUDA `OutOfMemoryError` or the corresponding MPS or DirectML errors):
+
+1. The job fails with **The GPU is not available or ran out of memory** (`compute_unavailable`, with `detail.reason` set to `out_of_memory`; command-line exit code 9);
+2. The server immediately unloads all unused models so the next run starts with empty GPU memory; if the live worker fails, it unloads its own models first;
+3. These failed jobs **are not retried automatically**. Click **Retry** in **Jobs** yourself.
+
+Ways to reduce GPU memory use:
+
+- Keep **GPU jobs at once** at 1;
+- **Free GPU memory** before conversion or training, or stop live voice conversion;
+- Reduce the training batch size (`train run --batch-size`) and disable **Cache the dataset in GPU memory**;
+- Switch to fp16 (if supported by the GPU), or use CPU on cards with very little memory.
+
+## GPU job queues
+
+Conversion, separation, and training jobs are GPU jobs when `compute.device` is not `cpu`:
+
+- `compute.gpu_jobs` (**GPU jobs at once**, default: 1, maximum: 16) limits concurrent GPU jobs. Others queue (state **Waiting**, **Waiting for the GPU**). Increase it if GPU memory is sufficient.
+- With `cpu` as the device, these become CPU jobs, with at most half the CPU core count running concurrently.
+- When an experiment's **GPUs** setting is `cpu` (new experiments take the default from `training.gpus`), training also runs as a CPU job.
+- Previews (converting only the first few seconds) have higher priority than normal conversion.
+
+### Live voice conversion has priority
+
+Live voice conversion is most sensitive to latency, so starting it (with a device other than `cpu`) takes the GPU lease:
+
+- GPU jobs already running continue;
+- New GPU jobs wait, and their cards show **Run anyway** with the hint **Live is using the GPU. Running both may cause audio glitches.** Click it to start without waiting for live voice conversion to stop;
+- When live voice conversion stops, waiting jobs start automatically.
+
+<Callout type="info">
+
+Command-line jobs (`rvc-next convert`, etc.) run in their own processes and do not participate in a running server's GPU queue. Running a GPU job from the command line on the same computer while the server is doing live voice conversion can also cause audio glitches.
+
+</Callout>
+## Live voice conversion latency and block length [#live-latency]
+
+Live voice conversion processes one "block" of audio at a time. Estimated latency (shown on the Live page and by `live check`) is calculated as:
+
+```text
+Latency ≈ block length + crossfade + 10 ms (SOLA search)
+     + block length (output buffer prefilled with one silent block)
+     + block length (only with separate input and output streams)
+     + input device latency + output device latency
+     + min(crossfade, 40 ms) (only with input denoising enabled)
+```
+
+With the default **Block** of 250 milliseconds and **Crossfade** of 50 milliseconds, one duplex stream gives about 560 milliseconds plus device latency.
+
+To avoid gaps, inference time per block must be well below the block length. The **Load** bar on the Live page shows the ratio of inference time (p95) to block length:
+
+- Above 80% load, the bar turns red and shows **Increase block to \{ms\} ms** (the suggested value targets about 70% load, capped at 1500 milliseconds). Click to apply;
+- If **underruns**, **overruns**, or crackling occur, also increase the block length;
+- Changing block length, crossfade, or context while running rebuffers without reloading the model.
+
+This is where CPU and GPU differ most: fast GPU inference allows shorter blocks for lower latency; CPU inference is much slower and usually needs longer blocks (increasing latency). The pm pitch method is also faster than RMVPE. Longer **Context** makes the result smoother but increases computation per block; denoising adds some processing time.
+
+For more on using live voice conversion, see [Live](/docs/guide-live).

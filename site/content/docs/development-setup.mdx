@@ -1,0 +1,195 @@
+---
+title: "开发环境"
+description: "本页说明怎样搭一个能跑完整检查的开发环境、scripts/dev.py 里每个任务做什么、怎样构建 wheel 和这个文档站，以及 pyproject.toml 里各条依赖约束背后的原因。"
+icon: Wrench
+---
+
+## 独立的虚拟环境
+
+RVC Next **只在自己的环境里运行**：一个独立的 venv，或一份独立的 Python，绝不与其他项目共用。这不是洁癖，而是依赖约束逼出来的（见下文“依赖约束”一节）：`transformers` 5.x 经由 `tokenizers` 要求 `huggingface_hub < 2`，与使用 `huggingface_hub` 2.x 的项目无法共存；`torch` 的版本又被 pymss 和 torchaudio 的发布节奏夹在一个窗口里。
+
+开发环境是仓库根目录下的 `.venv`（已在 `.gitignore` 中），由 Python 3.11 解释器用 [uv](https://docs.astral.sh/uv/) 创建，不继承系统 site-packages：
+
+```bash
+# 在仓库根目录执行
+uv venv .venv --python 3.11          # 不带 --system-site-packages
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+
+# 1. 先装 torch，按硬件选 index（CPU / CUDA 12.8 / ...），版本 2.7.1 或更新
+uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+# 2. 再以可编辑模式安装项目和开发依赖组
+uv pip install -e . --group dev
+
+# 3. 网页界面与文档站的前端依赖（需要 bun）
+python scripts/dev.py web-install site-install
+```
+
+之后一律用 `.venv/bin/python`（或激活后的 `python`）运行一切，包括 `python scripts/dev.py ...`：`dev.py` 用的是**运行它的那个解释器**（`sys.executable`），而不是 `PATH` 上的第一个 `python`。
+
+先装 torch 的原因与用户安装时相同：`pyproject.toml` 只声明 `torch>=2.7.1`，不指定构建变体。先从 PyTorch 的 index 装好适合硬件的构建，后面的 `pip install` 发现约束已满足，就不会再从 PyPI 拉一个（通常是 CUDA 版的大包）回来。
+
+<Callout type="info" title="torchaudio 和 torchfcpe 不再是依赖">
+
+RVC Next 已经移植了 torchaudio 的 `Resample` 和 torchfcpe 的 FCPE 推理路径，自身不再导入这两个包（分层测试会拦住）。只有两类测试会用到它们，缺失时自动跳过：
+
+- `tests/engine/test_sinc_resample.py`、`tests/engine/test_fcpe_model.py` 里与原库逐位比较的用例；
+- golden 测试中**原版一侧**的代码（原版的实时代码导入 torchaudio，原版的 FCPE 导入 torchfcpe）。
+
+若要跑这些用例，torchaudio 必须与 torch **成对**安装同一版本：torchaudio 的最后一个版本是 2.11，不声明对 torch 的要求，与更新的 torch 放在一起会拒绝加载。
+
+</Callout>
+### 其他系统依赖
+
+| 依赖 | 用途 | 安装 |
+| --- | --- | --- |
+| PortAudio（Linux 上的 `libportaudio2`） | `sounddevice` 打开音频设备；实时变声和设备枚举测试需要它 | 系统包管理器；CI 中是 `sudo apt-get install -y libportaudio2` |
+| [bun](https://bun.sh) | Web UI 的包管理器、构建与测试 | 官方安装脚本；`dev.py` 和 `build_wheel.py` 会先找 `PATH`，再找 `~/.bun/bin/bun`，所以刚装完、新 shell 还没更新 `PATH` 时也能用 |
+| `build` | `scripts/build_wheel.py` 调用 `python -m build` | `uv pip install build`（不在 `dev` 组里，只有打包时需要） |
+
+### 真实资源
+
+单元测试用随机初始化的 tiny 模型，不需要任何下载（见[测试与检查](/docs/development-testing)）。要用真实模型手动试运行，准备一个按原版布局组织的临时 `assets/` 目录（`hubert_base/`、`rmvpe/`、`pretrained_v2/`、`pymss_weights/` 等，见[资源与模型仓库](/docs/development-assets)），用环境变量指过去，而不是把文件放进默认数据目录：
+
+```bash
+export RVC_NEXT_PATHS__ASSETS_DIR=~/scratch/assets
+export RVC_NEXT_DATA_DIR=~/scratch/rvc-next-data   # 可选：不碰默认的数据目录
+```
+
+`RVC_NEXT_TEST_ASSETS` 是给标记为 `assets` / `golden` 的测试用的同类目录，见[测试与检查](/docs/development-testing)。
+
+## `scripts/dev.py`
+
+`scripts/dev.py` 是只依赖标准库的任务运行器。不用 Makefile，是因为项目在 Windows 上开发和安装的机会与 Linux 一样多，而 Windows 上没有 `make`。工具的配置都在 `pyproject.toml` 里，`dev.py` 只负责按 CI 的方式调用它们。不带参数运行会列出全部任务。
+
+```bash
+python scripts/dev.py check                 # 一个或多个任务，按顺序执行
+python scripts/dev.py lint test-py          # 多个任务
+python scripts/dev.py dev --api-port 8000   # 任务名在前，第一个以 - 开头的参数起都交给该任务
+```
+
+选项只能在运行单个任务时给出；不接受选项的任务收到选项会以状态 2 退出。
+
+| 任务 | 做什么 |
+| --- | --- |
+| `lint` | `ruff check` 和 `ruff format --check`，作用于 `rvc_next`、`tests`、`scripts`，不改文件 |
+| `format` | `ruff check --fix` 加 `ruff format`，应用安全修复并格式化 |
+| `test-py` | `python -m pytest`（默认排除 `live`、`golden`、`assets` 标记） |
+| `typecheck-py` | `ty check --python <当前解释器>`；可追加 ty 的参数 |
+| `web-install` | `bun install`（在 `rvc_next/webui/` 中） |
+| `web` | `bun run build`：`vue-tsc --noEmit` 后 `vite build`，输出到 `rvc_next/webui/dist/` |
+| `web-dev` | 只启动 Vite 开发服务器（需要已经有一个 API 服务在跑） |
+| `dev` | 同时启动 API 服务和 Vite 开发服务器，输出按进程打标签；见下文 |
+| `test-web` | `bun run test`（vitest）加 `bun run typecheck`（vue-tsc） |
+| `openapi` | 不启动服务器，把 OpenAPI 模式打印到标准输出（`scripts/generate_openapi.py`） |
+| `typegen` | 由 OpenAPI 模式重新生成 `webui/src/api/schema.d.ts` 和 `webui/src/api/paramSpecs.ts`；结果要提交 |
+| `typegen-check` | 先跑 `typegen`，再 `git diff --exit-code` 这两个文件；生成结果与提交的不一致即失败 |
+| `wheel` | 调用 `scripts/build_wheel.py` |
+| `site-install` / `site-dev` / `site` | 文档站的 `bun install`、本地预览、构建（在 `site/` 中，见下文） |
+| `test-site` | 文档站的 `bun run test`（vitest）加 `bun run check`（tsc） |
+| `test` | `test-py`、`test-web` 加 `test-site` |
+| `check` | **CI 跑的全部内容**：`lint`、`typecheck-py`、`test-py`、`test-web`、`test-site`、`typegen-check`，遇到第一个失败即停 |
+
+提交前跑一次 `python scripts/dev.py check`。改了 API（路由、请求或响应模型、事件模型、`VoiceParamsModel` / `StreamParamsModel` 的范围）后必须跑 `typegen` 并把两个生成文件一起提交，否则 `typegen-check` 会失败。原理见 [API 与事件](/docs/development-api)。
+
+### `dev`：API 与 Vite 一起跑
+
+```bash
+python scripts/dev.py web-install            # 第一次
+python scripts/dev.py dev [--api-port 7868] [--web-port 5173] [--data-dir DIR]
+```
+
+- API 侧执行 `python -m rvc_next webui --no-open --port <api-port> --strict-port`。用 `--strict-port` 是因为 Vite 的代理目标是在启动时固定的：如果 API 悄悄换到了下一个端口，Vite 会一直代理到错的地址。端口被占用（例如另一个 RVC Next 已经在 7868 上）时请换 `--api-port`。
+- Web 侧执行 `bun run dev --port <web-port> --strictPort`，并设置 `RVC_NEXT_BACKEND=http://127.0.0.1:<api-port>`。`vite.config.ts` 把 `/api`、`/openapi.json` 和 `/ws` 代理到这个地址（默认 `http://127.0.0.1:7868`），浏览器打开 `http://localhost:<web-port>` 即可。
+- 两个进程同生共死：任一个退出，另一个也会停；Ctrl+C 或 SIGTERM 会停掉两者。子进程在各自的进程组里，信号由 `dev.py` 统一转发，后台启动时也不会留下孤儿进程。
+- Vite 有热模块替换；**API 进程不会自动重载**。改了 Python 代码就重启 `dev`。频繁改后端时，可以在两个终端分别运行 `rvc-next webui --no-open --strict-port` 和 `python scripts/dev.py web-dev`，只重启前者。API 重启期间代理失败是正常的，`vite.config.ts` 会把这类错误（`ECONNREFUSED`、`ECONNRESET` 等）压缩成每 5 秒最多一行的提示，而不是满屏堆栈。
+
+## 构建 wheel
+
+```bash
+python scripts/build_wheel.py [--ci] [--keep-web-dist] [--outdir DIR]
+# 或者
+python scripts/dev.py wheel
+```
+
+顺序很重要：setuptools 只打包**运行时已经存在**的文件，`pyproject.toml` 把 `rvc_next/webui/dist/**/*` 声明为包数据，所以必须先构建 Web UI。直接运行 `python -m build` 会得到一个没有 Web UI 的包，服务端启动时只会警告"No web UI build found"并只提供 API。
+
+脚本的步骤是：`bun install --frozen-lockfile` → `bun run build`（`--ci` 时是只打包的 `build:only`，因为 CI 把类型检查和测试作为单独步骤跑）→ `python -m build --outdir dist/`。非 `--ci` 且未加 `--keep-web-dist` 时，结束后删除 `rvc_next/webui/dist/`，让本地检出保持原样。环境变量 `CI`、`KEEP_WEB_DIST` 分别是这两个开关的默认值。
+
+其他随包发布的数据（同样在 `[tool.setuptools.package-data]` 中声明）：`core/assets/catalog.json`、`core/separation/presets.json`、`engine/train/data/mute/**`（训练用的静音样本，取代原版单独下载的 `mute.zip`）、`engine/separate/configs/*.yaml`（分离模型的配置）。新增运行时要读的数据文件时，记得加进这张表，否则从 wheel 安装后会找不到。
+
+### 发布
+
+[`.github/workflows/release.yml`](https://github.com/licyk/rvc-next/blob/main/.github/workflows/release.yml) 在三种情况下触发：`main` 上修改了 `rvc_next/version.py` 的推送、`v*` 标签、手动运行。流程是：复用 `ci.yml` 跑完全部检查 → 用 `build_wheel.py --ci` 构建 → 校验 wheel 中确有 `rvc_next/webui/dist/index.html`、`twine check`、在全新 venv 中安装并运行 `rvc-next version` → 发布到 PyPI（`pypi` 环境，可要求审批）→ 标签触发时再创建 GitHub Release。标签触发时还会检查标签与 `rvc_next/version.py` 中的 `VERSION` 一致。版本号只有 `version.py` 一处，`pyproject.toml` 通过 `dynamic = ["version"]` 读取它。
+
+## 构建文档站
+
+文档站（主页与本文档）是 `site/` 下一个独立的前端项目，结构沿用 Hanafubuki 的网站：[Fumadocs](https://fumadocs.dev/) 跑在 TanStack Start 与 Vite 之上，用 bun 管理依赖，构建后输出纯静态文件。
+
+| 路径 | 内容 |
+| --- | --- |
+| `site/content/docs/*.mdx` | 文档页面。中文为 `<页面>.mdx`，英文为同名的 `<页面>.en.mdx`；`meta.json` / `meta.en.json` 决定侧边栏的顺序与分组（`---分组---` 是分隔标题） |
+| `site/src/routes/` | 页面路由：`index.tsx` 是主页，`docs/$.tsx` 渲染文档，`api/search.ts` 生成静态搜索索引 |
+| `site/src/components/home/` | 主页的各个区块；文案集中在 `site/src/lib/site-copy.ts`，中英文各一份 |
+| `site/src/components/mdx.tsx` | MDX 中可用的组件：`Callout`、`Tabs`/`Tab`、`Cards`/`Card`、`Steps`/`Step`、`Accordions`/`Accordion`、`Mermaid` |
+
+```bash
+python scripts/dev.py site-install   # bun install（site/）
+python scripts/dev.py site-dev       # 本地预览 http://127.0.0.1:3000，修改后自动刷新
+python scripts/dev.py test-site      # vitest 与 tsc
+python scripts/dev.py site           # 构建到 site/.output/public
+```
+
+写文档时注意：
+
+- **每个中文页面都要有英文版。** `src/lib/i18n-content.test.ts` 检查每个 `.mdx` 都有对应的 `.en.mdx`，且两个 `meta` 文件的页面顺序一致；文档路由按两种语言同时加载页面，缺少任何一种都会让该页无法构建。
+- **新增页面**时把它的文件名（不含扩展名）加进 `meta.json` 与 `meta.en.json`；页面的标题、说明和侧边栏图标（lucide 图标名）写在 frontmatter 中。
+- **链接**一律写成 `/docs/<页面>`（可带 `#锚点`）；标题可用 `## 标题 [#自定义-id]` 指定稳定的锚点。
+- **MDX 不是 Markdown**：正文中的 `<`、`{`、`}` 会被当成 JSX，需要放进代码里或写成 `&lt;`、`\{`、`\}`。
+- **Mermaid** 图写成 `<Mermaid chart="…" />`，在浏览器中从 CDN 按需加载渲染。
+
+发布：[`.github/workflows/site.yml`](https://github.com/licyk/rvc-next/blob/main/.github/workflows/site.yml) 在 `main` 上 `site/**` 变化时（或手动）运行：类型检查、测试，以 `VITE_BASE_PATH=/rvc-next/` 构建，再把 `site/.output/public` 强制推送到 `gh-pages` 分支。同一站点也可以直接部署到 Netlify（根目录 `netlify.toml`）、Cloudflare Pages（`wrangler.toml`）或 Vercel（`site/vercel.json`），这些平台从根路径提供服务，不需要设置 `VITE_BASE_PATH`。CI（`ci.yml`）中的 **Documentation site** 任务对每次提交做同样的检查与构建。
+
+## 依赖约束
+
+`pyproject.toml` 的原则是：**下限**是代码需要或某个依赖强制的版本，**上限**停在下一个未经测试的大版本前；torch 例外，不设上限，因为它由用户按硬件先行安装。因为 RVC Next 运行在自己的环境里，上限不会妨碍别人；它防止的是某天 `pip install` 解析出一个从没测过的组合。项目在两端都测试过：torch 2.8 配 numpy 1.26，以及 torch 2.11 配 numpy 2.4，完整检查都能通过。
+
+| 约束 | 原因 |
+| --- | --- |
+| `torch>=2.7.1` | 下限：pymss 2.1.7 需要 torch 2.7.1。不设上限：torch 由用户按硬件先行安装，而 torchaudio 与 torchfcpe 移除后，已没有依赖把 torch 绑定到某个版本。跑 golden 测试时原版一侧仍需要与 torch 同版本的 torchaudio |
+| `transformers>=5,<6` | 4.x 需要 `huggingface_hub < 1`，而当前的 `huggingface_hub` 是 1.x。原版锁定的是 4.50 以下；HuBERT 各层输出在 5.x 下不变，golden 测试逐位一致（见[与原版的一致性](/docs/development-parity)）。另外，`tokenizers` 的所有版本（含 1.0 预发布）都要求 `huggingface_hub < 2`，这就是不能与 `huggingface_hub` 2.x 的项目共用环境的原因 |
+| `numpy>=1.26,<3` | 允许 numpy 2：numpy 1.x 没有 Python 3.13 的 wheel |
+| `pymss==2.1.7` | 精确锁定：分离适配器是按这个版本的 `MSSeparator` 写的 |
+| `sounddevice>=0.5.1,<0.6` | 0.5.1 起 Windows wheel 自带支持 ASIO 的 PortAudio（由 `SD_ENABLE_ASIO` 选择） |
+| `websockets>=12` | 没有它 uvicorn 不支持 WebSocket，socket.io 会退回长轮询 |
+| `pydantic>=2.7,<3` | 只支持 Pydantic v2（FastAPI ≥ 0.100 本来就要求 v2）；SD Model Hub 为 v1 宿主做的兼容层已删除 |
+| `typer>=0.26.7,<0.28` | 上限停在下一个次版本前：CLI 工厂用到了 Typer 的私有模块 `typer._click`（只在 `cli/factory.py` 中），Typer 一旦挪动它，CLI 测试（命令树快照、`--debug`）会最先失败 |
+| `tomli>=2; python_version < '3.11'` | 3.10 没有 `tomllib` |
+| 可选组 `directml` | `torch-directml`、`onnxruntime-directml`：Windows 上 AMD / Intel 显卡用 DirectML，RMVPE 走 ONNX |
+
+开发依赖组 `dev` 把 `ruff==0.16.9` 和 `ty==0.0.84` **精确锁定**，`[tool.ruff.lint]` 的 `select` 也逐条写出：ruff 升级会改变默认规则集，锁定后"能不能过检查"只取决于代码本身。`tomli` 也在 `dev` 组里，好让 ty 在新版 Python 上也能解析 3.10 的回退导入。
+
+## 代码约定速览
+
+完整说明分散在各页，这里列出改代码时最常碰到的几条：
+
+- **Python ≥ 3.10**。ruff 行宽 180、缩进 4；ty 以 3.10 为目标、`error-on-warning`。抑制警告时必须写明规则名（`# ty: ignore[invalid-argument-type]`、`# noqa: E402`）。
+- **移植文件保持原样**：`engine/models/{attentions,commons,modules,transforms,synthesizer}.py` 和 `engine/f0/rmvpe.py` 不参与 `ruff format` 和 ty；它们连同 `engine/audio/denoise.py`、`engine/train/{dataset,losses,mel,slicer}.py` 在 `[tool.ruff.lint.per-file-ignores]` 中豁免了 `B`、`SIM`、`UP` 等规则。目的是能与原版逐行 diff，所以不要"顺手"整理它们（见[与原版的一致性](/docs/development-parity)）。
+- **重量级导入放在函数内部**：torch、transformers、faiss、av、pymss、sounddevice。`rvc-next version`、`--help` 因此保持快速，分层测试也会检查导入核心层不加载 torch。
+- **只用 Pydantic v2**。跨 API 边界的模型都继承 `core/record.py` 的 `Record`。
+- 类里如果有用 `list[...]` 标注的地方，就不要把方法命名为 `list`（ty 会把 `list` 解析成该方法）：用 `list_assets`、`list_jobs`、`list_voices` 这样的名字。
+- 新增 CLI 命令、API 路由、事件或资源的步骤分别见[命令行实现](/docs/development-cli)、[API 与事件](/docs/development-api)、[资源与模型仓库](/docs/development-assets)。
+
+## Git 工作流
+
+项目历史是 `main` 上的线性提交，没有长期分支。提交的习惯是：
+
+- 标题一句话说明**结果**（例如 "Port FCPE; rvc-next no longer depends on torchfcpe or torchaudio"），正文解释原因、取舍和验证方式；
+- 一个提交是一件完整的事：代码、测试、重新生成的 `schema.d.ts` / `paramSpecs.ts`，以及需要时对 `AGENTS.md` 的更新放在一起；
+- 提交前 `python scripts/dev.py check` 通过。
+
+<Callout type="info" title="给编程智能体">
+
+`AGENTS.md` 规定智能体只在用户要求时才提交或开 PR。这是对智能体的约束，不是对人类贡献者的流程要求。
+
+</Callout>

@@ -1,0 +1,40 @@
+---
+title: "User guide overview"
+description: "This section explains how to use each page of the RVC Next web interface."
+icon: BookOpen
+---
+
+This section explains how to use each page of the RVC Next web interface. If you have not installed or started RVC Next yet, read [Quick start](/docs/quick-start) first. Each page also has corresponding `rvc-next` commands; see [Command line](/docs/cli).
+
+## Read these two pages first
+
+**[Interface overview](/docs/guide-interface)**: the navigation bar; the jobs, GPU memory and theme buttons in the top bar; the fixed action bar at the bottom of each page; and the job cards and results list shared across all pages. Once you have read it, you will not need to relearn the common parts of the other pages.
+
+**[Voice parameters](/docs/guide-parameters)**: meanings, ranges, defaults and adjustment tips for pitch, formant, pitch method, index strength, consonant protection, loudness match and speaker, plus how to save presets and set a voice's default parameters. **Convert**, **Live** and voice details use the same parameter panel, so this page applies to all of them.
+
+## Pages
+
+**[Conversion](/docs/guide-convert)** (**Convert** in the navigation bar): convert audio files or an entire folder to the selected voice. Inputs can be dropped files, files or folders on the server, or earlier results. Optional steps let you separate vocals first and add the accompaniment back, making a cover of an entire song in one operation. You can also choose the output format and sample rate. Listen with **Preview 15 s** before converting in full.
+
+**[Live voice conversion](/docs/guide-live)** (**Live** in the navigation bar): convert your voice live through the server computer's microphone and output device. The page includes a device panel (input, output, monitor, level meter and test tone), a voice and parameters (changes apply as you drag), and **Buffering and clean-up** settings that control latency and stability. While running, a live status chip stays visible in the top bar.
+
+**[Vocal separation](/docs/guide-separate)** (**Separate** in the navigation bar): use built-in RoFormer models to split songs into vocals and accompaniment, remove reverb, or separate lead and backing vocals. Chain presets perform multiple steps in one operation. Results are grouped by source file, and any stem can be sent directly to Convert.
+
+**[Training](/docs/guide-train)** (**Train** in the navigation bar): train a voice on your own dataset. Each experiment is organized into four steps: **Dataset**, **Settings**, **Run** and **Results**. Execution has six stages: clean-up, slicing, pitch, features, training and index. Each can be rerun individually; changing inputs marks the relevant stages as out of date. During training, you can view loss curves, try checkpoints at any time and export them as voices.
+
+**[Model management](/docs/guide-models)** (**Models** in the navigation bar): five tabs, **Voices**, **Base models**, **Separation models**, **Assets** and **Tools**. Import `.pth`, `.index` and `.zip` files, attach indexes to voices, read voices from an original RVC installation, download HuBERT, RMVPE, base models, separation models and demo voices, merge two voices or extract a voice from a training checkpoint.
+
+**[Settings](/docs/guide-settings)** (**Settings** at the bottom of the navigation bar): language, server address and port, access token, compute device and precision, audio driver, folder locations, download repository and endpoint, training defaults and appearance.
+
+## Where to start for common tasks
+
+| I want to… | Read |
+| --- | --- |
+| Change the voice in a speech clip | [Conversion](/docs/guide-convert) |
+| Change the voice in a song and keep its accompaniment | [Convert › Separate first](/docs/guide-convert#optional-steps) |
+| Get only a song's vocals or accompaniment | [Vocal separation](/docs/guide-separate) |
+| Change my voice while streaming or in voice chat | [Live voice conversion](/docs/guide-live) |
+| Fix a voice that is too shrill or muffled, sounds robotic or has unclear articulation | [Voice parameters](/docs/guide-parameters) |
+| Import a downloaded model | [Model management](/docs/guide-models) |
+| Train my own voice | [Training](/docs/guide-train) |
+| Use models already in the original RVC | [Migrating from the original RVC](/docs/advanced-migrate) |

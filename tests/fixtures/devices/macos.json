@@ -1,0 +1,80 @@
+{
+ "platform": "darwin",
+ "default_hostapi": 0,
+ "hostapis": [
+  {
+   "name": "Core Audio",
+   "devices": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "default_input_device": 0,
+   "default_output_device": 1
+  }
+ ],
+ "devices": [
+  {
+   "name": "MacBook Pro Microphone",
+   "index": 0,
+   "hostapi": 0,
+   "max_input_channels": 1,
+   "max_output_channels": 0,
+   "default_low_input_latency": 0.004,
+   "default_low_output_latency": 0.01,
+   "default_high_input_latency": 0.014,
+   "default_high_output_latency": 0.1,
+   "default_samplerate": 48000.0
+  },
+  {
+   "name": "MacBook Pro Speakers",
+   "index": 1,
+   "hostapi": 0,
+   "max_input_channels": 0,
+   "max_output_channels": 2,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.012,
+   "default_high_input_latency": 0.1,
+   "default_high_output_latency": 0.022,
+   "default_samplerate": 48000.0
+  },
+  {
+   "name": "BlackHole 2ch",
+   "index": 2,
+   "hostapi": 0,
+   "max_input_channels": 2,
+   "max_output_channels": 2,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.01,
+   "default_high_input_latency": 0.02,
+   "default_high_output_latency": 0.02,
+   "default_samplerate": 48000.0
+  },
+  {
+   "name": "External Headphones",
+   "index": 3,
+   "hostapi": 0,
+   "max_input_channels": 0,
+   "max_output_channels": 2,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.012,
+   "default_high_input_latency": 0.1,
+   "default_high_output_latency": 0.022,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "Loopback Audio",
+   "index": 4,
+   "hostapi": 0,
+   "max_input_channels": 2,
+   "max_output_channels": 2,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.01,
+   "default_high_input_latency": 0.02,
+   "default_high_output_latency": 0.02,
+   "default_samplerate": 48000.0
+  }
+ ]
+}

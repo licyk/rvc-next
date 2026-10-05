@@ -1,0 +1,216 @@
+---
+title: "API 与事件"
+icon: Plug
+---
+
+`rvc_next.api` 是 FastAPI 一端：把 HTTP 请求解析成核心层的 `Record` 模型，调用一个核心方法，再把结果原样返回；服务器到浏览器的推送走 socket.io。它不导入 `rvc_next.engine`（[整体架构](/docs/development-architecture)中的分层规则由 `tests/test_architecture.py` 守住），也不含业务逻辑——最大的路由文件 `routers/models.py` 也只是一串“一行调用核心”的路由。
+
+本页面向需要增删接口、调整安全策略或新增事件的维护者：应用如何组装、REST 约定、上传与媒体、访问控制、事件与载荷、从 OpenAPI 生成 TypeScript 类型，以及服务器启动时的端口选择。
+
+## 应用的组装
+
+[`api/app.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/api/app.py) 的 `create_app(services, bound_host, bound_port, extra_hosts, serve_ui, api_prefix)` 依次（下文的路径都在 `api_prefix` 之下，默认为空）：
+
+1. 建 `RvcNextAPI`（`FastAPI` 子类，见下文“事件进入 OpenAPI”），`docs_url="/docs"`、`openapi_url="/openapi.json"`、关闭 ReDoc，并设 `separate_input_output_schemas=False`；把 `services` 存到 `app.state.services`。
+2. `install_error_handlers(app)`：任何 `RvcNextError` 都变成 `{"code", "message", "detail"}`。
+3. 依次挂载 `ROUTERS` 中的 13 个路由模块，统一前缀 `/api`；各路由自带 `/v1/<资源>` 前缀，所以完整路径是 `/api/v1/...`。
+4. 在 `/ws` 挂载 socket.io（`SocketBridge.asgi_app()`）。
+5. 中间件：`server.allowed_origins` 非空时加 `CORSMiddleware`；总是加 `GZipMiddleware(minimum_size=4096)` 与 `SecurityMiddleware`（后加者在外层，所以安全检查最先执行）。
+6. **最后**挂载 `SPAStaticFiles` 到 `/`，只有找到 `webui/dist/index.html` 时才挂；没有构建产物时只记一条警告，API 照常工作（开发时由 Vite 提供页面）。
+
+生命周期（`lifespan`）只负责启动和停止 socket 桥。服务本身由调用方创建与关闭：`rvc-next webui` 用 `build_services(start_background=True)` 启动任务调度和空闲卸载，再交给 `create_app`；测试则传入自己的 `Services`。这样同一个 `create_app` 既能服务真实进程，也能在 `TestClient` 里跑。
+
+嵌入模式（[`embed.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/embed.py) 的 `RvcNextServer`）走同一条路：`build_services(data_dir, config_dir, settings_path, settings_overrides, start_background=True)`，绑定端口，`create_app(..., api_prefix=...)`，在后台线程运行 uvicorn，并像 `rvc-next webui` 一样写 `server.json`。`normalize_prefix()` 把 `voice`、`/voice/` 都规范成 `/voice`；`SecurityMiddleware` 按前缀判断受保护路径。用法见 [嵌入到其他程序](/docs/advanced-embed)。
+
+依赖注入只有一个：[`api/deps.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/api/deps.py) 的 `ServicesDep = Annotated[Services, Depends(get_services)]`，从 `request.app.state` 取服务。没有全局服务定位器（InvokeAI 的做法），因此一个路由依赖什么写在它的签名里，测试换掉 `app.state.services` 即可。
+
+## REST 约定
+
+| 约定 | 做法 | 原因 |
+| --- | --- | --- |
+| 一资源一路由 | `api/routers/<资源>.py`，`APIRouter(prefix="/v1/<资源>", tags=[...], responses=ERROR_RESPONSES)` | 生成的客户端按 tag 分组，错误形状对每个路由都已声明 |
+| 显式 `operation_id` | 每个路由都写，如 `list_models`、`run_experiment` | 生成的类型与日志里的名字稳定，不随函数改名变化 |
+| 请求、响应都是 `Record` | 路由签名直接用核心层模型；少数仅 API 需要的小模型（`AppMeta`、`ImportSession`、`ClearedJobs`…）就地定义在路由文件里 | API 的 JSON 与 CLI 的 `--json` 形状一致（`tests/cli/test_cli.py::test_model_json_matches_api_shape`） |
+| 普通 `def` | 碰磁盘或数据库的路由都写成同步函数 | Starlette 把它们放进线程池，事件循环不被阻塞 |
+| 只有上传是 `async` | 先异步把请求体写进临时文件，再 `run_in_threadpool` 交给核心 | 见下文“上传与媒体” |
+| 长操作返回 `Job` | 转换、分离、训练、下载、合并、提取、导出、建索引都立即返回一个 `Job` 快照 | 进度随后由 `job_updated` 推送，HTTP 请求不挂起 |
+| 列表分页 | `GET /jobs`、`GET /outputs` 用 `cursor` + `limit`（分别夹在 1–200、1–500），返回 `JobPage`/`OutputPage` 的 `next_cursor` | 历史可能很长 |
+
+错误由 `core/errors.py` 定义，`api/errors.py` 只做映射，HTTP 状态码与 CLI 退出码来自同一个异常类（完整表见[整体架构](/docs/development-architecture)）。`ERROR_RESPONSES` 为 400/403/404/409 声明 `ErrorResponse` 模型，生成的客户端因此知道错误体的形状。几点 API 特有的约定：
+
+- `NotLocalError`（`not_local`，403，定义在 `api/deps.py`）只在 API 里存在：揭示文件、在非本机且未设令牌时浏览服务器路径。
+- `SecurityMiddleware` 直接写出的错误（`bad_host` 400、`bad_origin` 403、`auth_required` 401）不经过异常处理器，但形状相同。
+- FastAPI 自己的请求校验错误仍是 422 + `detail` 数组；前端 `toError()` 把它折算成 `invalid_input`。
+- `POST /convert` 与 `POST /separate` 拒绝 `output_dir`/`overwrite`：写到任意目录、覆盖文件是命令行（受信任的本机用户）专属的能力。
+
+### 路由一览
+
+| 模块 | 前缀 | 主要端点 |
+| --- | --- | --- |
+| `app_info` | `/v1/app` | `GET version`、`GET health`（`status`、`auth_required`）、`GET meta`（`local`、`host`、`compute`、`live_available`、`assets_ready`、`features`、`data_dir`、`trusted`） |
+| `settings` | `/v1` | `GET/PATCH /settings`（深度合并；`server.access_token` 传 `null` 清除、传空串报错；改动由核心层发布 `settings_changed`，改了 `paths` 时重新扫描音色库）、`GET/PUT /client-state/{key}`（键名受正则约束，值上限 256 KiB） |
+| `compute` | `/v1/compute` | `GET devices`、`GET usage`、`POST release`（释放显存；忙时 409，`detail.busy`） |
+| `assets` | `/v1/assets` | `GET ""`、`GET repositories`、`POST download`、`POST verify`（同一个下载任务，`verify_only=True`）、`DELETE {asset_id}` |
+| `models` | `/v1/models` | 音色库 CRUD、`/catalog` 与 `/catalog/download`（演示音色）、导入会话 `/imports…`、未分配索引 `/indexes…`、底模 `/base…`、分离模型 `/separation…`、一步导入 `PUT /import` 与 `POST /import-path`、`POST inspect`、`POST merge`、`POST extract`、旧版安装 `/legacy-roots…`、`/{voice_id}/index`（上传、配对或解除）、`/{voice_id}/index/build`、`/{voice_id}/reveal` |
+| `presets` | `/v1/presets` | 列表（带 `voice_id` 时先 `ensure_default`）、创建、修改、删除 |
+| `audio` | `/v1/audio` | `PUT uploads`、`GET files/{id}`、`files/{id}/content`、`files/{id}/peaks`、`GET browse`、`POST resolve-path`、`GET path-peaks` |
+| `outputs` | `/v1/outputs` | 列表、`POST zip`（流式）、单个输出、`content`、`source`（A/B 用的原始输入）、`peaks`、`source-peaks`、删除、`reveal` |
+| `convert` | `/v1/convert` | `POST ""` → `Job` |
+| `separate` | `/v1/separate` | `GET presets`、`POST ""` → `Job` |
+| `train` | `/v1/train` | 实验 CRUD、`dataset/scan`、`speakers`、`speakers/from-folders`、`run` → `Job`、`stop`、`metrics?since=`、`checkpoints`、`export` → `Job`、`try`（临时音色）、`POST /import`（旧实验） |
+| `jobs` | `/v1/jobs` | 列表（`state` 可为具体状态或 `active`/`finished`）、`DELETE ""`（清除已完成任务，输出保留）、单个任务、`log?offset=`、`cancel`、`retry`、`run-anyway`、删除 |
+| `live` | `/v1/live` | `GET state`、`POST start/stop`、`PATCH voice`、`PATCH stream`、`PUT voice-model`、`PUT/GET devices`、`POST devices/check`、`POST devices/test-tone`、`POST meter`、`POST passthrough` |
+
+<Callout type="info" title="路由顺序">
+
+`routers/models.py` 中固定路径（`/catalog`、`/imports`、`/indexes`、`/base`、`/separation`、`/legacy-roots`…）全部写在 `/{voice_id}` 之前。FastAPI 按注册顺序匹配，新增固定路径时必须放在通配路由上面，否则会被当成一个音色 id。`outputs` 的 `POST /zip` 同理。
+
+</Callout>
+**实时变声的控制也是 REST。** socket 只承载服务器推送（`live_state`、`live_stats`、`devices_changed`），客户端从不经 socket 发命令。这延续了 InvokeAI 与 SD Model Hub 的设计：所有改变状态的操作都有 HTTP 状态码、错误形状和 OpenAPI 描述，可以用 `curl` 或 CLI 复现；socket 断线也不会丢命令。
+
+**导入的一步式接口。** `PUT /models/import` 与 `POST /models/import-path` 是对导入会话的封装：计划“有把握”（`confident`）时直接提交并返回 `ImportResult`；需要用户决定时抛 `ConflictError`，409 的 `detail.plan` 里带着计划，脚本可以据此改用会话接口提交决定。会话接口（`POST /imports` → `PUT /imports/{sid}/files` 或 `POST …/paths` → `GET /imports/{sid}` → `POST …/commit`）是同步的：提交直接返回 `ImportResult`，而不是一个任务（复制是本地操作，最慢的分离模型加载检查也只要几秒；见 AGENTS.md §8）。识别与配对规则见[核心服务](/docs/development-core)。
+
+## 上传与媒体
+
+**上传是原始请求体的 `PUT`，不用 multipart。** [`api/uploads.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/api/uploads.py) 的 `spool()` 把 `request.stream()` 按块写入 `<目录>/.incoming/<id>.part`，出错或断开就删除；路由随后用 `read_chunks()` 把文件按 1 MiB 块交给核心（`services.audio.upload`、`imports.add_upload`、`models.set_index_upload`…），无论成败最后都删除临时文件。文件名放在查询参数里（`name` 或 `filename`，最长 255）。
+
+这样做的原因：
+
+- 音频和模型动辄几百 MB，multipart 解析要么整块进内存，要么依赖 `python-multipart` 的临时文件策略；原始请求体可以边收边写，内存占用恒定。
+- 前端用 `XMLHttpRequest` 直接 `send(file)`，能拿到上传进度（`fetch()` 拿不到）。
+- `RAW_BODY` 作为 `openapi_extra` 写进 schema，声明 `application/octet-stream`，生成的类型因此知道这些端点收二进制。
+
+**媒体用 `FileResponse`。** [`api/files.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/api/files.py) 的 `audio_response()` 按扩展名给出 MIME，`Cache-Control: private, no-cache`，`Content-Disposition` 同时写 ASCII 回退名和 RFC 5987 的 `filename*`（中文文件名下载不乱码）；`?download=true` 时为 `attachment`。`FileResponse` 支持 `Range`，浏览器在长音频里拖动进度条不必下载整个文件。波形不在浏览器解码：`peaks` 端点返回服务器算好并缓存的峰值（默认 1024 点）。
+
+**打包下载**：`POST /outputs/zip` 以 `StreamingResponse` 边压缩边发送，不在服务器落地 zip 文件。
+
+## 访问控制
+
+访问控制分两层：`SecurityMiddleware` 处理“谁能连进来”，路由里的 `require_local`/`require_trusted` 处理“连进来的人能碰服务器上的哪些路径”。
+
+### `SecurityMiddleware`
+
+[`api/security.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/api/security.py) 是纯 ASGI 中间件，HTTP 与 WebSocket 都经过它。三项检查依次进行：
+
+| 检查 | 规则 | 防的是什么 |
+| --- | --- | --- |
+| Host | 绑定在回环地址时，`Host` 头必须是 `localhost`、`127.0.0.1`、`::1`、绑定的主机名或 `extra_hosts`；否则 400 `bad_host` | DNS 重绑定：恶意网页把自己的域名解析到 127.0.0.1 后调用本机 API |
+| Origin | 非安全方法（`GET`/`HEAD`/`OPTIONS` 以外）和所有 WebSocket 握手：有 `Origin` 时必须等于页面自己的源、在 `server.allowed_origins` 中，或与 `Host` 同主机端口；没有 `Origin` 时 `Sec-Fetch-Site` 只能是 `same-origin`、`none` 或缺省。否则 403 `bad_origin` | 跨站请求伪造：别的网页在用户浏览器里对本机服务发 `POST`/`DELETE` |
+| 访问令牌 | 设置了 `server.access_token` 时，`/api/`、`/ws/`、`/openapi.json`、`/docs` 下的请求必须带令牌；`/api/v1/app/health` 例外。否则 401 `auth_required` | 局域网或公网上的其他人 |
+
+令牌可以放在三处（`request_token()` 依次查找）：`Authorization: Bearer …`、`rvc_next_token` Cookie、`?token=` 查询参数。比较用 `hmac.compare_digest`。Cookie 的存在是为了 `<audio src>` 这类浏览器自己发出的请求——它们无法附加请求头。`health` 公开，是为了让页面外壳在没有令牌时也能加载，读到 `auth_required: true` 后弹出 `AuthDialog` 向用户要令牌。
+
+WebSocket 被拒绝时以关闭码 1008 断开。中间件读取的设置都是函数（`lambda: services.settings.settings.server.access_token`），所以在设置页修改令牌或允许的源立即生效，不必重启。
+
+绑定到非回环地址时，`rvc-next webui` 要求先设置令牌，否则以退出码 4 拒绝启动（见下文“启动、端口与 `SERVER_READY`”）。
+
+### 受信任的客户端与服务器路径
+
+| 判定 | 定义（`api/deps.py`） | 用在哪里 |
+| --- | --- | --- |
+| `is_local` | 客户端地址是回环地址（测试中的 `testclient` 也算） | `AppMeta.local`；`LocalDep` 保护的 `reveal`（在服务器的文件管理器里显示文件） |
+| `require_trusted` | 本机客户端，或已设置令牌（中间件已验证过令牌） | 一切以服务器路径为参数的操作：浏览、解析音频路径、按路径导入模型或索引、按路径检查模型、新建实验或修改数据集、说话人表、导入旧实验、添加旧版 RVC 安装、按绝对路径提取 |
+
+“受信任”回答的是“这个客户端可以指名服务器上的路径吗”。没有令牌的远程客户端只能上传文件、使用已有的上传和输出。`reveal` 更严：即使有令牌，远程浏览器也没有意义去打开服务器桌面上的文件管理器，所以只认本机。
+
+在受信任的前提下，**音频输入**还要落在 `paths.browse_roots` 之内：`GET /audio/browse`、`POST /audio/resolve-path`，以及 `POST /convert`、`POST /separate` 中 `kind == "path"` 的输入（路由调用 `services.audio.check_refs`），越界时 400 `invalid_path`，`detail.roots` 列出允许的根。这一检查只在 API 里做——命令行由本机用户直接运行，视为可信，可以读任何路径。模型导入、数据集文件夹等路径不受 `browse_roots` 约束，只要求受信任。
+
+## socket.io 与事件
+
+### 桥接
+
+<Mermaid chart={"sequenceDiagram\n    participant W as 任务线程 / worker 监听线程\n    participant B as LocalEventBus\n    participant Q as asyncio.Queue\n    participant P as _pump 任务（事件循环）\n    participant C as 浏览器 socket.io-client\n    W->>B: publish(JobUpdatedEvent(job=快照))\n    B->>Q: loop.call_soon_threadsafe(queue.put_nowait, event)\n    Note over B,Q: handler 在发布者线程上同步调用，<br/>只做线程安全的入队\n    Q->>P: await queue.get()\n    P->>C: sio.emit(event.__event_name__, event.model_dump(mode=\"json\"))"} />
+
+[`api/sockets.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/api/sockets.py) 的 `SocketBridge` 包装 `socketio.AsyncServer(async_mode="asgi")`：
+
+- `start()` 订阅事件总线。`LocalEventBus` 在发布者线程上同步调用处理函数，而发布者多半是任务线程或 worker 输出的读取线程，所以处理函数只做一件事：`loop.call_soon_threadsafe(queue.put_nowait, event)`，把事件交给事件循环。一个后台任务 `_pump()` 再逐个 `emit`，单个事件序列化失败只记日志。
+- 流量只有服务器到客户端，广播给所有连接；没有房间，也没有客户端事件处理器（单用户应用）。
+- 连接时（`_on_connect`）在设置了令牌的情况下验证：先看握手 `auth.token`，再退回 Cookie、`Authorization` 头或查询参数。Origin 检查已由外层中间件完成，所以 `cors_allowed_origins="*"`。
+- `asgi_app()` 用 `route_path(scope)` 规范化挂载后的路径，再交给 engineio 匹配 `/socket.io`，以兼容新旧 Starlette 对挂载前缀的不同处理。客户端连接的是 `<部署根>/ws/socket.io`。
+
+**事件携带快照。** 每个事件都是完整的 `Record` 值（例如 `JobUpdatedEvent` 里是 `job.model_copy(deep=True)`），绝不是 worker 还在修改的活对象：序列化发生在稍后的事件循环上，而那时任务线程可能已经改了进度。快照也让客户端无需追溯历史——收到即可替换。
+
+### 事件与载荷
+
+事件类定义在 [`core/events/models.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/core/events/models.py)，都继承 `EventBase` 并设置 `__event_name__`；`EventBase.get_events()` 递归收集所有具名子类。
+
+| 事件 | 载荷 | 发布者与频率 | 前端处理（`api/socket.ts`） |
+| --- | --- | --- | --- |
+| `job_updated` | `job: Job` | 任务服务；状态变化立即发，进度节流到每任务每秒 4 次（`PROGRESS_INTERVAL = 0.25`） | 写入 jobs store 和 `keys.job(id)`；结束时使相关列表失效 |
+| `job_log` | `job_id`、`offset`、`lines`（每批最多 50 行） | 任务服务，每 0.25 s 一批 | 交给打开着的日志视图；更多内容按 `offset` 走 REST |
+| `jobs_cleared` | `ids` | 删除或清除历史 | 从 store 移除 |
+| `outputs_added` / `outputs_removed` | `job_id` + `outputs: Output[]` / `ids` | 音频服务 | 使输出列表失效 |
+| `models_changed` | `added`、`updated`、`removed`（id 列表） | 音色库、导入、索引收件箱、底模、分离模型 | 使音色列表、分离预设和对应详情失效 |
+| `presets_changed` | `voice_id` | 预设服务 | 使预设查询失效 |
+| `assets_changed` | `assets: AssetStatus[]`（完整列表） | 资源服务 | 直接写入 `keys.assets`，并使底模、演示音色失效 |
+| `experiment_changed` | `name`、`stages`、`running_job`、`removed` | 训练服务 | 使实验列表、实验详情与检查点失效 |
+| `train_metrics` | `name`、`epoch`、`step`、`losses`、`lr` | 训练服务，每个日志间隔 | 追加到 train store（不进查询缓存） |
+| `live_state` | `state: LiveState` | 实时变声服务，状态变化时 | live store + `keys.liveState` |
+| `live_stats` | `stats: LiveStats` | live worker 每 0.1 s 一次（`STATS_INTERVAL`），经监管者转发 | 只进 live store |
+| `devices_changed` | `devices: DeviceList` | 重新枚举发现差异时 | 写入 `keys.liveDevices` |
+| `compute_changed` | `usage: ComputeUsage` | 计算服务：释放显存、任务或实时变声状态切换 | 写入 `keys.computeUsage` |
+| `settings_changed` | `keys`（被修改的点分键名） | 任何设置改动（API、命令行、直接编辑 `settings.toml`） | 使设置与 `meta` 失效 |
+
+`models_changed` 的 id 并不都是音色 id：索引收件箱发 `index:<id>`，底模发 `base:<slug>`，导入的分离模型发 `user-<slug>`（也是它作为分离预设的 id）。前端目前只按 id 使详情失效，并不区分类型；需要区分时看前缀即可。
+
+<Callout type="info" title="为什么高频数据不进查询缓存">
+
+`live_stats`（10 Hz）、`train_metrics` 与任务进度放在 Pinia store 里，而不是 TanStack Query 的缓存：缓存的每次 `setQueryData` 都会通知所有观察者并做结构共享比较，高频写入会让无关组件反复重算。缓存只保存“REST 能重新取回”的状态，见 [Web UI](/docs/development-webui)。
+
+</Callout>
+### 事件进入 OpenAPI
+
+[`api/openapi.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/api/openapi.py) 的 `RvcNextAPI.openapi()` 在 FastAPI 生成的 schema 之后，把每个事件类的 JSON Schema（`mode="serialization"`）加入 `components.schemas`，把嵌套的 `$defs` 提升为同级组件，再加一个 `ServerEvents` 对象：属性名是事件名，值引用事件 schema。组件按名排序，保证生成结果稳定。
+
+这样 socket 载荷与 REST 共用同一份类型来源：前端的 `ServerEvents` 类型（`api/types.ts`）直接从生成的 schema 派生，`socket.on('job_updated', ({ job }) => …)` 中的 `job` 就是 `Job` 类型。`tests/api/test_api.py::test_openapi_lists_events` 检查事件确实出现在 schema 里。
+
+## 从 schema 生成 TypeScript
+
+<Mermaid chart={"flowchart LR\n    A[\"create_app(serve_ui=False)<br/>scripts/generate_openapi.py\"] -->|\"stdout\"| B[\"webui/openapi.json<br/>（临时，git 忽略）\"]\n    B --> C[\"param_specs()<br/>scripts/dev.py\"] --> D[\"src/api/paramSpecs.ts\"]\n    B --> E[\"bun x openapi-typescript<br/>--default-non-nullable false\"] --> F[\"src/api/schema.d.ts\"]"} />
+
+`python scripts/dev.py typegen` 做三件事：
+
+1. 运行 [`scripts/generate_openapi.py`](https://github.com/licyk/rvc-next/blob/main/scripts/generate_openapi.py)：在临时数据目录、空 `environ` 下 `build_services()`，`create_app(serve_ui=False)`，打印 `app.openapi()`。不启动服务器、不读用户设置，所以任何机器上结果都一样。
+2. 从 schema 中取出 `VoiceParamsModel` 与 `StreamParamsModel`（`PARAM_MODELS`），把每个字段的 `type`、`default`、`minimum`/`maximum`、`enum`、`description` 写成 `src/api/paramSpecs.ts` 的 `PARAM_SPECS`。openapi-typescript 只生成类型，而参数面板需要具体数字；这一步让滑块的范围、默认值和帮助文字只有一个来源——核心层 `core/params.py` 的字段约束。
+3. 用 openapi-typescript 生成 `src/api/schema.d.ts`。`--default-non-nullable false` 让带默认值的**请求**字段保持可选（客户端可以省略）。
+
+两个生成文件都提交进仓库。`typegen-check`（`dev.py check` 的一部分，也在 CI 中运行）重新生成后执行 `git diff --exit-code`，API 改了却没重新生成就会失败。
+
+与类型形状有关的三个设定：
+
+- `Record` 设置了 `json_schema_serialization_defaults_required=True`：带默认值的字段在**响应**里总会出现，所以 schema 把它们标为必填，生成的类型不会处处是 `?`。
+- `separate_input_output_schemas=False`：大多数模型只生成一个 schema，而不是 `-Input`/`-Output` 两份。FastAPI 仍把 `Dataset`、`FitSettings`、`SpeakerEntry` 拆成两份，`api/types.ts` 读取 `-Output` 形状、发送时用 `-Input`。
+- 事件 schema 用序列化模式生成，但事件类里带默认值的字段在 TypeScript 中仍可能是可选的；`api/types.ts` 中的注释记录了这一点（服务器实际总会发送）。
+
+## 静态页面
+
+[`api/static.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/api/static.py)：
+
+- `web_dist_dir()` 通过 `rvc_next.webui.__path__` 定位 `dist/`，而不是相对当前目录或写死的路径，所以源码检出与安装后的 wheel 都能找到。`dist/` 被 git 忽略，作为包数据（`pyproject.toml` 的 `"rvc_next.webui" = ["dist/**/*"]`）由 `scripts/build_wheel.py` 构建后打进 wheel。
+- `SPAStaticFiles` 对 `assets/` 下的文件发 `Cache-Control: public, max-age=31536000, immutable`（Vite 产物文件名含内容哈希，可以永久缓存），其余文件（主要是 `index.html`）发 `no-cache`，保证升级后浏览器拿到新的入口。
+- 未知路径只在请求 `Accept` 含 `text/html` 时回落到 `index.html`。拼错的资源或 API 路径因此仍然得到 404，而不是一页 HTML（这修正了 InvokeAI 的做法里“任何路径都回 index.html”的问题）。前端用 hash 路由，正常导航本就不需要回落。
+
+## 启动、端口与 `SERVER_READY`
+
+`rvc-next webui`（[`cli/commands/webui.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/cli/commands/webui.py)）的顺序：
+
+1. `build_services(start_background=True)`；主机、端口、严格模式、是否打开浏览器取命令行参数，缺省时取 `server.*` 设置（默认 `127.0.0.1:7868`）。
+2. 绑定非回环地址时先警告；没有 `server.access_token` 就退出（码 4）。
+3. `bind_first_free_port(host, port, strict=…)` **自己绑定**监听套接字：从配置端口开始，遇到 `EADDRINUSE`/`EACCES`（以及 Windows 的对应码）就试下一个，最多 20 个、不超过 65535；`strict` 时只试一个；端口 0 交给操作系统挑。Windows 上设 `SO_EXCLUSIVEADDRUSE`（防止别的进程绑定同一地址端口），其他平台设 `SO_REUSEADDR`（`TIME_WAIT` 期间也能快速重启）。全部失败时退出（码 3）。
+4. `create_app(…, bound_host=host, bound_port=实际端口)`，`uvicorn.Server(config).run(sockets=[sock])`——把**同一个**套接字交给 uvicorn。
+5. 运行前写 `server.json`（`host`、`port`、`url`、`pid`，经临时文件原子替换），向 stdout 打印 `SERVER_READY url=http://…`，按设置延时 0.8 s 打开浏览器；退出时只删除自己写的 `server.json`（比较 `pid`）。
+
+<Callout type="info" title="为什么绑定而不是探测">
+
+InvokeAI 先 `connect` 探测端口，再在服务加载完后让 uvicorn 绑定。探测只能发现“有人在监听”的端口，Windows 的保留端口段这类“没人监听但绑不上”的情况会被误判为空闲；探测和绑定之间还有一整段启动时间，别的进程可以抢占。直接绑定是唯一可靠的答案，而把测试过的套接字原样交给 uvicorn，就不存在空档。`SERVER_READY` 一行和 `server.json` 则让启动器、脚本和其他程序得知端口变化——日志里的警告对机器不可读。`--strict-port` 用于端口映射固定的部署（反向代理、容器），那里悄悄换端口只会掩盖问题。
+
+</Callout>
+`read_runtime_file()` 会检查 `pid` 是否存活，过期的文件视为不存在。任务服务在启动时也借助它判断数据目录是否已被另一个存活的服务器占用（见[核心服务](/docs/development-core)）。开发模式下 `scripts/dev.py dev` 以 `--no-open --strict-port` 启动 API，并让 Vite 通过 `RVC_NEXT_BACKEND` 代理过去（见 [Web UI](/docs/development-webui)）。
+
+## 新增一个接口
+
+1. 在核心层写方法，参数与返回值是 `Record`；需要的错误用 `core/errors.py` 中已有的类。
+2. 在对应的 `api/routers/<资源>.py` 加路由：写 `operation_id`，签名用 `ServicesDep`，需要服务器路径时调用 `require_trusted(request, services)`，涉及揭示文件时加 `dependencies=[LocalDep]`；上传用 `spool` + `read_chunks` 并声明 `openapi_extra=RAW_BODY`。固定路径放在通配路由之前。
+3. 长操作返回 `Job`，进度靠事件；新的推送需要时在 `core/events/models.py` 加 `EventBase` 子类（它会自动进入 OpenAPI 和 `ServerEvents`），并在前端 `api/socket.ts` 处理。
+4. 若 CLI 也要提供同样的操作，调用同一个核心方法（见[命令行实现](/docs/development-cli)）。
+5. 运行 `python scripts/dev.py typegen` 并提交 `schema.d.ts`（参数模型变了还有 `paramSpecs.ts`）；在 `tests/api/test_api.py` 用 `TestClient` 覆盖错误映射与权限。

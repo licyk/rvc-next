@@ -1,0 +1,221 @@
+---
+title: "Train"
+description: "The Train page trains a new voice from your own recordings. Each training run is an experiment: a separate folder containing dataset settings, intermediate results from each stage, checkpoints and training curves. After training, you can try a checkpoint immediately and export it to the voice library with one click when satisfied."
+icon: GraduationCap
+---
+
+Compared with the original RVC, rvc-next combines “process data → extract pitch → extract features → train → build index” into one workflow: **Run all** only runs stages that are incomplete or whose inputs have changed.
+
+<Callout type="warn" title="Not yet verified on real hardware">
+
+The build machine has no GPU. The training workflow has only been tested on CPU with tiny models. CUDA training (including multi-GPU DDP), fp16 and GPU memory usage have not been verified on a real GPU.
+
+</Callout>
+## Experiment list
+
+Open **Train** in the left navigation to see cards for all experiments. Each card shows:
+
+- The experiment name, with a **Running** label while active;
+- Sample rate · model version · **One speaker** or **Several speakers**;
+- Status labels for five stages: **Slice**, **Pitch**, **Features**, **Train**, **Index** (the primary color for completed stages, a warning color for **Out of date**, and red for **Failed**);
+- **Last activity …**.
+
+Click a card to open the experiment page. Experiments are stored under `experiments/` in the data folder (change this in **Settings › Storage › Experiments**). Experiment folders copied directly into this directory (containing `experiment.json`, or the original's `0_gt_wavs` folder) also appear automatically.
+
+### New experiment
+
+1. Click **New experiment**.
+2. Enter an **Experiment name**.
+3. Select **One speaker** or **Several speakers**. For one speaker, enter the **Dataset folder** directly or click **Browse…** to select a server folder (the table for several speakers is filled in on the experiment page).
+4. Click **Add** to open the new experiment's page.
+
+Initial values for sample rate, version, pitch guidance, epochs and other settings come from **Settings › Training defaults**.
+
+<Callout type="info" title="Browsing server folders">
+
+**Browse…** is available only when you open the page on the server machine or the server has an access token set. Otherwise, paste the server path directly into the field.
+
+</Callout>
+### Import an original RVC experiment
+
+If you have already trained in the original RVC (experiments are under its `logs/<name>`), you can import the experiment and keep using it:
+
+1. Click **Import experiment**.
+2. Enter the path in **Original experiment folder (logs/&lt;name>)**. Optionally enter a new **Experiment name** (defaults to the folder name).
+3. Click **Import**.
+
+rvc-next **copies** the entire folder into the experiment directory (leaving the original untouched) and infers the sample rate, version, pitch guidance and completed stages from its contents. The folder must contain `0_gt_wavs` or `config.json`; otherwise, it reports that this does not look like an RVC experiment. Imported experiments do not record the original dataset folder. To slice again, enter it in the **Dataset** step first.
+
+## Experiment page
+
+The top of the experiment page shows its name, sample rate · version · folder path, with a **Delete** button on the right (unavailable while running; deleted experiments are moved to `trash/` in the data folder).
+
+Below are four steps: **Dataset**, **Settings**, **Run**, **Results**. While running, an overall progress bar appears below the step bar, and **Run** indicates the current stage.
+
+### Step 1: Dataset
+
+<Tabs items={["One speaker", "Several speakers"]}>
+<Tab value="One speaker">
+
+1. Select **One speaker**.
+2. Enter a path in **Dataset folder**, or click **Browse…** to select one.
+3. Click **Save**.
+
+Only audio files at the folder's **top level** are read; subfolders are not scanned.
+
+</Tab>
+<Tab value="Several speakers">
+
+A dataset with several speakers is described by a **Speakers** table, with one speaker per row:
+
+| Column | Description |
+| --- | --- |
+| **Name** | Speaker name; must be unique |
+| **ID** | 0–109; must be unique (duplicates show **Duplicate ID N**) |
+| **Folder** | This speaker's audio folder; click to select |
+| **Repeat** | 1–100; how many times this speaker's data is repeated during training, to balance speakers with different amounts of data |
+
+- Click **Add speaker** to add a row; delete a row to remove it.
+- If your data already follows the original's `Name_ID_Repeat` subfolder convention (for example, `alice_0_1`, `bob_1_2`), click **Fill from Name_ID_Repeat folders** and select their parent folder to fill the table automatically. Each subfolder must follow this format, have an ID from 0–109 and a repeat count of at least 1, map each ID to only one name, and contain audio.
+
+Click **Save** when finished. Exported voices include these speaker names.
+
+</Tab>
+</Tabs>
+**Clean the dataset first**: select a separation preset to run vocal separation on the whole dataset before slicing (for example, to remove accompaniment or reverb). Results are stored in the experiment's `dataset_clean/`; original files are unchanged. The default is **No clean-up**. Presets are the same as on **Separate**, and the required separation models must be downloaded first.
+
+**Scan dataset**: this button scans the dataset and generates a report:
+
+- **N clips**, **duration in total**;
+- File counts for each **Sample rates** entry; with several speakers, clip counts for each speaker are also listed;
+- A **Problems** list (**No problems found** when there are none):
+
+| Problem | Criterion |
+| --- | --- |
+| **too short** | Shorter than 1 second |
+| **too long** | Longer than 30 minutes |
+| **clipped** | More than 0.1% of samples reach full scale |
+| **silent** | Peak below −50 dBFS |
+| **unreadable** | The file cannot be decoded |
+
+<Callout type="idea" title="The scan uses the saved dataset">
+
+**Scan dataset** reads the saved settings. After changing folders, click **Save** before scanning.
+
+</Callout>
+### Step 2: Settings
+
+| Setting | Options | Description |
+| --- | --- | --- |
+| **Sample rate** | 32k / 40k / 48k | Sample rate for training and the exported voice |
+| **Model version** | v1 / v2 | v2 uses 768-dimensional features and is recommended; v1 uses 256 dimensions |
+| **Pitch method** | pm (fast) / RMVPE (best) | Method for extracting pitch from training data; unavailable when pitch guidance is off. New experiments default to RMVPE with an available CUDA GPU, otherwise pm |
+| **Epochs** | ≥ 1 | Total training epochs |
+| **Batch size** | ≥ 1; leave blank for **Automatic** | Automatic takes the smallest GPU's memory (GiB) ÷ 2, rounded down, as in the original; 1 without a GPU |
+| **Save every N epochs** | ≥ 1 | Number of epochs between checkpoints |
+| **GPUs** | `auto`, `cpu` or GPU IDs such as `0-1` | GPUs used for training, saved in the experiment. New experiments use `training.gpus` from settings. `auto` uses all available CUDA GPUs; `cpu` uses only CPU |
+| **Pitch guidance** | On / Off | When off, the trained voice has no pitch guidance (suited to speech rather than singing), and the **Pitch** stage is skipped |
+| **Cache the dataset in GPU memory** | On / Off | Stores the entire training dataset in GPU memory; can speed up training for small datasets with enough GPU memory |
+| **Save a voice at every save point** | On / Off | Saves a small, directly usable model in `weights/` alongside each checkpoint, for comparing different epochs |
+| **Keep only the latest checkpoint** | On / Off | Keeps only one pair of G/D checkpoints (`G_2333333.pth`/`D_2333333.pth`, as in the original), saving disk space |
+
+**Base model**: training starts from a base model.
+
+- The default, **Chosen from the rate, version and pitch guidance**, uses the corresponding official base model.
+- Base models imported in **Models › Base models** also appear here, but **Only base models of this rate, version and pitch guidance are listed.** Models without a discriminator (D) are marked **no D**. If a change to sample rate, version or pitch guidance makes the selected base model incompatible, the selection automatically returns to the default.
+
+Click **Save** when finished. If required files have not been downloaded (official base models, HuBERT, and the RMVPE model when using RMVPE), the **Save** button is replaced by **Needs …** and **Download (size)**. Download them before saving.
+
+### Which stages must rerun after settings change?
+
+Each completed stage records an input “fingerprint.” After saving changes, affected completed stages are marked **Out of date**, with the message **Inputs changed since this stage ran.**
+
+**Run all** also recalculates every completed stage's fingerprint. Even without changing settings on the page, adding, deleting or replacing recordings directly in the dataset folder causes slicing and all subsequent stages to rerun. Increasing only the **Epochs** continues training without rerunning earlier stages.
+
+| Change | First stage marked out of date |
+| --- | --- |
+| Dataset folder or speaker table | Slice |
+| Clean-up preset | Clean-up |
+| Sample rate | Slice |
+| Pitch guidance, pitch method | Pitch |
+| Model version | Features |
+| Training parameters such as epochs or batch size | None (increasing epochs makes **Run all** continue training) |
+
+Rerunning a stage also marks subsequent completed stages **Out of date**.
+
+### Step 3: Run
+
+**Run** lists cards for all stages:
+
+| Stage | Purpose | When it runs |
+| --- | --- | --- |
+| **Clean-up** | Cleans the dataset with the selected separation preset | Only when a clean-up preset is selected |
+| **Slice** | Splits audio at silence and resamples it into training clips | Always |
+| **Pitch** | Extracts each clip's pitch with pm or RMVPE | Only with pitch guidance enabled |
+| **Features** | Extracts content features with HuBERT | Always |
+| **Train** | Trains the generator and discriminator, saving checkpoints as configured | Always |
+| **Index** | Builds a retrieval index from features (`added_*.index`) | Always |
+
+Each card shows its state (**Not run**, **Running**, **Done**, **Out of date**, **Failed**, **Skipped**), processed count and completion time, or an error message on failure.
+
+- **Run all**: runs only incomplete, out-of-date or failed stages. If **Train** is done but you increased **Epochs**, it continues to the new epoch count. If all stages are done and inputs are unchanged, it reports that no stages need to run.
+- A single stage: click **Run this stage** on its card. Completed stages show **Run again**, which forces another run.
+- **Stop**: appears while running and cancels the current job. The cancelled stage returns to **Not run**; completed stages are kept.
+
+<Callout type="info" title="Training resumes from the latest checkpoint">
+
+When **Train** starts, if the experiment folder already contains G/D checkpoints, training resumes from the latest pair rather than starting over. Create a new experiment to train entirely from scratch.
+
+</Callout>
+While running, the **Run** step shows a job card and a progress bar appears below the step bar. The same job appears in the top-bar **Jobs** panel, where you can read its log. Training queues as a GPU job: if live voice conversion is using the GPU, it shows **Waiting for the GPU**. You can click **Run anyway** (which may cause live audio glitches).
+
+### Step 4: Results
+
+The **Loss** chart shows training loss curves (the horizontal axis is step). Total losses `g_total` and `d_total` come first, followed by components such as `mel`, `kl`, `fm` and `gen`. Curves update live during training.
+
+**Checkpoints** lists the experiment's G checkpoints and small models (`.pth` files in `weights/`). Each entry shows its type, epoch count and file size:
+
+- **Try**: sends this entry to **Convert** as a temporary voice (with the experiment's index), so you can immediately convert a clip and hear the result. Temporary voices do not appear in the voice library. G checkpoints are automatically extracted into small models first (stored in the experiment's `.try/` folder; each checkpoint is extracted only once).
+- **Export as voice**: exports this entry to the voice library.
+
+The **Export as voice** button at the top right of the list exports the latest result (preferring the latest small model, otherwise the latest G checkpoint).
+
+### Export to the voice library
+
+1. Click **Export as voice** (at the top of the list or beside a checkpoint).
+2. Enter a **Voice name**, defaulting to the experiment name.
+3. Click **Export**. When finished, it shows **Exported as a voice**.
+
+During export:
+
+- A selected G checkpoint is first extracted into a small model;
+- The experiment's indexes (`added_*.index`) are attached to the new voice;
+- Experiments with several speakers write the speaker names into the model.
+
+The exported voice appears in **Models › Voices** and can be used in **Convert**, **Live** and other pages.
+
+## Recommended workflow
+
+1. Prepare at least 10 minutes of clean recordings without accompaniment and put them in one folder.
+2. Create a **New experiment**, select the dataset folder, **Scan dataset**, and address problem files such as **clipped** or **silent** recordings.
+3. In **Settings**, check the sample rate (40k is usually enough), version v2 and pitch guidance (required for singing).
+4. Download the requested base models and other models, then **Save**.
+5. Click **Run all** in **Run**, and watch the loss curves in **Results**.
+6. With **Save a voice at every save point** enabled, **Try** small models from different epochs and **Export as voice** for the best one.
+7. If the result needs improvement, increase **Epochs** and **Run all** again. Training resumes from the previous checkpoint.
+
+## Command line
+
+Training can also be done entirely from the command line, using the same experiments as the web UI:
+
+```bash
+rvc-next train new "My voice" --dataset D:/data/me --sr 40k --version v2
+rvc-next train dataset scan "My voice"      # Scan the dataset
+rvc-next train run "My voice" --epochs 200  # Run all stages
+rvc-next train run "My voice" --stage index --force   # Rerun only the index
+rvc-next train status "My voice"
+rvc-next train export "My voice" --voice-name "My voice"
+rvc-next train import D:/RVC/logs/old --name old      # Import an original experiment
+```
+
+See [Command reference](/docs/cli-commands) for more options.

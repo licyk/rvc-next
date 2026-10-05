@@ -1,0 +1,792 @@
+---
+title: "命令参考"
+description: "本页按命令树列出 rvc-next 的每条命令和子命令，内容来自各命令的 --help 输出。命令和子命令在帮助中按字母顺序排列，本页按用途分组。"
+icon: SquareTerminal
+---
+
+所有命令都接受下面两个选项，表格里不再重复：
+
+| 选项 | 说明 |
+| --- | --- |
+| `--debug` | 打印调试日志 |
+| `--help` | 显示帮助并退出 |
+
+表中"默认值"一栏为"—"时表示不给出就不生效，或沿用预设、设置里的值（会在说明里写明）。范围写成 `[a, b]`。
+
+## 根命令
+
+```text
+rvc-next [OPTIONS] COMMAND [ARGS]...
+```
+
+基于检索的语音转换：转换、实时、分离和训练。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--install-completion` | 为当前 shell 安装补全 |
+| `--show-completion` | 显示当前 shell 的补全脚本，用于复制或自定义安装 |
+
+## 服务器与系统
+
+### `webui`
+
+启动服务器并打开 Web UI。
+
+```text
+rvc-next webui [OPTIONS]
+```
+
+| 选项 | 说明 | 默认值 |
+| --- | --- | --- |
+| `--host <str>` | 绑定的地址 | 取自设置 `server.host`（`127.0.0.1`） |
+| `--port <int>` | 第一个尝试的端口，`[0, 65535]`；`0` 由系统任选 | 取自设置 `server.port`（`7868`） |
+| `--strict-port / --no-strict-port` | 端口被占用时直接失败，而不是尝试下一个端口 | 取自设置 `server.strict_port`（关） |
+| `--open / --no-open` | 在浏览器中打开 Web UI | 取自设置 `server.open_browser`（开） |
+| `--data-dir <directory>` | 数据目录（设置、数据库、模型、结果） | `RVC_NEXT_DATA_DIR` 或系统默认位置 |
+| `--config-dir <directory>` | 存放 `settings.toml` 的文件夹 | `RVC_NEXT_CONFIG_DIR` 或数据目录 |
+| `--api-prefix <str>` | 把 API、socket 和 Web UI 放到这个路径下，例如 `/voice` | 无 |
+
+端口被占用时依次尝试后面的端口（最多 20 个），并在日志里提示实际使用的端口；全部失败时以退出码 3 结束。绑定到非本机地址时必须先设置访问令牌，否则以退出码 4 结束（见 [远程访问与安全](/docs/advanced-remote)）。启动成功后标准输出打印一行 `SERVER_READY url=http://...`。
+
+```bash
+rvc-next webui
+rvc-next webui --port 8000 --no-open
+rvc-next webui --data-dir D:/rvc-next-data
+```
+
+### `version`
+
+显示 rvc-next 及其主要组件（torch、transformers、faiss-cpu、librosa、av、sounddevice、pymss、fastapi 等）的版本。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--json` | 打印 JSON |
+
+### `env`
+
+列出 rvc-next 读取的环境变量，以及当前已设置的 `RVC_NEXT_*` 变量（名称含 `TOKEN` 的值显示为 `***`）。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--json` | 打印 JSON |
+
+### `doctor`
+
+检查 Python、torch 和 CUDA、DirectML、ffmpeg、音频设备、资源，以及 GPU 规则选中的设备和精度，最后列出发现的问题和修复命令。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--json` | 打印 JSON |
+
+```bash
+rvc-next doctor
+```
+
+## 转换与分离
+
+### `convert`
+
+用一个音色转换音频文件或文件夹。参数从音色的默认预设开始，命令行给出的选项覆盖对应的值。
+
+```text
+rvc-next convert [OPTIONS] INPUTS...
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `INPUTS...` | 音频文件或文件夹（必填，可多个） |
+
+| 选项 | 说明 | 默认值 |
+| --- | --- | --- |
+| `-v, --voice <str>` | 音色 id、名称或 `.pth` 路径（必填） | — |
+| `-o, --output <directory>` | 输出文件夹 | 数据目录中该任务的文件夹 |
+| `--preset <str>` | 以这个预设为起点，而不是音色的默认预设 | 音色的默认预设 |
+| `--index <file>` | 用路径给出 `.pth` 音色时使用的索引 | — |
+| `--speaker <int>` | 多说话人音色的说话人 id，`[0, 109]` | 取自预设 |
+| `--pitch <float>` | 音高偏移（半音），`[-24, 24]` | 取自预设 |
+| `--formant <float>` | 共振峰偏移（半音），`[-2, 2]` | 取自预设 |
+| `--f0 <str>` | 音高算法：`pm`、`rmvpe` 或 `fcpe` | 取自预设 |
+| `--index-rate <float>` | 索引强度，`[0, 1]` | 取自预设 |
+| `--protect <float>` | 辅音保护，`[0, 0.5]`；0.5 为关闭 | 取自预设 |
+| `--rms-mix <float>` | 响度匹配，`[0, 1]`；1 保持转换后的响度 | 取自预设 |
+| `--separate <str>` | 先用这个分离预设分离，再转换人声 | — |
+| `--remix` | 加回伴奏（需要 `--separate`） | 关 |
+| `--remix-gain <float>` | 伴奏增益（dB） | `0.0` |
+| `--format <str>` | `wav`、`flac`、`mp3` 或 `m4a` | 设置 `convert.output_format`（`wav`） |
+| `--resample <int>` | 把结果重采样到这个采样率，至少 16000 | 音色自身的采样率 |
+| `--recursive / --no-recursive` | 进入文件夹输入的子文件夹 | `--no-recursive` |
+| `--overwrite / --no-overwrite` | 替换输出文件夹里已有的文件 | `--no-overwrite` |
+| `--preview <float>` | 只转换前 N 秒，`[1, 120]` | — |
+| `--json` | 以 JSON 打印完成的任务 | 关 |
+
+结束后逐行打印输出文件的路径。
+
+```bash
+rvc-next convert vocal.wav -v "我的音色" --pitch 12
+rvc-next convert ./in --recursive -v kikiv1 --f0 fcpe -o ./out --format mp3
+rvc-next convert song.flac -v ./voice.pth --index ./added.index --separate vocals --remix
+```
+
+### `separate`
+
+分离人声、伴奏和混响。可以用单个预设，也可以用串联预设。
+
+```text
+rvc-next separate [OPTIONS] [INPUTS]...
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `INPUTS...` | 音频文件或文件夹（不用 `--list` 时必填） |
+
+| 选项 | 说明 | 默认值 |
+| --- | --- | --- |
+| `-p, --preset <str>` | 预设 id；用 `--list` 查看 | 设置 `separation.default_preset`（`vocals`） |
+| `-o, --output <directory>` | 输出文件夹 | 数据目录中该任务的文件夹 |
+| `--format <str>` | `wav`、`flac`、`mp3` 或 `m4a` | 设置 `separation.output_format`（`flac`） |
+| `--recursive / --no-recursive` | 进入子文件夹 | `--no-recursive` |
+| `--list` | 列出预设并退出 | 关 |
+| `--json` | 打印 JSON | 关 |
+
+内置预设：`vocals`、`vocals-aggressive`、`dereverb`、`dereverb-aggressive`、`karaoke`，以及串联预设 `vocals-clean`（人声 → 去混响）和 `lead-clean`（人声 → 主唱 → 去混响）。导入的分离模型以 `user-<名称>` 作为预设 id。
+
+```bash
+rvc-next separate --list
+rvc-next separate song.mp3 -p vocals-clean -o ./stems
+```
+
+## 设置：`config`
+
+显示和修改设置。设置项见 [配置与环境变量](/docs/cli-config)。
+
+### `config show`
+
+显示当前生效的设置（默认值、`settings.toml` 和环境变量合并后的结果）。访问令牌只显示为是否已设置。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--json` | 打印 JSON |
+
+### `config get`
+
+打印一个设置。
+
+```text
+rvc-next config get KEY
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `KEY` | 点分隔的键，例如 `server.port`（必填） |
+
+### `config set`
+
+修改一个设置并保存到 `settings.toml`。
+
+```text
+rvc-next config set KEY VALUE
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `KEY` | 点分隔的键，例如 `server.port` 或 `compute.device`（必填） |
+| `VALUE` | 新值。按 JSON 解析（数字、`true`/`false`、列表）；`null` 清除（必填） |
+
+如果同名环境变量覆盖了这个设置，命令会提示"An environment variable overrides this setting."。
+
+```bash
+rvc-next config set compute.device cpu
+rvc-next config set server.access_token "换成一个长随机字符串"
+rvc-next config set paths.browse_roots '["D:/music", "E:/datasets"]'
+```
+
+### `config path`
+
+打印设置文件的路径。
+
+## 资源：`assets`
+
+HuBERT、RMVPE、底模和分离模型权重。
+
+### `assets list`
+
+显示每个资源的 id、名称、分组、大小和状态（已安装、缺失、损坏），以及当前的下载仓库。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--json` | 打印 JSON |
+
+### `assets download`
+
+下载资源：断点续传，并校验 SHA-256。
+
+```text
+rvc-next assets download [OPTIONS] [IDS]...
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `IDS...` | 资源 id；见 `rvc-next assets list` |
+
+| 选项 | 说明 | 默认值 |
+| --- | --- | --- |
+| `--group <str>` | `inference`（HuBERT、RMVPE 和 FCPE）、`training`、`separation` 或 `all` | 既没有 id 也没有分组时为 `inference` |
+| `--source <str>` | 下载端点：`huggingface`、`hf-mirror` 或 `custom`（保存到设置） | 设置 `downloads.source` |
+| `--repository <str>` | `rvc-model` 或 `official`（保存到设置） | 设置 `downloads.repository` |
+
+资源 id：`hubert`、`rmvpe`、`rmvpe-onnx`、`fcpe`、`pretrained-v1-32k`、`pretrained-v1-40k`、`pretrained-v1-48k`、`pretrained-v2-32k`、`pretrained-v2-40k`、`pretrained-v2-48k`、`separation-vocals`、`separation-vocals-aggressive`、`separation-dereverb`、`separation-dereverb-aggressive`、`separation-karaoke`。任何分组都不包括只在 DirectML 上使用的 `rmvpe-onnx`；`inference` 分组是 `hubert`、`rmvpe` 和 `fcpe`。
+
+```bash
+rvc-next assets download
+rvc-next assets download fcpe pretrained-v2-40k
+rvc-next assets download --group separation --source hf-mirror
+```
+
+### `assets verify`
+
+用校验和检查已安装的资源。不给 id 和分组时检查所有已安装或已损坏的资源。
+
+```text
+rvc-next assets verify [OPTIONS] [IDS]...
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `IDS...` | 资源 id |
+
+| 选项 | 说明 |
+| --- | --- |
+| `--group <str>` | `inference`（HuBERT、RMVPE 和 FCPE）、`training`、`separation` 或 `all` |
+
+## 模型：`model`
+
+音色库。
+
+### `model list`
+
+列出某一类模型。
+
+| 选项 | 说明 | 默认值 |
+| --- | --- | --- |
+| `--json` | 打印 JSON | 关 |
+| `--all` | 包括已隐藏的旧版音色 | 关 |
+| `--type <str>` | `voice`、`index`（未分配的索引）、`base` 或 `separation` | `voice` |
+
+### `model info`
+
+显示一个音色：采样率、版本、音高引导、说话人、索引和默认预设。
+
+```text
+rvc-next model info [OPTIONS] VOICE
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `VOICE` | 音色 id、名称或 `.pth` 路径（必填） |
+
+| 选项 | 说明 |
+| --- | --- |
+| `--speakers` | 只列出说话人 |
+| `--json` | 打印 JSON |
+
+### `model import`
+
+导入模型。每个文件按内容识别，索引与音色的配对不依赖文件名。
+
+```text
+rvc-next model import [OPTIONS] PATHS...
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `PATHS...` | 音色（`.pth`）、索引、`.zip` 压缩包、底模（G/D）、分离模型（`.ckpt` + `.yaml`）、文件夹或一个 RVC 安装（必填） |
+
+| 选项 | 说明 |
+| --- | --- |
+| `--name <str>` | 只导入一个音色时为它命名 |
+| `--index <path>` | 附加到唯一一个音色的 `.index`，不管文件名是什么 |
+| `--pair <str>` | 按文件名指定配对：`VOICE.pth=FILE.index[:spkN]`；可重复 |
+| `--keep-unassigned` | 无法确定配对的索引放进未分配列表 |
+| `--extract` | 把训练生成器（G）提取为音色，而不是作为底模导入 |
+| `--json` | 打印 JSON |
+
+有索引无法确定配对、或分离检查点缺少配置时，命令打印文件表和索引表（含兼容的音色），然后以退出码 3 结束，不导入任何文件。给一个 RVC 安装的根目录时，复制其中 `assets/weights/*.pth` 和 `assets/indices`、`logs` 下的 `added_*.index`。
+
+```bash
+rvc-next model import voice.zip
+rvc-next model import model.pth --index ./whatever.index --name "我的音色"
+rvc-next model import a.pth b.pth x.index y.index --pair a.pth=x.index --pair b.pth=y.index
+rvc-next model import G_2333333.pth D_2333333.pth            # 作为底模
+rvc-next model import G_2333333.pth --extract --name "试验"   # 提取为音色
+```
+
+### `model catalog`
+
+列出可以下载的现成音色（RVC 官方示例音色）。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--json` | 打印 JSON |
+
+### `model download`
+
+把现成音色连同索引下载到音色库。
+
+```text
+rvc-next model download [OPTIONS] [IDS]...
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `IDS...` | `rvc-next model catalog` 中的音色 id |
+
+| 选项 | 说明 |
+| --- | --- |
+| `--all` | 下载所有还不在音色库中的目录音色 |
+
+必须给出 id 或 `--all`。
+
+### `model edit`
+
+重命名音色、修改描述或为说话人命名（保存在 `.pth` 旁边，不改动 `.pth`）。
+
+```text
+rvc-next model edit [OPTIONS] VOICE
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `VOICE` | 音色 id 或名称（必填） |
+
+| 选项 | 说明 |
+| --- | --- |
+| `--name <str>` | 新名称 |
+| `--description <str>` | 新描述 |
+| `--speaker-name <str>` | `ID=名称`；可重复 |
+
+```bash
+rvc-next model edit duet --speaker-name 0=Alice --speaker-name 1=Bob
+```
+
+### `model remove`
+
+移除一个音色：音色库中的音色移到回收站，旧版音色只是隐藏。
+
+```text
+rvc-next model remove [OPTIONS] VOICE
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `VOICE` | 音色 id 或名称（必填） |
+
+| 选项 | 说明 |
+| --- | --- |
+| `-y, --yes` | 不询问 |
+
+### `model merge`
+
+按权重融合两个音色，生成一个新的音色。
+
+```text
+rvc-next model merge [OPTIONS] A B
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `A` | 第一个音色（必填） |
+| `B` | 第二个音色（必填） |
+
+| 选项 | 说明 | 默认值 |
+| --- | --- | --- |
+| `--name <str>` | 新音色的名称（必填） | — |
+| `--alpha <float>` | 第一个音色的权重，`[0, 1]` | `0.5` |
+| `--info <str>` | 写入模型的文字 | 空 |
+
+### `model extract`
+
+从训练检查点提取小模型到音色库。
+
+```text
+rvc-next model extract [OPTIONS] CHECKPOINT
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `CHECKPOINT` | 一个 `G_*.pth` 检查点，或 `<实验>/<文件>`（必填） |
+
+| 选项 | 说明 | 默认值 |
+| --- | --- | --- |
+| `--name <str>` | 新音色的名称（必填） | — |
+| `--sr <str>` | 无法从实验读取时指定 `32k`、`40k` 或 `48k` | 从实验读取 |
+| `--version <str>` | `v1` 或 `v2` | 从实验读取 |
+| `--pitch / --no-pitch` | 音高引导 | 从实验读取 |
+| `--info <str>` | 写入模型的文字 | 空 |
+
+```bash
+rvc-next model extract alice/G_2333333.pth --name "Alice e100"
+```
+
+### `model index`
+
+检索索引。
+
+#### `model index attach`
+
+把一个索引文件附加到音色。
+
+```text
+rvc-next model index attach [OPTIONS] VOICE FILE
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `VOICE` | 音色 id 或名称（必填） |
+| `FILE` | `added_*.index` 文件（必填） |
+
+| 选项 | 说明 |
+| --- | --- |
+| `--speaker <int>` | 作为这个说话人自己的索引附加 |
+
+#### `model index assign`
+
+把一个未分配的索引附加到音色；索引必须与音色的版本相符。
+
+```text
+rvc-next model index assign [OPTIONS] INDEX_ID VOICE
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `INDEX_ID` | 一个未分配的索引（见 `rvc-next model list --type index`，必填） |
+| `VOICE` | 音色 id 或名称（必填） |
+
+| 选项 | 说明 |
+| --- | --- |
+| `--speaker <int>` | 作为这个说话人自己的索引附加 |
+
+#### `model index build`
+
+用实验已提取的特征为音色构建索引。
+
+```text
+rvc-next model index build [OPTIONS] VOICE
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `VOICE` | 音色 id 或名称（必填） |
+
+| 选项 | 说明 |
+| --- | --- |
+| `--experiment <str>` | 使用哪个实验的特征（必填） |
+
+## 预设：`preset`
+
+保存的音色参数。
+
+### `preset list`
+
+| 选项 | 说明 |
+| --- | --- |
+| `--voice <str>` | 只列出这个音色的预设和全局预设 |
+| `--json` | 打印 JSON |
+
+### `preset save`
+
+把音色参数保存为预设。从音色的默认预设开始（不指定音色时从设置 `convert.default_params` 开始），再应用给出的选项。
+
+```text
+rvc-next preset save [OPTIONS] NAME
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `NAME` | 预设名称（必填） |
+
+| 选项 | 说明 |
+| --- | --- |
+| `--voice <str>` | 预设所属的音色；省略则为全局预设 |
+| `--default` | 设为该音色的默认预设 |
+| `--speaker <int>` | 多说话人音色的说话人 id，`[0, 109]` |
+| `--pitch <float>` | 音高偏移（半音），`[-24, 24]` |
+| `--formant <float>` | 共振峰偏移（半音），`[-2, 2]` |
+| `--f0 <str>` | 音高算法：`pm`、`rmvpe` 或 `fcpe` |
+| `--index-rate <float>` | 索引强度，`[0, 1]` |
+| `--protect <float>` | 辅音保护，`[0, 0.5]`；0.5 为关闭 |
+| `--rms-mix <float>` | 响度匹配，`[0, 1]`；1 保持转换后的响度 |
+
+```bash
+rvc-next preset save "男转女" --voice "我的音色" --pitch 12 --default
+```
+
+### `preset remove`
+
+```text
+rvc-next preset remove [OPTIONS] NAME
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `NAME` | 预设 id 或名称（必填） |
+
+| 选项 | 说明 |
+| --- | --- |
+| `--voice <str>` | 预设所属的音色 |
+
+## 训练：`train`
+
+训练实验。
+
+### `train list`
+
+列出实验：采样率、版本、音高引导、单/多说话人、各阶段状态（`✓` 完成、`~` 已过期、`…` 运行中、`✗` 失败、`·` 未运行、`-` 已跳过）和最近活动时间。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--json` | 打印 JSON |
+
+### `train new`
+
+新建实验。未给出的项取自设置的 `training` 组。
+
+```text
+rvc-next train new [OPTIONS] NAME
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `NAME` | 实验名称（必填） |
+
+| 选项 | 说明 | 默认值 |
+| --- | --- | --- |
+| `--dataset <directory>` | 数据集文件夹（单说话人）；配合 `--multi-speaker` 时为 `名称_ID_重复` 文件夹的根目录 | — |
+| `--multi-speaker` | 从 `--dataset` 的 `名称_ID_重复` 子文件夹读取说话人 | 关 |
+| `--sr <str>` | `32k`、`40k` 或 `48k` | `training.sample_rate`（`40k`） |
+| `--version <str>` | `v1` 或 `v2` | `training.version`（`v2`） |
+| `--no-pitch` | 不使用音高引导训练 | 使用音高引导 |
+| `--f0 <str>` | `pm` 或 `rmvpe` | `training.f0_method`（`auto`：有 GPU 用 rmvpe，否则 pm） |
+| `--clean <str>` | 切片前先用这个分离预设处理数据集，例如 `vocals-clean` | — |
+| `--json` | 打印 JSON | 关 |
+
+### `train dataset`
+
+实验的数据集。
+
+#### `train dataset scan`
+
+报告片段数量、总时长、采样率，以及过短、过长、削波或静音的片段。
+
+```text
+rvc-next train dataset scan [OPTIONS] NAME
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `NAME` | 实验名称（必填） |
+
+| 选项 | 说明 |
+| --- | --- |
+| `--json` | 打印 JSON |
+
+#### `train dataset speakers`
+
+显示说话人表，或从文件夹填充。
+
+```text
+rvc-next train dataset speakers [OPTIONS] NAME
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `NAME` | 实验名称（必填） |
+
+| 选项 | 说明 |
+| --- | --- |
+| `--from-folders <directory>` | 从 `名称_ID_重复` 子文件夹填充说话人表 |
+| `--json` | 打印 JSON |
+
+### `train run`
+
+运行阶段：不指定时运行所有未完成（或输入已改变）的阶段，也可以只运行指定阶段。
+
+```text
+rvc-next train run [OPTIONS] NAME
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `NAME` | 实验名称（必填） |
+
+| 选项 | 说明 | 默认值 |
+| --- | --- | --- |
+| `--stage <str>` | `clean`、`slice`、`f0`、`features`、`fit`、`index` 或 `all`；可重复 | 全部需要运行的阶段 |
+| `--epochs <int>` | 总轮数，至少 1 | 实验中保存的值（新实验取 `training.epochs`，20） |
+| `--batch-size <int>` | 批大小，至少 1 | 实验中保存的值（自动：最小显卡的显存 GiB 数除以 2） |
+| `--save-every <int>` | 每 N 轮保存，至少 1 | 实验中保存的值（新实验取 `training.save_every`，5） |
+| `--gpus <str>` | `auto`、`cpu`，或 `0-1` 这样的 GPU 编号；保存到实验中 | 实验中保存的值（新实验取 `training.gpus`，`auto`） |
+| `--force / --no-force` | 即使输入没有变化也运行所选阶段 | `--no-force` |
+| `--base <str>` | 底模 id（见 `rvc-next model list --type base`）；保存到实验中 | 按采样率、版本和音高引导自动选择 |
+
+`--epochs`、`--batch-size`、`--save-every` 和 `--base` 会写入实验的训练设置。增加 `--epochs` 后，即使训练阶段已完成，不带 `--stage` 运行也会再次运行训练阶段。
+
+```bash
+rvc-next train run alice
+rvc-next train run alice --stage fit --epochs 300 --batch-size 6
+rvc-next train run alice --stage index --force
+```
+
+### `train status`
+
+显示阶段、检查点和最近一次的指标。
+
+```text
+rvc-next train status [OPTIONS] NAME
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `NAME` | 实验名称（必填） |
+
+| 选项 | 说明 |
+| --- | --- |
+| `--json` | 打印 JSON |
+
+### `train export`
+
+把训练好的模型及其索引导出到音色库。
+
+```text
+rvc-next train export [OPTIONS] NAME
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `NAME` | 实验名称（必填） |
+
+| 选项 | 说明 | 默认值 |
+| --- | --- | --- |
+| `--checkpoint <str>` | 小模型或 G 检查点的名称 | 最新的一个 |
+| `--epoch <int>` | 导出这一轮的小模型或检查点 | — |
+| `--voice-name <str>` | 音色库中的音色名称 | — |
+
+### `train import`
+
+把一个原版 RVC 实验文件夹复制进来；输出已存在的阶段算作已完成。
+
+```text
+rvc-next train import [OPTIONS] PATH
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `PATH` | 一个原版实验文件夹（`logs/<名称>`，必填） |
+
+| 选项 | 说明 |
+| --- | --- |
+| `--name <str>` | 新名称 |
+
+```bash
+rvc-next train import D:/RVC/logs/alice --name alice-old
+```
+
+## 实时变声：`live`
+
+使用服务器所在电脑的音频设备进行实时转换。
+
+### `live devices`
+
+列出服务器的音频设备：每个物理设备一行，以及它的各个驱动（host API）和 id，标出默认设备、虚拟设备和推荐的驱动。
+
+| 选项 | 说明 | 默认值 |
+| --- | --- | --- |
+| `--refresh` | 重新枚举设备 | `True`（始终重新枚举） |
+| `--json` | 打印 JSON | 关 |
+
+### `live check`
+
+检查已保存的设备：解析结果、格式、拓扑（单个双工流或分离的输入输出流）和估计延迟。检查不通过时退出码为 8。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--json` | 打印 JSON |
+
+### `live test-tone`
+
+在一个输出设备上播放一小段提示音。
+
+```text
+rvc-next live test-tone [OPTIONS] [DEVICE]
+```
+
+| 参数 | 说明 | 默认值 |
+| --- | --- | --- |
+| `DEVICE` | 输出设备 id、名称或 `default` | `default` |
+
+### `live run`
+
+用服务器的设备实时转换，直到按 <kbd>ctrl</kbd>+<kbd>c</kbd>，终端显示一行状态。
+
+| 选项 | 说明 | 默认值 |
+| --- | --- | --- |
+| `-v, --voice <str>` | 音色 id 或名称 | 上次使用的音色 |
+| `--input <str>` | 输入设备 id、名称或 `default` | 已保存的设备 |
+| `--output <str>` | 输出设备 id、名称或 `default` | 已保存的设备 |
+| `--monitor <str>` | 监听输出 id、名称、`default` 或 `none` | 已保存的设置 |
+| `--preset <str>` | 以这个预设为起点 | 同一音色时为上次的参数，否则为音色的默认预设 |
+| `--speaker <int>` | 多说话人音色的说话人 id，`[0, 109]` | 取自起点参数 |
+| `--pitch <float>` | 音高偏移（半音），`[-24, 24]` | 取自起点参数 |
+| `--formant <float>` | 共振峰偏移（半音），`[-2, 2]` | 取自起点参数 |
+| `--f0 <str>` | 音高算法：`pm`、`rmvpe` 或 `fcpe` | 取自起点参数 |
+| `--index-rate <float>` | 索引强度，`[0, 1]` | 取自起点参数 |
+| `--protect <float>` | 辅音保护，`[0, 0.5]`；0.5 为关闭 | 取自起点参数 |
+| `--rms-mix <float>` | 响度匹配，`[0, 1]`；1 保持转换后的响度 | 取自起点参数 |
+| `--block-ms <int>` | 块长（毫秒），`[20, 1500]` | 已保存的值（250） |
+| `--crossfade-ms <int>` | 交叉淡化（毫秒），`[10, 150]` | 已保存的值（50） |
+| `--context-ms <int>` | 额外上下文（毫秒），`[50, 5000]` | 已保存的值（2500） |
+| `--threshold-db <float>` | 输入门限（dB），`[-60, 0]`；-60 为关闭 | 已保存的值（-60） |
+| `--allow-fallback` | 已保存的输出设备不存在、将使用默认设备时仍然启动 | 关 |
+| `--seconds <float>` | 运行这么多秒后停止 | 直到 <kbd>ctrl</kbd>+<kbd>c</kbd> |
+
+设备名可以写完整名称或其中一部分，只要只匹配到一个设备；匹配到多个时请改用 `live devices` 中的 id。启动后，所用的设备、缓冲参数、音色和参数会保存为下次的默认值。
+
+```bash
+rvc-next live run -v "我的音色" --pitch 12 --block-ms 400
+rvc-next live run --input "USB Microphone" --output "CABLE Input" --monitor none
+```
+
+## 任务：`jobs`
+
+本机的任务，包括正在运行的服务器的任务。
+
+### `jobs list`
+
+按时间倒序列出任务。
+
+| 选项 | 说明 | 默认值 |
+| --- | --- | --- |
+| `--state <str>` | 一个状态（`queued`、`waiting`、`running`、`cancelling`、`cancelled`、`failed`、`completed`、`interrupted`），或 `active`、`finished` | 全部 |
+| `--limit <int>` | 最多列出多少个，`[1, 200]` | `30` |
+| `--json` | 打印 JSON | 关 |
+
+### `jobs show`
+
+显示一个任务，可选打印其日志。
+
+```text
+rvc-next jobs show [OPTIONS] JOB_ID
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `JOB_ID` | 任务 id（必填） |
+
+| 选项 | 说明 |
+| --- | --- |
+| `--log` | 打印任务日志 |
+| `--json` | 打印 JSON |
+
+```bash
+rvc-next jobs list --state failed
+rvc-next jobs show j18f3c2a9b1c4d5e6f --log   # 任务 id 来自 jobs list
+```

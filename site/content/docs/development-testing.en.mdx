@@ -1,0 +1,165 @@
+---
+title: "Tests and checks"
+description: "RVC Next's tests follow one premise: the default suite runs offline, on CPU only, without downloads, finishing in minutes on a machine with no GPU or sound card. This relies on three things: randomly initialized tiny models, fake PortAudio and separator backends, and services built in temporary directories. Tests requiring real models or the original repository are marked and deselected by default."
+icon: FlaskConical
+---
+
+## One command: `dev.py check`
+
+```bash
+python scripts/dev.py check
+```
+
+It runs these five steps in order, stopping at the first failure. CI runs the same checks (see “CI” below):
+
+| Step | Contents |
+| --- | --- |
+| `lint` | `ruff check` and `ruff format --check` (`rvc_next`, `tests`, `scripts`) |
+| `typecheck-py` | `ty check`, targeting 3.10, with `error-on-warning`; also checks `tests/` and `scripts/` |
+| `test-py` | `pytest`, excluding `live`, `golden`, `assets` markers |
+| `test-web` | `vitest run` and `vue-tsc --noEmit` |
+| `typegen-check` | Regenerate `schema.d.ts` and `paramSpecs.ts`, diff against committed versions |
+
+Run one part separately:
+
+```bash
+python -m pytest tests/engine/test_stream_engine.py -q
+python -m pytest -k pairing
+python scripts/dev.py test-web
+```
+
+## pytest markers and environment variables
+
+`[tool.pytest.ini_options]` in `pyproject.toml` sets `testpaths = ["tests"]` and excludes three markers by default with `addopts = "-m 'not live and not golden and not assets'"`:
+
+| Marker | Meaning | Requirements |
+| --- | --- | --- |
+| `golden` | Parity with the original repository (`tests/golden/`) | Original checkout, real assets, voices and an audio clip, plus original-side dependencies (see below) |
+| `assets` | Tests requiring real HuBERT / RMVPE | `RVC_NEXT_TEST_ASSETS`; the `real_assets_dir` fixture in `conftest.py` reads it and skips if the directory lacks `hubert_base/config.json` |
+| `live` | Tests requiring something outside the repository (e.g. real devices) | Depends on the test |
+
+Currently, only `tests/golden/` uses `golden`; `assets` and `live` are declared and excluded by default, and `real_assets_dir` is ready for tests needing real models. To run excluded tests, select a marker explicitly, overriding `-m` in `addopts`:
+
+```bash
+RVC_NEXT_TEST_ASSETS=~/scratch/assets \
+RVC_NEXT_GOLDEN_ORIGINAL=~/code_workspace/Retrieval-based-Voice-Conversion-WebUI \
+RVC_NEXT_GOLDEN_VOICES=~/voices/a.pth:~/voices/b.pth \
+RVC_NEXT_GOLDEN_CLIP=~/clips/speech.wav \
+python -m pytest -m golden -v
+```
+
+| Environment variable | Purpose |
+| --- | --- |
+| `RVC_NEXT_TEST_ASSETS` | Real asset directory (original layout: `hubert_base/`, `rmvpe/`, `fcpe/`, etc.) |
+| `RVC_NEXT_GOLDEN_ORIGINAL` | Original RVC checkout, default `~/code_workspace/Retrieval-based-Voice-Conversion-WebUI`, expected at `81eed5e` |
+| `RVC_NEXT_GOLDEN_VOICES` | `.pth` list separated by `os.pathsep` |
+| `RVC_NEXT_GOLDEN_CLIP` | An audio file |
+
+Golden tests skip with a reason when any input is missing. Original-side code has its own imports: the original's FCPE needs `torchfcpe` in offline tests, and its live code needs `torchaudio` in streaming tests; both use `pytest.importorskip` to skip when missing. RVC Next itself needs neither package; if installed, they must match the torch version (see [Development environment](/docs/development-setup)). Offline parity can also run directly through `scripts/golden.py`, without pytest:
+
+```bash
+python scripts/golden.py --original <RVC checkout> --assets <assets directory> \
+    --voice a.pth [--voice b.pth] --clip x.wav [--clip y.wav] [--f0 pm --f0 rmvpe --f0 fcpe]
+```
+
+It runs the original `infer.vc.pipeline.Pipeline` and RVC Next on CPU, fp32, with the same seed and 16 kHz input, printing one line per case; any case exceeding the tolerance (RMS per-sample difference on a -1..1 scale, `1e-4`) causes exit code 1. See [Parity with the original](/docs/development-parity) for case design and which results are bit-identical.
+
+## Tiny models
+
+[`tests/tiny.py`](https://github.com/licyk/rvc-next/blob/main/tests/tiny.py) generates randomly initialized models with **the same structure as real models**, allowing every code path to run on CPU in seconds:
+
+| Function | Produces | Design rationale |
+| --- | --- | --- |
+| `tiny_config(sample_rate, speakers)` | The synthesizer's 18 positional configuration parameters | Keeps **the real upsampling factors and kernel sizes** for each sample rate (so hop length, padding, and output length match real voices), reducing only channel widths |
+| `make_tiny_voice(path, version, f0, sample_rate, speakers, speaker_info, seed)` | A small-model `.pth` (fp16 weights, `enc_q` removed), written with `write_small_model` | Uses exactly the same reading, identification, and loading paths as real voices |
+| `make_tiny_g_checkpoint(...)` | A training G checkpoint (`model`, `iteration`, `optimizer`, `learning_rate`) | Tests extraction, content-based G checkpoint identification, and base model import |
+| `make_tiny_hubert(assets)` | `assets/hubert_base/`: `hidden_size=768`, 9 layers, `classifier_proj_size=256`, narrow internals; `do_normalize: false` in `preprocessor_config.json` | RVC-compatible output shapes: v1 takes layer 9 through `final_proj` to 256 dimensions, v2 takes the last layer's 768 dimensions |
+| `make_tiny_fcpe(path)` | A torchfcpe-format FCPE checkpoint (`config_dict`, `model`, output weights using old `weight_g` / `weight_v` keys) | Real mel frontend with a narrow two-layer network; official weight key names also exercise loader conversion logic |
+| `tiny_assets(root)` | Asset directory containing tiny HuBERT and tiny FCPE | The default suite runs offline conversion and streaming with `pm` and `fcpe`; RMVPE has no tiny version and only runs in tests with real assets |
+| `make_tiny_index(path, dim, vectors, add)` | faiss `IVF4,Flat` index; `add=False` gives a trained but empty index | Simulates both `added_*` and `trained_*` indexes for content identification tests (width 256 / 768, `ntotal == 0`) |
+| `tone(seconds, sr, freq, amp)` | Harmonic tone with slow vibrato and a little noise | Gives F0 extractors a voiced signal to track |
+
+<Callout type="info" title="Tiny assets and asset checks">
+
+Tiny HuBERT's size differs from `catalog.json`, so `AssetService.require` considers it not installed. Tests performing conversion use the `no_asset_checks` fixture to disable this check; `test_missing_asset_exit_code` specifically relies on it remaining enabled to verify exit code 7 for missing assets.
+
+</Callout>
+## Fixtures
+
+[`tests/conftest.py`](https://github.com/licyk/rvc-next/blob/main/tests/conftest.py) provides:
+
+| Fixture | Scope | Contents |
+| --- | --- | --- |
+| `tiny_assets_dir` | session | Asset directory generated once with `tiny_assets()` |
+| `real_assets_dir` | session | `RVC_NEXT_TEST_ASSETS`, skipping when unavailable |
+| `tiny_runtime` | function | `Runtime(tiny_assets_dir, device="cpu", precision="fp32")` |
+| `make_services` | function | Factory: `build_services(environ={...})` in `tmp_path / "data"`, using tiny assets and CPU; accepts `start_background=True` and extra environment variables; closes all services after the test |
+| `services` | function | Result of `make_services()` |
+| `no_asset_checks` | function | Replaces `AssetService.require` with a no-op |
+| `tiny_voice_file` | function | `tmp_path/src/tiny-voice.pth` |
+| `wav_file` | function | A 1.5-second, 22050 Hz `tone()`, written to `tmp_path/src/speech.wav` |
+
+Services are built with `environ=`, never reading real `os.environ`, so developers' local `RVC_NEXT_*` settings do not leak into tests. Networking is replaced through `transport=` (`httpx.MockTransport`); download tests locally simulate resume, verification failures, and repository fallback. CLI tests use `monkeypatch.setenv` for `RVC_NEXT_DATA_DIR`, `RVC_NEXT_PATHS__ASSETS_DIR`, and `RVC_NEXT_COMPUTE__DEVICE=cpu`, because commands build their own services internally.
+
+## Test layout
+
+```
+tests/
+  test_architecture.py   Layer rules; importing core / CLI does not load torch (or FastAPI)
+  tiny.py, conftest.py
+  engine/                Engine units: no services
+  core/                  Services: temporary data directory, tiny models
+  api/                   FastAPI TestClient
+  cli/                   typer CliRunner
+  workers/               Workers run as subprocesses
+  golden/                Comparisons with the original (golden marker)
+  fixtures/devices/      Recorded device enumerations: windows.json, macos.json, linux_pipewire.json
+```
+
+| Directory | Coverage |
+| --- | --- |
+| `engine/` | Checkpoint read/write round trips, `emb_g` truncation during merging, G extraction; content-based index and checkpoint identification; F0 postprocessing (interpolation, pitch shift, coarse quantization); offline conversion shapes, FCPE, formant, chunking, cancellation; streaming block processing, gates, denoising, hot updates, voice switches, speakers, passthrough, latency estimates; rings, drift correction, SOLA, topology selection, device loss (fake backend); device grouping and selection resolution (recorded enumerations); training stages (keeping every slice's tail, F0, features, file lists, fingerprints), two-epoch tiny fitting and resume, gloo DDP on CPU; multi-speaker; separation presets; ported resampler and FCPE; GPU memory release and OOM detection; encoding |
+| `core/` | Settings layering and validation; port selection; job scheduling, GPU capacity and Live lease, cancellation, subprocess events and process killing, `interrupted` after restart; asset download resume, verification, repository selection, speed and ETA, deletion; voice library import, legacy installations, rebuilding after database loss; import sessions and pairing rules; conversion outputs and provenance, previews, preflight checks; full training runs, export, stale markers; Live service (fake backend); GPU memory release and unloading after OOM |
+| `api/` | Error shapes, Host / Origin / token, raw uploads, Range, peaks, browse roots, submitting conversion through the API, events listed in OpenAPI |
+| `cli/` | Command tree snapshot, `--debug` at each level, `config`, `--json` parity with the API, conversion by `.pth` path, missing-asset exit codes |
+| `workers/` | Device worker (enumeration, format checks, test tones, and real local PortAudio enumeration); Live worker (start, hot updates, voice switches, reconnect after device loss, nonfatal errors, meters / passthrough / test tones, end-to-end process, idle release and OOM unloading); separation worker (chain events with a fake separator, no overwriting existing files, individual input failure, missing weights, fp32 retry requested after DirectML fp16 failure, cancellation by process kill); training worker (slice → F0 → features → index) |
+
+### Test doubles
+
+- **Fake PortAudio** (`engine/audio_io/fake.py`): each device has its own clock (nominal rate multiplied by `1 + ppm·1e-6`); streams call back in blocks on threads; input comes from signal functions and output is recorded per device; `lose(index)` stops a device sending data (like unplugging USB), and `refuse` makes opening fail with a reason. Drift correction, underrun / overrun counts, device loss, and reconnection are tested on it. Live and device worker requests use it with `"backend": "fake"`.
+- **Fake separator**: when separation worker requests contain `test_fake`, `engine/separate/runner.py` uses `FakeSeparator` instead of pymss; it can pretend to be DirectML (`pretend_dml`) to test fp16 → fp32 retries.
+- **Recorded device enumerations** (`tests/fixtures/devices/`): `query_devices` / `query_hostapis` output from Windows (MME, DirectSound, WASAPI, WDM-KS, virtual sound cards), macOS, and Linux PipeWire machines, used to test grouping, sorting, virtual device flags, and every resolution outcome.
+
+## Web UI tests
+
+`rvc_next/webui` uses vitest (`happy-dom`) and `@vue/test-utils`, run with `bun run test`; `bun run typecheck` runs `vue-tsc`. `src/test/setup.ts` supplies the `attachInternals` missing from happy-dom (required by `@material/web`); `src/test/motion-zero.css` sets every motion duration to 0 for fast, deterministic motion tests.
+
+Alongside component and store unit tests, **rule tests** turn conventions into failing tests: `tokens.test.ts` (no hexadecimal colors outside `src/theme/`), `imports.test.ts` (modules import through `@/` aliases), `layout.test.ts` (text in filename rows gets `min-width: 0`, pages use one column of sections, and other layout rules), `i18n/i18n.test.ts` (matching `zh-CN` and `en` keys and placeholders, fixed terminology), `ui/motion/motion.test.ts` (works with full and reduced motion, view transitions), etc. See [Web UI](/docs/development-webui) for individual descriptions.
+
+## CI
+
+[`.github/workflows/ci.yml`](https://github.com/licyk/rvc-next/blob/main/.github/workflows/ci.yml) runs on pushes to `main`, pull requests, manual dispatch, and calls from other workflows (`release.yml` reuses it); new runs on the same branch cancel old ones:
+
+| Job | Environment | Contents |
+| --- | --- | --- |
+| Lint and format | Ubuntu, Python 3.11 | Install only `ruff==0.16.9`; `ruff check` and `ruff format --check`. Also runs on pull requests |
+| ty | Ubuntu / Windows / macOS × Python 3.10–3.13 | CPU torch plus `pip install -e . --group dev`, `ty check --python-version <version> --python-platform <platform> --error-on-warning`. Only resolves imports, so CPU torch suffices |
+| Tests | Ubuntu, Python 3.10 and 3.12 | Install `libportaudio2`, CPU torch, and development dependencies; `pytest -q` |
+| Web UI | Ubuntu, latest bun | `bun install --frozen-lockfile`, `bun run test`, `typecheck`, `build`, then `python scripts/dev.py typegen-check` |
+| Documentation site | Ubuntu, latest bun | In `site/`, `bun install --frozen-lockfile`, `bun run check`, `test`, `build` |
+
+CI does not install torchaudio or torchfcpe, so comparisons against them skip; golden tests are already deselected by default. See [Development environment](/docs/development-setup) for release and documentation workflows.
+
+## Not yet verified on real hardware
+
+The build machine has neither GPU nor audio hardware. The following parts are implemented and tested with doubles where possible, but **have never run in a real environment**; take extra care with changes and issue reports concerning them:
+
+- CUDA: fp16, CUDA Graphs, DDP, GPU memory usage reporting;
+- DirectML, MPS;
+- Real PortAudio streams, ASIO, WASAPI exclusive mode;
+- Detecting silence caused by denied macOS microphone permissions (**not implemented**);
+- Separation chains with real models;
+- Live, Train, and Separate screens under real tasks (Convert and Models have been exercised in headless Chromium);
+- VST adapter, browser audio: not yet implemented.
+
+For parity, golden tests run only on CPU fp32; GPU and fp16 output cannot be bit-identical to the original in any case, and have no corresponding tests.

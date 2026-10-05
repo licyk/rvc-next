@@ -1,0 +1,185 @@
+---
+title: "Overview"
+icon: Terminal
+---
+
+The `rvc-next` command line handles the same operations as the Web UI: conversion, vocal separation, training, live voice conversion, model and asset management, presets, job queries, and settings. Both call the same core services (one core method per operation), so the command line offers the same capabilities as the interface, and its `--json` output is identical to the JSON returned by the API.
+
+This page covers shared command-line conventions and common workflows. For every option of each command, see [Command reference](/docs/cli-commands); for settings and environment variables, see [Configuration and environment variables](/docs/cli-config).
+
+## Commands at a glance
+
+```text
+rvc-next
+├── webui                 Start the server and open the Web UI
+├── version | env | doctor
+├── convert               Convert audio files or folders with a voice
+├── separate              Separate vocals, accompaniment, and reverb
+├── config   show | get | set | path
+├── assets   list | download | verify
+├── model    list | info | import | catalog | download | edit | remove | merge | extract
+│   └── index  attach | assign | build
+├── preset   list | save | remove
+├── train    list | new | run | status | export | import
+│   └── dataset  scan | speakers
+├── live     devices | check | test-tone | run
+└── jobs     list | show
+```
+
+Add `--help` at any level to see help. Entering just a group name (such as `rvc-next model`) also shows that group's help.
+
+## Differences from the Web UI
+
+- **Jobs run in the foreground.** `convert`, `separate`, `train run`, `assets download`, `model merge`, and similar commands create a job and run it in the current terminal until it finishes, with a progress bar on stderr. Press <kbd>ctrl</kbd>+<kbd>c</kbd> to cancel the job; the exit code is 130.
+- **No server needs to be running.** Each command opens the data directory (settings, database, and models) itself and closes it when finished. Command-line jobs are also recorded in the database, so `rvc-next jobs list` shows all jobs on this machine, including those from a running server. Likewise, the Web UI's **Jobs** panel shows jobs run from the command line.
+- **The command line is trusted.** The Web UI can only open server files inside **Folders the browser may open** (`paths.browse_roots`), while the command line can use any path (see [Remote access and security](/docs/advanced-remote)).
+- **A voice can be a direct `.pth` path.** `convert --voice` accepts a voice ID, name, or `.pth` file path. When using a path, you can also specify an index with `--index`; these temporary voices do not appear in the voice library list.
+
+<Callout type="idea" title="Changing settings while the server is running">
+
+`rvc-next config set` writes directly to `settings.toml`. A running server picks up the change within about 1 second, and open Web UI sessions refresh accordingly. Subsequent saves from the Web UI merge with the file's current contents without overwriting command-line changes. A few settings (such as the port and listening address) still require a server restart.
+
+</Callout>
+## Output format and `--json`
+
+List and query commands print tables by default. Add `--json` to print JSON with the same structure as the corresponding API response, suitable for scripts:
+
+```bash
+rvc-next model list --json | jq -r '.[].name'
+rvc-next convert song.wav -v "My voice" --json > job.json   # Print the completed job
+```
+
+Progress bars appear only when stderr is a terminal and are disabled in `--json` mode, so redirecting stdout never mixes in progress information.
+
+## Exit codes
+
+When a command fails, the log prints an error message and the exit code indicates the error category (defined in `rvc_next/core/errors.py`):
+
+| Exit code | Meaning | Typical cases |
+| --- | --- | --- |
+| 0 | Success | |
+| 1 | General error | Unclassified internal error; answering "no" to `model remove` |
+| 2 | Not found (`not_found`) | Voice, job, experiment, or file does not exist. Note: Click also exits with 2 for invalid command-line arguments (unknown options or out-of-range values) |
+| 3 | Conflict or busy (`conflict`, `busy`) | Name already exists; a stage of the same experiment is running; `webui` cannot find an available port; `model import` has indexes whose pairing is uncertain |
+| 4 | Invalid input (`invalid_input`, `invalid_path`, `invalid_model`) | Parameter out of range, path not allowed, `.pth` is not an RVC model; `webui` binds to a non-local address without an access token |
+| 7 | Missing asset (`asset_missing`) | HuBERT, RMVPE, FCPE, or a base model is not installed; also suggests `rvc-next assets download <id>` |
+| 8 | Audio device unavailable (`device_unavailable`) | `live check` fails, or `live run` stops because of a device error |
+| 9 | Compute device unavailable (`compute_unavailable`) | The selected GPU is unavailable or out of memory |
+| 130 | Cancelled | Interrupted with <kbd>ctrl</kbd>+<kbd>c</kbd>, or the job was cancelled |
+
+Output for a missing asset looks like this:
+
+```text
+RMVPE is not installed (...)
+Install with: rvc-next assets download rmvpe
+```
+
+## Debug logs
+
+Every command level accepts `--debug` to enable debug logs:
+
+```bash
+rvc-next --debug convert song.wav -v "My voice"
+rvc-next convert song.wav -v "My voice" --debug   # Also works after the subcommand
+```
+
+You can also set the log level with the `RVC_NEXT_LOG_LEVEL` environment variable (`DEBUG`, `INFO`, `WARNING`, `ERROR`; default: `INFO`). Full job logs are saved in `jobs/<job id>.log` under the data directory. View them with `rvc-next jobs show <job id> --log`.
+
+## Shell completion
+
+The root command provides Typer's completion options:
+
+```bash
+rvc-next --install-completion   # Install completion for the current shell
+rvc-next --show-completion      # Print the completion script for manual installation or editing
+```
+
+Reopen the terminal after installation to complete commands, subcommands, and options.
+
+## Common workflows
+
+### Initial preparation
+
+```bash
+rvc-next doctor                    # Check torch, CUDA, audio devices, and assets
+rvc-next assets download           # No arguments: download HuBERT and all pitch models (RMVPE, FCPE)
+rvc-next model catalog             # List downloadable demo voices
+rvc-next model download --all      # Download all demo voices (including indexes)
+```
+
+For networks in mainland China, you can switch the endpoint when downloading. The choice is saved in settings:
+
+```bash
+rvc-next assets download --source hf-mirror
+```
+
+### Convert a folder
+
+```bash
+rvc-next convert ./songs --recursive -v "My voice" \
+    --pitch 12 --f0 rmvpe --index-rate 0.6 \
+    --format flac -o ./converted
+```
+
+- Parameters start from the voice's default preset, with command-line options overriding the corresponding values. `--preset` uses another preset as the starting point.
+- Without `-o`, results go to `outputs/<date>/<job id>/` under the data directory. File names are `<original name>.<voice>.<format>`; existing files are never overwritten (overwriting requires both `-o` and `--overwrite`).
+- For a quick preview, add `--preview 15` to convert only the first 15 seconds.
+
+Convert the vocals of a whole song and add the accompaniment back:
+
+```bash
+rvc-next convert song.mp3 -v "My voice" --separate vocals --remix --remix-gain -2
+```
+
+### Vocal separation
+
+```bash
+rvc-next separate --list                       # List presets
+rvc-next separate track.flac -p vocals-clean   # Vocals + dereverb
+rvc-next separate ./album -p karaoke -o ./stems --format wav
+```
+
+Without `-p`, the default separation preset from settings is used (`separation.default_preset`, default: `vocals`). Separation models must be downloaded before first use, for example with `rvc-next assets download --group separation`.
+
+### Train a voice from scratch
+
+```bash
+rvc-next assets download pretrained-v2-40k          # Base models for the sample rate and version
+rvc-next train new alice --dataset ~/datasets/alice --sr 40k --version v2
+rvc-next train dataset scan alice                   # Check clip count, duration, and problem clips
+rvc-next train run alice --epochs 200 --save-every 10
+rvc-next train status alice                         # Stages, checkpoints, and recent losses
+rvc-next train export alice --voice-name "Alice"    # Export to the voice library (including indexes)
+```
+
+- Without `--stage`, `train run` runs all unfinished stages or stages whose inputs have changed (clean, slice, pitch, features, fit, index). Use `--stage fit --stage index` to run only the specified stages, and `--force` to force a rerun.
+- Multi-speaker datasets: `train new --dataset <root directory> --multi-speaker`, with subfolders named `Name_ID_Repeat` under the root directory.
+- If the dataset needs accompaniment and reverb removed first, use `--clean vocals-clean` to separate before slicing.
+
+### Import models
+
+```bash
+rvc-next model import voice.pth voice.index --name "My voice"
+rvc-next model import ./downloads/voices.zip
+rvc-next model import a.pth b.pth x.index y.index \
+    --pair a.pth=x.index --pair b.pth=y.index   # Two voices of the same version: pair by file name
+rvc-next model import D:/RVC                 # Copy voices and indexes from an original RVC installation into the voice library
+```
+
+Files are identified by content (not extension or file name), and indexes are paired with voices by version and name. If pairing is uncertain, the command prints the import plan and exits with code 3. Specify pairs with `--pair voice.pth=index.index` (add `:spkN` for multiple speakers), or use `--keep-unassigned` to put indexes in the unassigned list and assign them later with `rvc-next model index assign`. Training checkpoints (G) are imported as base models by default; add `--extract` to extract a voice instead.
+
+### Live voice conversion
+
+```bash
+rvc-next live devices                     # List audio devices and IDs on the server
+rvc-next live test-tone "Speakers"        # Play a test tone on the output device
+rvc-next live run -v "My voice" --input default --output "Speakers" --block-ms 300
+```
+
+`live run` runs until <kbd>ctrl</kbd>+<kbd>c</kbd> (or for the duration set by `--seconds`). The terminal displays one status line with latency, load, input/output levels, and underrun/overrun counts.
+
+## Next steps
+
+- [Command reference](/docs/cli-commands): parameters and options for all commands.
+- [Configuration and environment variables](/docs/cli-config): settings, environment variables, and data directory layout.
+- [FAQ](/docs/advanced-faq)

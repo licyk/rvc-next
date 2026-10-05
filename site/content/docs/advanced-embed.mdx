@@ -1,0 +1,133 @@
+---
+title: "嵌入到其他程序"
+description: "在你自己的 Python 程序（启动器、整合包、其他 WebUI）里启动 RVC Next 的服务端和网页界面：数据目录与配置目录分开、固定设置、路径前缀，以及挂载到已有的 FastAPI 应用。"
+icon: Puzzle
+---
+
+RVC Next 可以作为一个库，在另一个 Python 程序里启动。启动后的服务端与 `rvc-next webui` 完全相同：同样的 API、同样的网页界面、同样的任务与实时变声。宿主程序可以决定数据放在哪里、设置文件放在哪里、哪些设置不允许用户修改，以及界面挂在哪个路径下。
+
+<Callout type="warn" title="同一个环境">
+  宿主程序必须与 RVC Next 运行在同一个 Python 环境里，这个环境要满足 RVC Next 的依赖（见 [安装](/docs/installation)）。不要把它装进依赖冲突的共享环境。
+</Callout>
+
+## 最小示例
+
+```python
+from rvc_next import RvcNextServer
+
+server = RvcNextServer(data_dir="./rvc-next-data", port=0)
+url = server.start()   # 开始监听后立即返回，例如 http://127.0.0.1:54123
+print(url)
+...
+server.stop()
+```
+
+`start()` 在后台线程里运行服务端，返回网页界面的地址；`run()` 则在前台运行，直到 `Ctrl+C`。对象也可以当作上下文管理器使用：
+
+```python
+with RvcNextServer(data_dir="./rvc-next-data", port=0) as server:
+    print(server.url)
+    ...  # 离开 with 块时自动 stop()
+```
+
+`stop()` 可以重复调用，会关闭服务端、实时变声的子进程和数据库，并释放端口。`import rvc_next` 不会加载 torch 或 FastAPI，只有用到 `RvcNextServer` 时才加载服务端。
+
+## 数据目录与配置目录
+
+| 参数 | 存放什么 | 默认值 |
+| --- | --- | --- |
+| `data_dir` | 数据库、模型、实验、结果、上传文件、缓存，以及 `server.json` | `RVC_NEXT_DATA_DIR` 或系统默认位置 |
+| `config_dir` | 设置文件 `settings.toml` | 与 `data_dir` 相同 |
+| `settings_path` | 直接指定设置文件的完整路径（文件名可以自定），优先于 `config_dir` | 无 |
+
+宿主程序通常有自己的配置文件夹，可以把 RVC Next 的设置放进去，而数据仍放在数据目录：
+
+```python
+server = RvcNextServer(
+    data_dir="D:/MyLauncher/data/rvc-next",
+    config_dir="D:/MyLauncher/config/rvc-next",   # 设置写到 D:/MyLauncher/config/rvc-next/settings.toml
+)
+```
+
+网页界面 **设置 › 关于** 会显示当前使用的数据目录和设置文件。命令行同样支持：`rvc-next webui --config-dir <folder>`，或设置环境变量 `RVC_NEXT_CONFIG_DIR`（让 `rvc-next config` 等命令读写同一份设置时，用环境变量最方便）。
+
+## 固定设置
+
+`settings` 参数接收与 `settings.toml` 相同结构的字典。这些值叠加在设置文件和环境变量之上，**不会写回文件**，也不能通过网页界面或 API 修改，适合宿主程序统一管理的项目：
+
+```python
+server = RvcNextServer(
+    data_dir="./rvc-next-data",
+    settings={
+        "paths": {"assets_dir": "/srv/RVC/assets"},   # 复用原版 RVC 的 assets
+        "compute": {"device": "cuda:0"},
+    },
+)
+```
+
+被固定的文件夹在 **设置 › 存储** 中标注 **由嵌入 rvc-next 的应用设置**。所有设置项见 [配置与环境变量](/docs/cli-config)。
+
+## 地址、端口与访问令牌
+
+| 参数 | 说明 |
+| --- | --- |
+| `host` | 绑定地址，默认取设置 `server.host`（`127.0.0.1`） |
+| `port` | `0` 由系统任选空闲端口；一个数字表示从这个端口开始尝试（被占用时往后找，最多 20 个）；`None` 使用设置 `server.port` |
+| `strict_port` | 为 `True` 时端口被占用就直接失败 |
+| `access_token` | 访问令牌；绑定到非本机地址时必须提供，否则 `start()` 抛出异常 |
+| `open_browser` | 启动后是否打开浏览器，默认 `False` |
+| `log_level` | uvicorn 的日志级别，默认 `"warning"` |
+
+`host`、`access_token` 和 `open_browser` 同样作为固定设置生效。远程访问的注意事项见 [远程访问与安全](/docs/advanced-remote)。
+
+## 路径前缀
+
+`api_prefix` 把 API、socket 和网页界面整体移到一个路径下，避免与宿主程序自己的路由冲突：
+
+```python
+server = RvcNextServer(data_dir="./rvc-next-data", port=0, api_prefix="/voice")
+server.start()   # http://127.0.0.1:54123/voice
+```
+
+网页界面不需要重新构建：它从自身脚本的地址推算出基础路径。命令行同样支持 `rvc-next webui --api-prefix /voice`。
+
+## 挂载到已有的 FastAPI 应用
+
+如果宿主程序本身就是 FastAPI（或其他 ASGI）应用，也可以不另开端口，直接挂载：
+
+```python
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+from rvc_next.api.app import create_app
+from rvc_next.core.context import build_services
+
+services = build_services(data_dir=..., config_dir=..., start_background=True)
+child = create_app(services, bound_host="127.0.0.1", api_prefix="/voice")
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    async with child.router.lifespan_context(child):
+        yield
+    services.close()
+
+
+app = FastAPI(lifespan=lifespan)
+app.mount("/", child)   # 页面位于 /voice/
+```
+
+宿主程序要在自己的事件循环里进入子应用的 `lifespan`（它启动 socket 事件转发），并在退出时调用 `services.close()`。`start_background=True` 启动任务调度和空闲卸载；不传时排队的任务不会运行。
+
+## 直接调用服务
+
+`server.services` 是服务端使用的同一组服务对象，宿主程序可以不经 HTTP 直接调用，例如列出音色、提交转换任务或修改设置：
+
+```python
+services = server.services
+for voice in services.models.list_voices():
+    print(voice.name)
+```
+
+这些方法与 API 一一对应，返回的模型与 API 的 JSON 结构相同，详见 [核心服务](/docs/development-core)。

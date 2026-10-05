@@ -1,0 +1,266 @@
+---
+title: "Configuration and environment variables"
+description: "rvc-next settings are saved in settings.toml in the data directory. The Web UI's Settings page, rvc-next config commands, and environment variables all control the same settings. This page lists all settings, environment variables, and the data directory layout."
+icon: FileCog
+---
+
+## Settings sources and precedence
+
+Effective settings are merged from four layers, with later layers overriding earlier ones:
+
+1. Built-in defaults;
+2. `settings.toml` (in the data directory by default; `RVC_NEXT_CONFIG_DIR`, `webui --config-dir` or a host program can put it in another folder);
+3. `RVC_NEXT_<GROUP>__<FIELD>` environment variables;
+4. Overrides supplied by a host program (only when another program uses rvc-next as a library; see [Embedding in another program](/docs/advanced-embed)).
+
+Environment variables and overrides apply only in memory and **are not written back** to `settings.toml`. Folder settings overridden by environment variables are marked **Set by an environment variable** in the Web UI, and those pinned by a host program **Set by the application rvc-next runs in**. When `rvc-next config set` changes an overridden setting, it reports "An environment variable overrides this setting.".
+
+### Environment variables
+
+`rvc-next env` lists the environment variables rvc-next reads, along with currently set `RVC_NEXT_*` variables:
+
+| Variable | Meaning |
+| --- | --- |
+| `RVC_NEXT_DATA_DIR` | Data directory containing `settings.toml`, the database, models, experiments, and results |
+| `RVC_NEXT_CONFIG_DIR` | Folder for `settings.toml`, when it should not sit in the data directory |
+| `RVC_NEXT_LOG_LEVEL` | Log level: `DEBUG`, `INFO`, `WARNING`, or `ERROR` (default: `INFO`) |
+| `RVC_NEXT_<GROUP>__<FIELD>` | Override a setting, e.g. `RVC_NEXT_SERVER__PORT=8000` or `RVC_NEXT_COMPUTE__DEVICE=cpu` |
+
+The engine also reads `RVC_NEXT_CUDA_GRAPH_MAX_CACHE`: the maximum number of CUDA Graphs cached per call site (default: 8). Usually there is no need to change it.
+
+Rules for overriding settings:
+
+- Remove the `RVC_NEXT_` prefix and convert to lowercase. `__` (two underscores) denotes the next level: for example, `RVC_NEXT_COMPUTE__GPU_JOBS` maps to `compute.gpu_jobs`, and `RVC_NEXT_LIVE__STREAM__BLOCK_MS` maps to `live.stream.block_ms`.
+- Values are parsed as JSON when possible (numbers, `true`/`false`, lists, objects), otherwise as strings. `null` or `none` means an empty value.
+
+<Tabs items={["Linux / macOS", "Windows (PowerShell)", "Windows (cmd)"]}>
+<Tab value="Linux / macOS">
+
+```bash
+export RVC_NEXT_DATA_DIR=/data/rvc-next
+export RVC_NEXT_COMPUTE__DEVICE=cuda:1
+RVC_NEXT_SERVER__PORT=8000 rvc-next webui
+```
+
+</Tab>
+<Tab value="Windows (PowerShell)">
+
+```powershell
+$env:RVC_NEXT_DATA_DIR = "D:\rvc-next-data"
+$env:RVC_NEXT_COMPUTE__DEVICE = "cuda:1"
+rvc-next webui
+```
+
+</Tab>
+<Tab value="Windows (cmd)">
+
+```bat
+set RVC_NEXT_DATA_DIR=D:\rvc-next-data
+set RVC_NEXT_COMPUTE__DEVICE=cuda:1
+rvc-next webui
+```
+
+</Tab>
+</Tabs>
+## View and change settings from the command line
+
+```bash
+rvc-next config path                        # Path to settings.toml
+rvc-next config show                        # All effective settings (JSON)
+rvc-next config get compute.device
+rvc-next config set compute.device cpu
+rvc-next config set compute.gpu_jobs 2
+rvc-next config set paths.browse_roots '["D:/music", "E:/datasets"]'
+rvc-next config set server.access_token "a long random string"
+rvc-next config set server.access_token null # Clear the token
+```
+
+- Keys use dot notation and values are parsed as JSON. All settings are validated before writing; an out-of-range value or incorrect type causes an error (exit code 4), leaving the file unchanged.
+- `config show` does not display the access token, only whether `access_token_configured` is set. It also lists `resolved_paths` (actual paths used when folder settings are empty), `env_overrides` (effective environment variables), and `pinned`.
+- `null` can only clear nullable settings (such as `server.access_token` and `training.batch_size`). To restore a setting's default, use `config set` to write the default from the tables below.
+
+<Callout type="idea" title="Command-line changes also work while the server is running">
+
+Whenever a running server reads settings, it checks at most once per second whether another process (`rvc-next config set` or a text editor) has changed `settings.toml`. If so, it reloads the file and notifies open Web UI sessions. When the Web UI saves settings, it also reads the file first, merges with its current contents, and writes it back without overwriting changes made elsewhere. If a manual edit cannot be parsed or fails validation, the server logs a warning and continues using the previous settings.
+
+</Callout>
+## All settings [#all-settings]
+
+In the "Type" column, `str?` and `int?` mean the value can be empty (`null`). An empty folder setting means "use the default folder under the data directory".
+
+### `server`: server
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `server.host` | str | `127.0.0.1` | Address to bind. A non-local address requires an access token first |
+| `server.port` | int | `7868` | First port to try, `[1, 65535]` |
+| `server.strict_port` | bool | `false` | Fail when the port is in use instead of trying subsequent ports |
+| `server.open_browser` | bool | `true` | Open the browser after starting |
+| `server.access_token` | str? | Empty | Access token; once set, all API and WebSocket requests must carry it |
+| `server.allowed_origins` | list[str] | `[]` | Other origins allowed to make modifying requests; also enables CORS for them |
+
+### `paths`: folders
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `paths.models_dir` | str | Empty (`<data directory>/models`) | Model library |
+| `paths.experiments_dir` | str | Empty (`<data directory>/experiments`) | Training experiments |
+| `paths.outputs_dir` | str | Empty (`<data directory>/outputs`) | Conversion and separation results |
+| `paths.assets_dir` | str | Empty (`<data directory>/assets`) | HuBERT, RMVPE, base models, and separation model weights; can point to an original RVC `assets` folder |
+| `paths.legacy_roots` | list | `[]` | Original RVC installations, with entries `{id, path, name}`; voices are read directly without copying |
+| `paths.browse_roots` | list[str] | `[]` | Server folders the Web UI can browse. When empty: the user's home directory, each original RVC installation, the data directory, and all drives (Windows) or mounted volumes (`/Volumes/*` on macOS; `/media/<user>/*`, `/run/media/<user>/*`, `/mnt/*` on Linux) |
+
+### `compute`: compute
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `compute.device` | str | `auto` | `auto`, `cpu`, `cuda:N`, `dml`, or `mps` (experimental) |
+| `compute.precision` | `auto`/`fp32`/`fp16` | `auto` | Precision; `auto` follows the GPU rules |
+| `compute.cuda_graph_offline` | bool | `false` | Use CUDA Graph for conversion |
+| `compute.cuda_graph_live` | bool | `true` | Use CUDA Graph for live voice conversion |
+| `compute.unload_after_minutes` | int | `10` | Minutes of model inactivity before unloading; `0` means never |
+| `compute.gpu_jobs` | int | `1` | Concurrent GPU jobs, `[1, 16]` |
+
+For detailed device and precision rules, see [Hardware and performance](/docs/advanced-hardware).
+
+### `downloads`: downloads
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `downloads.repository` | `rvc-model`/`official` | `rvc-model` | Model repository: `licyk/rvc-model` (organized by category, including demo voices) or the official `lj1995/VoiceConversionWebUI`. Files missing from the selected repository are downloaded from the other one |
+| `downloads.source` | `huggingface`/`hf-mirror`/`custom` | `huggingface` | Endpoint for accessing the repository: `https://huggingface.co`, `https://hf-mirror.com`, or custom |
+| `downloads.endpoint` | str | Empty | Address used when `source` is `custom` |
+| `downloads.verify_checksums` | bool | `true` | Verify SHA-256 after downloading |
+
+### `convert`: conversion
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `convert.output_format` | `wav`/`flac`/`mp3`/`m4a` | `wav` | Result format |
+| `convert.output_dir` | str | Empty | Output folder; takes precedence over `paths.outputs_dir` when nonempty |
+| `convert.keep_outputs_days` | int | `0` | Days to keep results; `0` means forever. Expired results are cleaned up when the server starts |
+| `convert.default_params` | Object | See below | Parameters copied into a voice's default preset on import |
+
+`convert.default_params` (voice parameters; see [Voice parameters](/docs/guide-parameters) for their meanings):
+
+| Field | Default | Range |
+| --- | --- | --- |
+| `speaker_id` | `0` | `[0, 109]` |
+| `pitch` | `0.0` | `[-24, 24]` semitones |
+| `formant` | `0.0` | `[-2, 2]` semitones |
+| `f0_method` | `rmvpe` | `pm`, `rmvpe`, `fcpe` |
+| `index_rate` | `0.75` | `[0, 1]` |
+| `protect` | `0.33` | `[0, 0.5]` |
+| `rms_mix_rate` | `0.25` | `[0, 1]` |
+
+### `separation`: separation
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `separation.default_preset` | str | `vocals` | Default separation preset |
+| `separation.output_format` | `wav`/`flac`/`mp3`/`m4a` | `flac` | Stem format |
+
+### `training`: training defaults
+
+Defaults used for new experiments; existing experiments store their settings in their own `experiment.json`.
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `training.sample_rate` | `32k`/`40k`/`48k` | `40k` | Sample rate |
+| `training.version` | `v1`/`v2` | `v2` | Model version |
+| `training.pitch_guidance` | bool | `true` | Pitch guidance |
+| `training.f0_method` | `auto`/`pm`/`rmvpe` | `auto` | `auto`: rmvpe with a GPU, otherwise pm |
+| `training.epochs` | int | `20` | Epochs, `[1, 10000]` |
+| `training.save_every` | int | `5` | Save every N epochs |
+| `training.batch_size` | int? | Empty | Batch size `[1, 256]`; empty means automatic (half the smallest GPU's memory in GiB, as in the original) |
+| `training.cache_in_gpu` | bool | `false` | Cache the dataset in GPU memory |
+| `training.save_small_every` | bool | `false` | Save a voice (small model) at every save point |
+| `training.cpu_workers` | int? | Empty | CPU process count; empty means CPU core count divided by 1.5 |
+| `training.gpus` | str | `auto` | GPUs for new experiments: `auto`, `cpu`, or GPU IDs joined by `-` (e.g. `0-1`), as in the original; training selects GPUs using each experiment's own settings |
+
+### `live`: live voice conversion
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `live.devices.input` | Device selection | System default | Input device |
+| `live.devices.output` | Device selection | System default | Output device |
+| `live.devices.monitor` | Device selection? | Empty (no monitoring) | Monitor device |
+| `live.devices.monitor_source` | `converted`/`input`/`both` | `converted` | Monitor source |
+| `live.devices.monitor_gain_db` | float | `0.0` | Monitor gain, `[-60, 12]` dB |
+| `live.devices.output_gain_db` | float | `0.0` | Output gain, `[-60, 12]` dB |
+| `live.stream.block_ms` | int | `250` | Block length, `[20, 1500]` milliseconds |
+| `live.stream.crossfade_ms` | int | `50` | Crossfade, `[10, 150]` milliseconds |
+| `live.stream.context_ms` | int | `2500` | Context, `[50, 5000]` milliseconds |
+| `live.stream.threshold_db` | float | `-60.0` | Input gate, `[-60, 0]` dB; -60 turns it off |
+| `live.stream.input_denoise` | bool | `false` | Reduce input noise |
+| `live.stream.output_denoise` | bool | `false` | Reduce output noise |
+| `live.last_voice` | str? | Empty | Last voice used |
+| `live.last_params` | Object | Same as `convert.default_params`, but `index_rate` and `rms_mix_rate` are `0` | Last voice parameters used (initial values from the original live GUI) |
+| `live.auto_reconnect` | bool | `true` | Automatically reconnect lost devices |
+| `live.show_meters` | bool | `true` | Show input levels while stopped |
+| `live.show_all_devices` | bool | `false` | List every device in both the input and the output menus (no filtering by direction), for routing audio into an input device |
+| `live.enable_asio` | bool | `false` | Enable the ASIO driver (Windows) |
+
+A "device selection" is an object: `device_id` (empty follows the system default), `physical_key`, `name`, `host_api`, `channels` (input channels to mix down to mono, numbered from 1; output channels to write to; empty uses the first input channel and first two output channels), `sample_rate`, and `exclusive` (WASAPI exclusive mode). These are usually selected in the Web UI's device panel or written by `rvc-next live run --input/--output`; manual editing is unnecessary.
+
+## Which changes require a restart
+
+| Setting | When it takes effect |
+| --- | --- |
+| `server.host`, `server.port`, `server.strict_port`, `server.open_browser` | Next server start (marked **Takes effect the next time the server starts.** in the Web UI) |
+| `server.access_token` | Immediately |
+| `server.allowed_origins` | Origin checks take effect immediately; CORS response headers are configured at startup and require a restart |
+| `paths.*` | Immediately; changes in the Web UI rescan the voice library |
+| `compute.device`, `compute.precision`, `compute.cuda_graph_offline`, `paths.assets_dir` | Models in the server are unloaded and loaded with the new settings on the next conversion or separation |
+| `compute.gpu_jobs`, `compute.unload_after_minutes` | Immediately |
+| Effects of `compute.device`, `compute.precision`, `compute.cuda_graph_live`, and `live.enable_asio` on live voice conversion | After its first start, the live worker stays running until the server exits. These settings are read when it starts, so changes require a server restart |
+| `live.devices.*`, `live.stream.*` | Next live voice conversion start; changing block length, crossfade, or context while running rebuffers without reloading the model |
+| Other settings | Next use |
+
+## Data directory [#data-dir]
+
+Data directory locations:
+
+| System | Default location |
+| --- | --- |
+| Windows | `%APPDATA%\rvc-next` |
+| macOS | `~/Library/Application Support/rvc-next` |
+| Linux | `$XDG_DATA_HOME/rvc-next`, or `~/.local/share/rvc-next` if unset |
+
+Use `RVC_NEXT_DATA_DIR` or `rvc-next webui --data-dir` to choose another location. `data_dir` in `rvc-next config show` displays the current directory; in the Web UI, it appears as **Data folder** under **Settings** › **About**.
+
+```text
+<data directory>/
+├── settings.toml            Settings (elsewhere when a configuration folder is given)
+├── rvc-next.db              Database: voice cache, presets, jobs, results, UI state
+├── server.json              Written while the server runs (address and port), deleted on exit
+├── assets-verified.json     Records of assets that passed verification
+├── legacy-voices.json       Index pairings for voices in original RVC installations (including your edits)
+├── assets/                  Assets (paths.assets_dir), same layout as the original RVC assets
+│   ├── hubert_base/
+│   ├── rmvpe/               rmvpe.pt、rmvpe.onnx
+│   ├── fcpe/
+│   ├── pretrained/          v1 base models
+│   ├── pretrained_v2/       v2 base models
+│   └── pymss_weights/       Separation model weights
+├── models/                  Model library (paths.models_dir)
+│   ├── voices/<name>/        model.pth、model.index or spk<N>.index、voice.json
+│   ├── indexes/             Unassigned indexes
+│   ├── base/                Imported base models (G and D)
+│   ├── separation/          Imported separation models (checkpoints and YAML)
+│   └── attached-indexes/    Copies of indexes attached to voices in original RVC installations
+├── experiments/<experiment>/       Training experiments (paths.experiments_dir), with experiment.json and the original stage folders
+├── outputs/<date>/<job id>/  Conversion and separation results (paths.outputs_dir)
+├── jobs/<job id>.log         Job logs
+├── uploads/                 Staged uploads and imports (import sessions kept for 24 hours)
+├── cache/peaks/             Waveform cache
+└── trash/                   Deleted files go here when the system recycle bin is unavailable
+```
+
+Folders are the source of truth for the voice library: the database voice list is only a cache and can be rebuilt from `models/` and original RVC installations. Experiments are folders, not database entries.
+
+<Callout type="idea" title="Reset settings">
+
+To reset all settings to defaults, stop the server, then delete or rename `settings.toml` (`rvc-next config path` shows its location). The voice library, experiments, and results are unaffected. Values set by environment variables still apply.
+
+</Callout>

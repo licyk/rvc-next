@@ -1,0 +1,205 @@
+---
+title: "Live"
+description: "The Live page converts microphone audio into the selected voice in real time, then sends it to headphones, speakers or a virtual audio device (for streaming or voice chat, for example). From top to bottom, the page has three sections: audio devices, voice and parameters, and buffering and noise reduction. The Start / Stop button and status bar stay fixed at the bottom."
+icon: Mic
+---
+
+Live voice conversion runs in a separate background process, independently of the server and conversion jobs. It opens audio devices on **the server machine**, rather than the device running your browser.
+
+<Callout type="warn" title="Not yet verified on real hardware">
+
+The rvc-next build machine has neither a GPU nor an audio device. The following features have only been tested with a simulated backend; their behavior on real hardware remains unverified: real PortAudio streams, ASIO, WASAPI exclusive mode and CUDA (including CUDA Graph acceleration). Please report any problems you encounter.
+
+</Callout>
+<Callout type="info" title="The page says “Live is not available on this server yet.”">
+
+This means `sounddevice` (the Python wrapper for PortAudio) is not installed in the server's Python environment. Linux also needs the system package `libportaudio2`. See [Installation](/docs/installation).
+
+</Callout>
+## Quick start
+
+1. Open **Live** in the left navigation.
+2. In **Audio devices**, select **Input** (microphone) and **Output** (headphones or a virtual audio device). Speak into the microphone: the **Input level** meter should move. Click **Test** beside **Output**; you should hear a tone.
+3. Choose a voice in the **Voice** picker and adjust **Voice parameters** as needed (for example, set **Pitch** to about +12 for a male-to-female voice conversion).
+4. On first use, the start button may be replaced by **Needs …** and a **Download (size)** button. Live voice conversion always needs HuBERT. If the voice has pitch guidance and the pitch method is RMVPE or FCPE, it also needs that model (pm needs no extra download). Click download; the button returns when it finishes.
+5. Click **Start** at the bottom. The button shows **Starting…**, **Loading the voice…**, then **Warming up…**. Once it shows **Running**, you can start speaking.
+6. Click **Stop** when finished.
+
+The next time you open the page, your previous devices, voice, parameters and buffer settings are restored automatically. Just click **Start**.
+
+## Audio devices
+
+The device panel is titled **Audio devices on \{host\}**, reminding you that these devices belong to the server machine. If you open the page remotely from another computer, it also shows: **These devices belong to the server machine, not this browser.** The **Refresh devices** button at the top right rescans devices. While stopped, the panel also refreshes automatically every 5 seconds when the page is visible.
+
+The same device panel appears in **Settings › Audio**. Both edit the same settings.
+
+### Input, output and monitor
+
+| Item | Purpose |
+| --- | --- |
+| **Input** | The microphone. The **Input level** meter on the right shows its volume in real time, even while stopped. You can turn this off in **Settings › Audio › Show the input meter while stopped**. |
+| **Output** | The converted audio goes here. The **Test** button beside it plays a tone on this device. To send the audio into an input device, first turn on **List every device in the input and output menus** in [Settings](/docs/guide-settings). |
+| **Monitor** | An optional second output, set to **No monitor** by default. Useful for sending output to a virtual audio device while listening through headphones. Selecting a monitor device reveals a **Test** button and the following controls: |
+| 　Monitor source | **Converted** / **Input** / **Both** (the original and converted audio mixed together) |
+| 　**Monitor level** | −60 to +12 dB, default 0 dB |
+
+Device menus are arranged as follows:
+
+- The first item is always **System default**, following the operating system's current default device.
+- Next comes the system's default device (marked **default**), followed by devices sorted by name. Virtual audio devices are marked **virtual**.
+- Each menu item represents one **physical device**, showing its full name. On Windows, the same microphone can appear under several drivers, such as MME, DirectSound and WASAPI. rvc-next combines these into one item and automatically selects the recommended driver (in order of preference: ASIO, WASAPI, WDM-KS, DirectSound, MME on Windows; JACK, ALSA, PulseAudio on Linux).
+- Previously saved devices that are now disconnected remain visible in gray, marked **not connected**.
+
+### Hear yourself
+
+The **Hear yourself** switch sends the original input straight to the monitor device (or to the output if no monitor is set), so you can check the “microphone → headphones” routing.
+
+- When enabled while stopped: passes audio through without loading a voice.
+- When enabled while running: with a monitor device, the monitor receives the original audio while the output stays converted; without one, the output switches directly to the original audio (temporarily bypassing conversion).
+
+### Advanced
+
+Expand **Advanced** to see:
+
+| Item | Description |
+| --- | --- |
+| **Input · Driver** / **Output · Driver** | Shown only when a physical device has several drivers (host APIs). The recommended one is marked **… (recommended)**. |
+| **Input · Channels** / **Output · Channels** | The selected input channels are mixed to mono; output is written to the selected channels. Defaults are **Default (channel 1)** for input and **Default (channel 1+2)** for output (channel 1 for a mono device). You can also select **Channel N** or **Mix 1+2**. |
+| **Sample rate** | **Automatic** (default) or a fixed rate supported by the device. Automatic uses the output device's default rate (48 kHz if unsupported). |
+| **Exclusive mode (WASAPI)** | Shown only when output uses the WASAPI driver. Exclusive mode can reduce latency, but prevents other programs from using the device at the same time. |
+| **Output level** | −60 to +12 dB, default 0 dB. Applies to converted audio sent to the output device. |
+
+<Callout type="idea" title="Multichannel audio interfaces">
+
+By default, input reads only **channel 1**. If your microphone is connected to channel 2 (common on multichannel interfaces), explicitly select **Channel 2** or **Mix 1+2**.
+
+</Callout>
+The bottom of the panel has a status line, for example `48 kHz · one duplex stream · est. latency 640 ms`:
+
+- **one duplex stream**: input and output use the same driver and sample rate, sending and receiving through one stream for the lowest latency.
+- **split streams**: the two cannot share a stream (different drivers or sample rates). An extra buffer adds one block of latency.
+
+### Device problems and repair buttons
+
+Whenever you change devices, rvc-next actually tries to open them with the current configuration in the background. Problems therefore appear below the relevant device before you click **Start**. The format is **reason: explanation from the server** (the explanation is supplied by the server in English):
+
+| Reason | Meaning | Action |
+| --- | --- | --- |
+| **Not connected** | The device cannot be found | **Choose another**: select a different device in the menu |
+| **In use by another program** | Another program is using the device | If exclusive mode is on, a **Turn off exclusive mode** button appears; otherwise, **Choose another** is suggested |
+| **Refuses this format** | The device rejects the current sample rate or channels | Click **Use 48 kHz** |
+| **Microphone permission denied** | The system has not granted microphone access | **How to grant access**: allow it in the system's privacy settings |
+| **Falling back to the default** | The saved device is missing, so the system default will be used | **Choose another** is suggested |
+
+A note may also appear below a device explaining how the saved device was found again, such as **\{name\} was found under another driver.** (a different driver, but the same device), or **\{name\} was not found: using the system default.**
+
+### What if the output device is missing?
+
+When you click **Start**, if the saved **Output** device is missing but the system default is available, rvc-next asks for confirmation before sending audio there (it could be your speakers): **The saved output device is missing; the system default would be used.** It continues only after you click **Start with the default output**. If the input or monitor device cannot be found at all, it reports an error; select another device first.
+
+## Voice and parameters
+
+The middle section contains the **Voice** picker and **Voice parameters** panel, using the same controls as **Convert**. See [Voice parameters](/docs/guide-parameters) for their meanings. On the Live page:
+
+- The panel says **Changes apply as you drag.** While running, adjusting **Pitch**, **Formant**, **Index strength**, **Consonant protection** or **Loudness match**, or switching **Pitch method** (pm / RMVPE / FCPE), immediately affects the converted audio without interrupting it.
+- Switching to a pitch model that has not been downloaded keeps the current method active and reports the missing model.
+- **Voice changes are hot swaps**: the new voice loads in the background while the old voice keeps converting. Once loaded, it switches seamlessly between blocks; HuBERT and the pitch model stay loaded. If loading fails, the original voice stays active and the picker returns to it.
+- Voices with several speakers show a **Speaker** menu that can also be changed while running. Changing voices resets the speaker to the new voice's first speaker. If that speaker has a dedicated index (`spk<N>`), it switches to that index as well.
+- Selecting a voice loads its default preset. The **Presets** button loads or saves presets; see [Voice parameters](/docs/guide-parameters).
+
+## Buffering and noise reduction
+
+**Buffering and clean-up** controls how audio is divided into blocks for the model. Each slider's help ends with `(+N ms)`, showing its contribution to estimated latency.
+
+| Setting | Range (default) | Purpose | Latency contribution | Change while running |
+| --- | --- | --- | --- | --- |
+| **Block** | 20–1500 ms (250) | Audio processed per step. Longer is steadier; shorter is faster | 2 × block length | Rebuffer |
+| **Crossfade** | 10–150 ms (50) | Overlap between blocks for smooth joins | Equal to the crossfade | Rebuffer |
+| **Context** | 50–5000 ms (2500) | Past audio supplied with each block. More is smoother, but takes longer | No extra latency, but more computation | Rebuffer |
+| **Input gate** | −60–0 dB (−60) | Input below this level is muted; −60 dB disables it | None | Immediate |
+| **Reduce input noise** | On / Off (Off) | Reduces input noise before conversion | min(crossfade, 40 ms) | Immediate |
+| **Reduce output noise** | On / Off (Off) | Reduces noise in converted audio | None | Immediate |
+
+“Rebuffer” means that changing block length, crossfade or context while running closes the audio stream and reopens it with the new buffers. There is a brief interruption, but the voice is not reloaded.
+
+<Callout type="info" title="How estimated latency is calculated">
+
+Estimated latency ≈ block length + crossfade + 10 ms (alignment search) + block length (output prefill) + the device's input and output latency. Split streams add another block length; input noise reduction adds min(crossfade, 40 ms). The default settings (250 ms block length, 50 ms crossfade) give about 560 ms plus device latency with a duplex stream.
+
+</Callout>
+Buffer changes made while stopped are saved directly to settings. Changes made while running are sent immediately to the active session and saved as well.
+
+## Start, stop and the status bar
+
+A bar stays fixed at the bottom of the page:
+
+- The **Start / Stop** button. While starting or stopping, it shows the current state: **Starting…**, **Loading the voice…**, **Warming up…**, **Stopping…**. With no voice selected, it is disabled and says **Choose a voice to start.**
+- On error, an explanation appears above the button (**Stopped by an error**).
+
+The status bar updates 10 times per second and includes:
+
+| Item | Description |
+| --- | --- |
+| **Input** / **Output** meters | Input and converted output levels (RMS and peak) |
+| **Load** | Inference time ÷ block length. Above 80%, the bar turns a warning color, indicating the model is close to falling behind real time |
+| **Increase block to N ms** | Appears when load is too high. Uses the 95th percentile of recent inference times to estimate a block length that brings load back to about 70% (up to 1500 ms). Click to apply |
+| **Latency N ms** | Current estimated end-to-end latency |
+| **N underruns** / **N overruns** | Counts of the output buffer running empty (audible gaps) / the input buffer overflowing. Shown only after they occur |
+| **GPU N MB** | GPU memory used by the live process |
+
+## The Live chip in the top bar
+
+While a session is active (running, loading, reconnecting, etc.), every page's top bar shows a Live chip, for example **Live · 620 ms**. During loading and similar operations, it shows the current state instead. Click the chip to return to **Live**; the button on its right stops the session from any page. The chip turns red on reconnection or error.
+
+## Device disconnection and automatic reconnection
+
+If you unplug headphones or a USB microphone while running:
+
+1. The session enters **Reconnecting the device…**. The top-bar chip shows this state and turns red.
+2. The server rescans devices every 2 seconds.
+3. When the original device reappears (including under another driver), the stream reopens automatically and returns to **Running**, without reloading the voice.
+
+This is controlled by **Settings › Audio › Reconnect a lost device automatically** (on by default). When disabled, a device disconnection stops the session immediately.
+
+## Sharing the GPU with other jobs
+
+Live voice conversion holds the GPU while running on it:
+
+- Queued GPU jobs (conversion, separation, training, etc.) show **Waiting for the GPU** with a **Run anyway** button and the message **Live is using the GPU. Running both may cause audio glitches.**
+- **Free GPU memory** in the top bar is unavailable while the session is active. After stopping, the idle live process keeps its loaded models for a faster next start. You can then use **Free GPU memory** to unload them.
+- If GPU memory runs out, the session stops with **The GPU is not available or ran out of memory**. Both the live process and server automatically unload their loaded models. Close other programs using GPU memory and retry, or switch to CPU in **Settings › Compute**.
+
+## Tips for reducing latency
+
+1. **Get smooth audio first, then reduce latency.** Start with the default 250 ms block length and watch **Load**. Reduce the block length gradually only if load stays below 50%; increase it if load exceeds 80% or you see **underruns** (or click **Increase block to N ms**).
+2. **Use the same driver and sample rate for input and output**. A status of **one duplex stream** saves one block of latency.
+3. **Use a low-latency driver**: prefer WASAPI or ASIO on Windows, JACK or ALSA on Linux. Select it in **Advanced › Driver**.
+4. **Context** adds no latency but increases computation per block. If load is high, try reducing it from 2500 ms.
+5. **Crossfade** contributes directly to latency; 50 ms is usually enough. **Reduce input noise** adds up to another 40 ms.
+6. For pitch methods, pm is fastest and RMVPE has the best quality. Try pm on a weaker GPU.
+7. **Settings › Compute › CUDA Graph for Live** is enabled by default on GPU and can reduce per-block overhead (unverified on a real GPU).
+
+## ASIO (Windows)
+
+Professional audio interfaces often provide ASIO drivers, usually with lower latency than WASAPI. ASIO is not listed by default. To enable it:
+
+1. Open **Settings › Audio** and enable **Enable ASIO drivers (Windows)**.
+2. Return to **Live** and click **Refresh devices**. Devices supporting ASIO will use it as the recommended driver; you can also select it manually in **Advanced › Driver**.
+
+<Callout type="idea">
+
+The live background process starts on first use and stays running. If ASIO devices fail to open after toggling the ASIO setting, restart the rvc-next server so the live process picks up the new setting. ASIO support has not been verified on a real audio interface.
+
+</Callout>
+## Run from the command line
+
+You can use live voice conversion without opening the web UI. Devices and parameters default to the settings saved there:
+
+```bash
+rvc-next live devices          # List audio devices
+rvc-next live check            # Check the saved devices and format
+rvc-next live test-tone        # Play a tone on the output device
+rvc-next live run -v "My voice" --pitch 12   # Start live conversion; Ctrl+C to stop
+```
+
+`live run` also supports `--block-ms`, `--crossfade-ms`, `--context-ms`, `--threshold-db`, `--allow-fallback` and other options. See [Command reference](/docs/cli-commands) for the full list.

@@ -1,0 +1,112 @@
+{
+ "platform": "linux",
+ "default_hostapi": 0,
+ "hostapis": [
+  {
+   "name": "ALSA",
+   "devices": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "default_input_device": 6,
+   "default_output_device": 6
+  },
+  {
+   "name": "OSS",
+   "devices": [],
+   "default_input_device": -1,
+   "default_output_device": -1
+  }
+ ],
+ "devices": [
+  {
+   "name": "HDA Intel PCH: ALC892 Analog (hw:0,0)",
+   "index": 0,
+   "hostapi": 0,
+   "max_input_channels": 2,
+   "max_output_channels": 6,
+   "default_low_input_latency": 0.0087,
+   "default_low_output_latency": 0.0087,
+   "default_high_input_latency": 0.0348,
+   "default_high_output_latency": 0.0348,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "HDA Intel PCH: HDMI 0 (hw:0,3)",
+   "index": 1,
+   "hostapi": 0,
+   "max_input_channels": 0,
+   "max_output_channels": 8,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.0087,
+   "default_high_input_latency": 0.1,
+   "default_high_output_latency": 0.0348,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "USB Audio Device: - (hw:1,0)",
+   "index": 2,
+   "hostapi": 0,
+   "max_input_channels": 1,
+   "max_output_channels": 2,
+   "default_low_input_latency": 0.0087,
+   "default_low_output_latency": 0.0087,
+   "default_high_input_latency": 0.0348,
+   "default_high_output_latency": 0.0348,
+   "default_samplerate": 48000.0
+  },
+  {
+   "name": "sysdefault",
+   "index": 3,
+   "hostapi": 0,
+   "max_input_channels": 128,
+   "max_output_channels": 128,
+   "default_low_input_latency": 0.0213,
+   "default_low_output_latency": 0.0213,
+   "default_high_input_latency": 0.0853,
+   "default_high_output_latency": 0.0853,
+   "default_samplerate": 48000.0
+  },
+  {
+   "name": "pipewire",
+   "index": 4,
+   "hostapi": 0,
+   "max_input_channels": 64,
+   "max_output_channels": 64,
+   "default_low_input_latency": 0.0213,
+   "default_low_output_latency": 0.0213,
+   "default_high_input_latency": 0.0853,
+   "default_high_output_latency": 0.0853,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "pulse",
+   "index": 5,
+   "hostapi": 0,
+   "max_input_channels": 32,
+   "max_output_channels": 32,
+   "default_low_input_latency": 0.0213,
+   "default_low_output_latency": 0.0213,
+   "default_high_input_latency": 0.0853,
+   "default_high_output_latency": 0.0853,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "default",
+   "index": 6,
+   "hostapi": 0,
+   "max_input_channels": 64,
+   "max_output_channels": 64,
+   "default_low_input_latency": 0.0213,
+   "default_low_output_latency": 0.0213,
+   "default_high_input_latency": 0.0853,
+   "default_high_output_latency": 0.0853,
+   "default_samplerate": 44100.0
+  }
+ ]
+}

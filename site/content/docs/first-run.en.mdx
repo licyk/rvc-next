@@ -1,0 +1,177 @@
+---
+title: "First run"
+description: "After installing RVC Next, follow the entire first-run process: start the web interface, learn where data is stored, download HuBERT and RMVPE for conversion, get a demo voice and complete a conversion. Each step includes both web interface and command-line instructions."
+icon: Play
+---
+
+## Start the web interface
+
+Run this in a terminal with the RVC Next environment activated:
+
+```bash
+rvc-next webui
+```
+
+Once the server starts, the terminal prints a line like:
+
+```text
+SERVER_READY url=http://127.0.0.1:7868
+```
+
+The browser will open this address automatically shortly afterward. The default port is **7868** (separate from the original RVC's 7865). To stop the server, press <kbd>ctrl</kbd>+<kbd>c</kbd> in the terminal.
+
+Common options for `rvc-next webui`:
+
+| Option | Purpose |
+| --- | --- |
+| `--port <port>` | First port to try, read from settings by default (7868); `0` picks any free port |
+| `--strict-port` / `--no-strict-port` | Fail instead of trying the next port when it is occupied (by default, it tries the next port and reports the port actually used) |
+| `--open` / `--no-open` | Open the web UI in a browser automatically (enabled by default; configurable in settings) |
+| `--host <address>` | Address to bind; defaults to `127.0.0.1`, allowing access only from the local machine |
+| `--data-dir <directory>` | Data directory for this run |
+| `--debug` | Print debug logs |
+
+<Callout type="warn" title="Access from other computers">
+
+If you set `--host` to a non-local address such as `0.0.0.0`, other devices on the local network can access the server. For security, you must first set an access token; otherwise, `rvc-next webui` refuses to start and prompts you with `rvc-next config set server.access_token <secret>`. See [Remote access and security](/docs/advanced-remote).
+
+</Callout>
+Once the page opens, you will see the navigation bar on the left (at the bottom in narrow windows): **Convert**, **Live**, **Separate**, **Train**, **Models**, and **Settings** at the bottom. The first visit opens **Convert**; subsequent visits return to the page you last used. See [Interface overview](/docs/guide-interface) for explanations of each part of the interface.
+
+## Data folder
+
+Settings, the database, voice library, training experiments, conversion results and downloaded models are all stored in a **data folder**:
+
+| System | Default location |
+| --- | --- |
+| Windows | `%APPDATA%\rvc-next` |
+| macOS | `~/Library/Application Support/rvc-next` |
+| Linux | `$XDG_DATA_HOME/rvc-next`; `~/.local/share/rvc-next` when `XDG_DATA_HOME` is unset |
+
+Set the `RVC_NEXT_DATA_DIR` environment variable to use another location (or specify it with `rvc-next webui --data-dir`). `rvc-next doctor` shows the current data folder; you can also find it in **Settings › About**.
+
+The main contents are:
+
+| Contents | Description |
+| --- | --- |
+| `settings.toml` | Settings file (`rvc-next config path` prints its path) |
+| `rvc-next.db` | Database: voice library cache and records of jobs and results |
+| `models/` | Voice library (`models/voices/<voice>/`), base models, separation models, etc. |
+| `assets/` | Downloaded HuBERT, RMVPE, base model and separation model weights |
+| `experiments/` | Training experiments |
+| `outputs/` | Conversion and separation results, in folders by date and job |
+| `jobs/` | Logs for each job |
+
+You can move the voice, experiment, result and asset folders elsewhere in **Settings › Storage**. See [Configuration and environment variables](/docs/cli-config) for more configuration methods.
+
+## Download HuBERT and RMVPE
+
+Conversion needs two foundational models:
+
+- **HuBERT** (about 180 MB): extracts speech content features; required for every conversion;
+- **RMVPE** (about 173 MB): the default pitch method; required when converting with a voice that has pitch guidance.
+
+There is also an optional **FCPE** model (about 41 MB), needed only when you select FCPE as the pitch method; the `pm` method requires no downloads.
+
+Choose any of these download methods:
+
+<Tabs items={["Download when needed", "Download in Models › Assets", "Command line"]}>
+<Tab value="Download when needed">
+
+RVC Next keeps missing models from causing errors. Whenever an operation on a page needs a model that has not been downloaded, its button is replaced by a notice such as “**Needs HuBERT, RMVPE**”, with a **Download (353 MB)** button beside it. Click once to start downloading. Progress appears in the same place, and the original button returns automatically when the download finishes.
+
+</Tab>
+<Tab value="Download in Models › Assets">
+
+1. Click **Models** in the navigation bar and switch to the **Assets** tab.
+2. In the **Conversion** group, click **Download everything for Conversion**, or click **Download** on the individual HuBERT and RMVPE rows.
+3. Each row shows download progress, downloaded/total size, speed and time remaining; when complete, its status becomes **Installed**.
+
+For installed files, click **Verify** to check their SHA-256 again.
+
+</Tab>
+<Tab value="Command line">
+
+```bash
+rvc-next assets download          # With no arguments, download HuBERT, RMVPE and FCPE (about 394 MB)
+rvc-next assets list              # View the status of each asset
+```
+
+</Tab>
+</Tabs>
+Downloads support resuming, retry automatically on failure and verify SHA-256 on completion. By default, they use the [licyk/rvc-model](https://huggingface.co/licyk/rvc-model) repository on Hugging Face. If accessing Hugging Face is difficult, change **Download endpoint** to **hf-mirror.com** in **Settings › Downloads**, or use the command line:
+
+```bash
+rvc-next assets download --source hf-mirror
+```
+
+<Callout type="idea" title="Already have the original RVC installed?">
+
+You can reuse models already downloaded in the original's `assets/` without downloading them again. See [Migrating from the original RVC](/docs/advanced-migrate).
+
+</Callout>
+## Get a demo voice
+
+The voice library starts empty. RVC Next can download the official RVC demo voices, together with their indexes, in one click for you to try:
+
+<Tabs items={["Web interface", "Command line"]}>
+<Tab value="Web interface">
+
+1. Click **Models**, switch to the **Assets** tab and scroll to the **Demo voices** group.
+    - If the **Voices** tab shows “No voices yet”, its **Get the demo voices** button also takes you here.
+2. Each row shows the sample rate, version, whether it is **with index**, and size. Click **Download** on the voice you want, or **Download all** at the top right of the group.
+3. When the download finishes, the row shows **Installed** and an **In library** button; click it to open the voice's details. The voice also appears in **Models › Voices**.
+
+</Tab>
+<Tab value="Command line">
+
+```bash
+rvc-next model catalog            # List available demo voices and their IDs
+rvc-next model download kikiv1    # Download one
+rvc-next model download --all     # Download all that have not yet been downloaded
+```
+
+</Tab>
+</Tabs>
+The catalog currently contains `kikiV1`, `keruanV1`, `guanguanV1` (v1, 40 kHz), `zhanzhanv2-xi` (v2, 40 kHz) and `youzhanv2-xi` (v2, 48 kHz; no index was officially released for it).
+
+You can drag your own `.pth` models directly into the import area at the top of **Models › Voices**; see [Model management](/docs/guide-models).
+
+## Complete your first conversion
+
+1. Click **Convert** in the navigation bar.
+2. In **Inputs**, drag an audio file onto “Drop audio files here”, or click it to choose a file. WAV, FLAC, MP3, M4A, OGG and other formats are supported. The file uploads to the server; once uploaded, click the play button on the left to listen.
+3. Click the voice picker (showing “Choose a voice”) and select the demo voice you just downloaded from the list. Its sample rate, version and whether it has **pitch guidance** appear beneath the picker.
+4. Adjust **Voice parameters**. For your first conversion, focus only on **Pitch**:
+    - For a male voice to a female voice model, use around **+12**; for a female voice to a male voice model, use around **−12**;
+    - For conversion between voices of the same gender, keep **0**.
+
+    Leave the other parameters at their defaults for now; see [Voice parameters](/docs/guide-parameters) for their meanings.
+5. Check the fixed action bar at the bottom of the page. If it shows “**Needs HuBERT, RMVPE**”, click **Download** first and wait for it to finish.
+6. Click **Preview 15 s** first to convert only the first 15 seconds and hear the result in a few seconds. Once satisfied, click **Convert** to process the whole file.
+7. A job card appears in the action bar, showing status and progress. Once complete, the output appears in **Results**:
+    - Click play to listen, or click the waveform to jump to a position;
+    - Use the **Result / Source** toggle to compare the original and converted audio at the same position;
+    - Click **More actions** (⋮) on the right to **Download** the file.
+
+Result files are saved in `outputs/<date>/<job id>/` in the data folder, with names in the form `<original name>.<voice>.<format>`, such as `song.kikiv1.wav`; preview filenames include `.preview`.
+
+To perform the same conversion from the command line:
+
+```bash
+rvc-next model list                                   # View voice IDs and names
+rvc-next convert song.wav --voice kikiV1 --pitch 12   # A voice can be given by ID or name (case-insensitive)
+rvc-next convert song.wav --voice kikiV1 --preview 15 # Convert only the first 15 seconds
+```
+
+<Callout type="idea" title="Convert a song">
+
+Converting a song with accompaniment directly usually gives poor results. On the **Convert** page, expand **Optional steps** and enable **Separate first** and **Add accompaniment back** to perform “separate vocals → convert → mix accompaniment back in” in one operation. See [Conversion](/docs/guide-convert).
+
+</Callout>
+## Next steps
+
+- Learn the interface layout, jobs and results list: [Interface overview](/docs/guide-interface)
+- Learn more about each page: [User guide](/docs/guide)
+- Batch process from the command line: [Command line](/docs/cli)
+- Encountered a problem? [FAQ](/docs/advanced-faq)

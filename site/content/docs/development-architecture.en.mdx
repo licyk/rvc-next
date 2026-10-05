@@ -1,0 +1,210 @@
+---
+title: "Architecture"
+description: "The full picture of RVC Next: package structure and layer rules, service assembly, process responsibilities, a request's round trip from browser to engine, and shared infrastructure for errors, settings, events, the database and data directory."
+icon: Network
+---
+
+This page gives the full picture of RVC Next: package structure and layer rules, service assembly, process responsibilities, a request's round trip from browser to engine, and shared infrastructure for errors, settings, events, the database and data directory. Each layer is covered in detail in [Engine](/docs/development-engine), [Core services](/docs/development-core), [API and events](/docs/development-api), [Web UI](/docs/development-webui) and [CLI implementation](/docs/development-cli).
+
+## Layers
+
+<Mermaid chart={"flowchart TB\n    subgraph clients[\"Two interfaces (thin)\"]\n        webui[\"rvc_next/webui<br/>Vue 3, builds to dist/\"]\n        api[\"rvc_next.api<br/>FastAPI routes · socket.io · static files\"]\n        cli[\"rvc_next.cli<br/>Typer commands\"]\n    end\n    core[\"rvc_next.core<br/>Services: settings · events · db · jobs · compute · assets · audio<br/>models · presets · conversion · separation · training · live\"]\n    engine[\"rvc_next.engine<br/>ML and DSP: models, F0, HuBERT, indexes,<br/>offline / streaming conversion, training, separation, audio I/O\"]\n    workers[\"rvc_next.workers<br/>train · separate · live · devices\"]\n    protocol[\"rvc_next.protocol<br/>Worker events and live voice conversion control messages (standard library only)\"]\n\n    webui -- \"REST /api/v1/* · socket.io /ws\" --> api\n    api --> core\n    cli --> core\n    core -- \"In-process calls (lazy imports)\" --> engine\n    core -- \"Start subprocesses, read JSON line events\" --> workers\n    workers --> engine\n    workers --> protocol\n    core --> protocol"} />
+
+```
+rvc_next/
+  engine/     ML and DSP, no application code
+  protocol/   Worker events (JSON lines) and Live control messages; standard library only
+  workers/    python -m rvc_next.workers.{train,separate,live,devices} <request.json>
+  core/       Services; context.py assembles them, errors.py holds all error types
+  api/        FastAPI: one router module per resource, plus security, sockets and static files. Thin
+  cli/        Typer: app.py registers everything, commands/ contains plain functions. Thin
+  webui/      Vue project; dist/ is not committed, shipped as package data in the wheel
+scripts/      dev.py, build_wheel.py, generate_openapi.py, golden.py
+tests/        engine/ core/ api/ cli/ workers/ golden/, tiny.py, conftest.py
+```
+
+### Layer rules and their tests
+
+[`tests/test_architecture.py`](https://github.com/licyk/rvc-next/blob/main/tests/test_architecture.py) uses `ast` to inspect each module's `import` statements (absolute imports only) against the table below; the standard library is always allowed.
+
+| Layer | Allowed `rvc_next` subpackages | Allowed third-party modules |
+| --- | --- | --- |
+| `engine` | `engine` | numpy, scipy, torch, transformers, faiss, parselmouth, librosa, av, soundfile, onnxruntime, torch_directml, tensorboard, plus `sounddevice` (only under `engine/audio_io/`), `pymss` and `pymss_core` (only under `engine/separate/`), `yaml` |
+| `protocol` | `protocol` | None |
+| `workers` | `engine`, `protocol`, `workers` | Same as engine, plus `sounddevice`, `pymss`, `yaml` |
+| `core` | `core`, `engine`, `protocol`, `version`, `logger` | pydantic, httpx, tomli, tomli_w, send2trash, numpy, typing_extensions |
+| `api` | `api`, `core`, `version`, `logger`, `webui` | fastapi, starlette, socketio, uvicorn, pydantic, anyio |
+| `cli` | `cli`, `core`, `version`, `logger`, `api` | typer, click, rich, pydantic, uvicorn |
+
+Two additional subprocess tests check that importing `rvc_next.core.context` does not load `torch`, and that importing `rvc_next.cli.app` loads neither `torch` nor `fastapi`.
+
+Each rule has a purpose:
+
+- **The engine knows nothing about the application.** It imports neither core, any Web / CLI framework, nor pydantic; parameters are frozen dataclasses (`VoiceParams`, `StreamParams`). Worker subprocesses and tests can therefore drive the engine directly, while core's `Record` models are the sole API shape. One problem in the original was that the engine returned Gradio update dictionaries and Chinese status text, making it unusable outside the UI.
+- **Core imports no frameworks and never imports torch directly.** All 51 of its engine imports are inside functions. Commands such as `rvc-next version`, `config` and `--help` therefore avoid the cost of loading torch; the second test protects this.
+- **`sounddevice` and `pymss` are confined to their own directories**, keeping changes to device access and the separation library local.
+- **`protocol` uses only the standard library**, because both sides share it: the server and worker subprocesses must be able to import it without pulling in each other's dependencies.
+- **`api` and `cli` never import `engine`.** The only import across interfaces is the `webui` command in `cli` importing `rvc_next.api.app.create_app` inside its function to start the server; the rule table allows `cli → api` and `uvicorn` for this.
+
+### One operation, one core method
+
+Each operation has exactly one core method, accepting and returning `Record` models (`core/record.py`). Routes and commands do only three things: parse input, call that method and shape the output. For conversion, the route body in [`api/routers/convert.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/api/routers/convert.py) only checks access to server paths, rejects CLI-only fields, then calls `return services.conversion.convert(body)`; the CLI's `convert` command constructs the same `ConvertRequest` and calls the same method (`foreground=True`).
+
+The API's JSON and CLI's `--json` output therefore have exactly the same shape: `test_model_json_matches_api_shape` in `tests/cli/test_cli.py` directly compares `rvc-next model list --json` with `GET /api/v1/models`. `Record` sets `json_schema_serialization_defaults_required`, marking defaulted fields as required in the output schema, so the generated TypeScript types match what the server actually sends.
+
+## Assembly: `build_services()`
+
+`build_services()` in [`core/context.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/core/context.py) constructs all services once in dependency order and returns a `Services` dataclass:
+
+| Field | Class | Responsibility |
+| --- | --- | --- |
+| `settings` | `SettingsService` | `settings.toml`, environment overrides, resolved directories |
+| `events` | `LocalEventBus` | In-process publish / subscribe |
+| `db` | `Database` | `rvc-next.db` |
+| `http` | `HttpClientProvider` | Shared httpx client (tests can inject `transport`) |
+| `compute` | `ComputeService` | Device, GPU memory usage, GPU lease, idle unloading |
+| `jobs` | `JobService` | Job queue, resources, runners, history |
+| `assets` | `AssetService` | Asset catalog, downloads, verification |
+| `audio` | `AudioFileService` | Uploads, server paths, probing, waveform peaks, outputs |
+| `models` | `VoiceModelService` | Voice library |
+| `inbox` | `IndexInbox` | Unassigned indexes |
+| `imports` | `ImportService` | Import sessions |
+| `base_models` | `BaseModelService` | Training base models |
+| `separation_models` | `SeparationLibrary` | Imported separation models |
+| `presets` | `PresetService` | Presets |
+| `separation` / `conversion` / `training` / `live` | Corresponding services | Each feature |
+
+Several cross-references (`models.presets`, `assets.models`, `models.imports`, `imports.base`, `imports.separation`, `training.base`, `separation.library`) are connected through attribute assignments after construction, avoiding cycles between constructors. `TrainingService` and `LiveService` are imported inside the function. Finally, `models.rescan()` synchronises the database's voice cache with disk.
+
+`start_background` controls whether background threads start:
+
+| | Server (`rvc-next webui`) | Command line |
+| --- | --- | --- |
+| Entry point | `build_services(start_background=True)`, stored on `app.state.services`, accessed by routes through `ServicesDep` | The `open_services()` context manager in `cli/output.py` constructs services once per command and closes them afterwards |
+| Background | Removes expired uploads and outputs older than `convert.keep_outputs_days` (`audio.cleanup()`), `compute.start()` (idle unloading), `jobs.start()` (scheduler thread), `live.start_background()` | None |
+| Jobs | `jobs.submit()` queues jobs; the scheduler executes them as resources allow | `jobs.run_now()` executes in the foreground on the calling thread; Ctrl+C cancels |
+
+Tests build fully isolated services using `environ=` (instead of `os.environ`), `transport=` (instead of the network) and `data_dir=` (`make_services` in `tests/conftest.py`). `Services.close()` closes live, jobs, compute, http and the database in that order.
+
+## Process model
+
+| Work | Where it runs | Reason |
+| --- | --- | --- |
+| HTTP and socket.io | Server process event loop; routes involving disk and database access use plain `def` and run in a thread pool | — |
+| Offline conversion, merging, extraction, downloads, etc. | Job thread in the server (or CLI) process, with a `CancelToken` | HuBERT, F0 models and recently used voices remain cached, so the second file starts immediately |
+| Vocal separation | One `workers.separate` subprocess per job | PyMSS has no internal cancellation mechanism, so cancellation requires killing the process; all GPU memory is returned when it exits. Follows the original's `tools/pymss_webui.py` design |
+| Training stages | One `workers.train` subprocess per stage | Allows hard cancellation and a clean CUDA context; DDP also needs its own processes |
+| Live voice conversion | One persistent `workers.live` subprocess | It owns the audio devices and real-time threads, which need isolation from the server's event loop, GIL contention and possible crashes |
+| Device enumeration | Short-lived `workers.devices` subprocess | Re-enumerating PortAudio in a process with an open stream disrupts it; the original refreshes the device list by calling private `sd._terminate()` and stopping conversion |
+
+### Worker protocol
+
+`workers.train`, `workers.separate` and `workers.devices` follow the same conventions, derived from the event protocol in the original's `tools/pymss_webui.py`:
+
+1. Core writes the request to a JSON file and starts the worker with `sys.executable -m <module> <request.json>` (`core/process.py`: its own process group, merged stdout and stderr, `PYTHONUNBUFFERED=1`). The original's `--pycmd` option is therefore no longer needed.
+2. Worker entry points go through `run_worker()` in `workers/base.py`: it duplicates the real stdout exclusively for events, then redirects file descriptor 1 to stderr. Incidental `print` calls in libraries therefore become log text and cannot be mistaken for events.
+3. Events are JSON lines prefixed with `@rvc ` (`protocol/jsonl.py`), with types in `protocol/messages.py`: `progress`, `step`, `log`, `metric`, `output`, `result`, `error`. Lines without the prefix are always treated as `info` logs.
+4. Failures become `error` events: `MissingAssetError` → `asset_missing` (`detail.assets`), `ModelFormatError` → `invalid_model`, out of GPU memory → `compute_unavailable` with `detail.reason = "out_of_memory"`, everything else → `internal_error`; the full stack trace is sent separately as an `error` log. Core reconstructs the corresponding domain error with `worker_error()` in `core/engine_errors.py`.
+5. Exit codes: 0 for success; `EXIT_CANCELLED = 130` for cancellation (SIGTERM also maps to it); `EXIT_RETRY = 75` requests a retry in a new process (separation on DirectML tries fp16 first, then fp32 if it fails).
+6. Cancellation kills the entire process tree (`kill_process_tree`, ported from the original's `tools/process_utils.py`).
+
+`workers.live` is the exception: it persists and needs two-way communication, so it uses `multiprocessing.connection`. Core's `LiveSupervisor` opens a `Listener` with a random authkey and writes its address into the request file; the two sides then exchange JSON messages defined in `protocol/live.py` (`Start`, `UpdateVoice`, `SetDevices`… and `State`, `Stats`, `DeviceLost`, `Log`). See [Core services](/docs/development-core) and [Engine](/docs/development-engine).
+
+## A request's path
+
+For example, clicking “Convert” in the browser:
+
+<Mermaid chart={"sequenceDiagram\n    participant B as Browser\n    participant M as SecurityMiddleware\n    participant R as routers/convert.py\n    participant C as ConversionService\n    participant J as JobService\n    participant T as Job thread\n    participant E as engine\n    participant Bus as LocalEventBus\n    participant S as SocketBridge\n\n    B->>M: POST /api/v1/convert\n    M->>R: Host / Origin / token checks pass\n    R->>C: convert(ConvertRequest)\n    C->>C: validate(): voice, speaker, required assets\n    C->>J: submit(\"convert\", request)\n    J-->>R: Job (queued)\n    R-->>B: 200 Job\n    J->>Bus: job_updated\n    J->>T: Execute JobSpec.run when resources are free\n    T->>E: OfflineConverter (chunk by chunk, checking cancellation)\n    T->>Bus: job_updated (progress, at most 4/s) · outputs_added\n    Bus->>S: Synchronous callback on publishing thread\n    S->>S: call_soon_threadsafe into the event loop\n    S-->>B: socket.io event\n    B->>B: Patch / invalidate TanStack Query cache"} />
+
+Key points:
+
+- REST is the source of truth; sockets only push from server to client. After reconnecting, the client refetches active jobs, Live state and visible lists.
+- Job requests are stored as JSON in the database. Factories registered by `kind` reconstruct `JobSpec` from the request, so **Retry** still works after a server restart.
+- Routes validate when the request arrives (for example, missing RMVPE immediately returns 409 `asset_missing`, with a download offered in place in the UI), instead of letting a queued job fail later.
+
+## Errors and exit codes
+
+[`core/errors.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/core/errors.py) defines the complete error vocabulary. Each class carries `code`, `http_status` and `exit_code`, translated mechanically by both interfaces: the API turns any `RvcNextError` into `{"code", "message", "detail"}` (`api/errors.py`), and the CLI turns it into an exit code.
+
+| Exception | `code` | HTTP | Exit code | When raised |
+| --- | --- | --- | --- | --- |
+| `NotFoundError` | `not_found` | 404 | 2 | Voice, job, file or experiment does not exist |
+| `ConflictError` | `conflict` | 409 | 3 | Name conflict, import overwrites an existing model; GPU memory release requested while a job or Live is running (`detail.reason = "busy"`) |
+| `BusyError` (inherits `ConflictError`) | `busy` | 409 | 3 | Live is already running, or a stage is already running for the same experiment |
+| `InvalidPathError` | `invalid_path` | 400 | 4 | Path escapes the root, or a server path is outside the browse roots |
+| `ValidationError` | `invalid_input` | 400 | 4 | Parameter out of range, invalid setting |
+| `ModelFormatError` (inherits `ValidationError`) | `invalid_model` | 400 | 4 | `.pth` is neither an RVC small model nor a G checkpoint |
+| `AssetMissingError` | `asset_missing` | 409 | 7 | HuBERT, RMVPE, FCPE or base model not installed; `detail.assets` lists asset ids used by the UI to offer downloads |
+| `DeviceError` | `device_unavailable` | 409 | 8 | Audio device missing, busy or rejects the format; `detail.reason` is `missing` / `busy` / `format` / `permission` |
+| `ComputeError` | `compute_unavailable` | 503 | 9 | GPU unavailable or out of memory (`detail.reason = "out_of_memory"`) |
+| `RvcNextError` (base class) | `internal_error` | 500 | 1 | Other cases |
+
+The API layer also defines `NotLocalError` (`not_local`, 403) for operations such as “Show in folder” that only make sense for a browser on the server machine.
+
+Errors reach this table from three sources:
+
+- **Engine exceptions** (`engine/errors.py`: `MissingAssetError`, `ModelFormatError`, `AudioError`, `Cancelled`) are converted by `map_engine_error()` in `core/engine_errors.py`; the engine never imports core. Out-of-memory errors are identified by `engine/runtime.is_oom()` (`torch.OutOfMemoryError`, `AcceleratorError` with code 2, MPS / DirectML error messages).
+- **Worker `error` events** are reconstructed by `worker_error()`.
+- **Live worker** `State.error` uses the same `code` values.
+
+## Settings
+
+`core/settings/models.py` is a tree of `Record` models rooted at `Settings`, with groups `server`, `paths`, `compute`, `downloads`, `convert`, `separation`, `training`, `live`. `SettingsService` owns `settings.toml` in the data directory and merges values in this order (later values override earlier ones):
+
+<Mermaid chart={"flowchart LR\n    d[\"Model defaults\"] --> f[\"settings.toml\"] --> e[\"Environment variables<br/>RVC_NEXT_GROUP__FIELD\"] --> o[\"overrides<br/>(values fixed by the host)\"]"} />
+
+- Environment variables use `__` to separate levels, for example `RVC_NEXT_SERVER__PORT=8000`, `RVC_NEXT_COMPUTE__DEVICE=cpu`; values are parsed as JSON if possible, otherwise as strings, with `null` / `none` meaning empty. Environment variables and overrides are never written back to the file. `RVC_NEXT_DATA_DIR` is not a setting: it determines the data directory itself.
+- `update()` deep-merges the patch, validates, writes atomically (write `.toml.tmp`, then replace) and notifies listeners, allowing a persistent server to follow settings changes without restarting. TOML has no null, so keys with `None` values are omitted when saving.
+- `config set` and the API's `PATCH /settings` share the same dotted-path logic.
+- The public `SettingsView` excludes the access token, exposing only `access_token_configured: bool`; `env_overrides` lists names fixed by environment variables, which the UI uses to display “Set by an environment variable”.
+- Empty directory settings mean “inside the data directory”: `SettingsService.models_dir`, `experiments_dir`, `outputs_dir`, `assets_dir` resolve them. `paths.assets_dir` can point directly to an original RVC `assets/` directory to avoid duplicate downloads.
+
+The `live` group (devices, stream parameters, last voice and parameters) lives in settings rather than client state because devices belong to the server machine and the CLI's `live run` needs the same values. Pure UI preferences (theme, language, last page) are client state. See [Configuration and environment variables](/docs/cli-config) for each group's fields.
+
+## Events
+
+`core/events/models.py` defines `EventBase(Record)`, with each subclass named by its class attribute `__event_name__`; `EventBase.get_events()` collects all concrete subclasses. The API adds their JSON schemas to OpenAPI, so frontend event types are generated too. Current events:
+
+`job_updated`, `job_log`, `jobs_cleared`, `outputs_added`, `outputs_removed`, `models_changed`, `presets_changed`, `assets_changed`, `experiment_changed`, `train_metrics`, `live_state`, `live_stats`, `devices_changed`, `compute_changed`, `settings_changed`.
+
+Conventions:
+
+- **Events carry snapshots**, rather than live objects being modified by worker threads: `job_updated` carries a copy of the entire `Job`.
+- **Throttle at the source**: job progress is limited to 4 updates per second per job, and logs are batched (at most 50 lines per batch; the UI fills gaps through REST using byte offsets).
+- `LocalEventBus` calls handlers **synchronously on the publisher's thread**; handler exceptions are logged without propagating. Subscribers that need to run elsewhere hand off themselves: `SocketBridge` in `api/sockets.py` uses `loop.call_soon_threadsafe` to place events in an asyncio queue, then a task calls `sio.emit(event.__event_name__, event.model_dump(mode="json"))`. CLI progress bars (`cli/progress.py`) subscribe to the same events.
+
+See [API and events](/docs/development-api) for payload details.
+
+## Database
+
+`core/db/database.py`: one shared `sqlite3` connection with an `RLock`; WAL mode, foreign keys enabled, `synchronous=NORMAL`, `busy_timeout=5000` (the CLI reads the same file while the server writes it; for example, `rvc-next jobs list` can see the running server's jobs). Migrations are SQL scripts in the `MIGRATIONS` list: **append only; never change published entries**. `PRAGMA user_version` records how many have run. There are currently two: the first creates `voice_models`, `presets`, `jobs`, `outputs`, `audio_files`, `client_state`; the second adds `catalog_id` to `voice_models` (marking voices downloaded from the demo voice catalog).
+
+Database contents have two roles:
+
+- **Cache**: `voice_models` can be fully rebuilt from the `models/` directory and legacy RVC installation directories (`models.rescan()`).
+- **Record**: job history and output provenance (inputs, voice, parameters).
+
+Deleting the database loses job history, output provenance, custom presets (defaults are recreated) and the server-side copy of UI preferences; the voice library is rebuilt from disk. Experiments, base models, separation models and unassigned indexes are not in the database at all: they are directories with JSON sidecars, scanned on every listing, so they cannot disagree with the files on disk.
+
+## Data directory
+
+`default_data_dir()` in `core/paths.py` chooses `RVC_NEXT_DATA_DIR` first, then `%APPDATA%\rvc-next` on Windows, `~/Library/Application Support/rvc-next` on macOS, and `$XDG_DATA_HOME/rvc-next` on other platforms (default `~/.local/share/rvc-next`).
+
+```
+<data>/
+  settings.toml            Settings file
+  rvc-next.db              SQLite database
+  server.json              Running server's host, port, pid (removed on exit)
+  legacy-voices.json       Voice / index pairing in legacy installations (including user edits)
+  assets-verified.json     Verified asset cache
+  assets/                  HuBERT, RMVPE, FCPE, base models, separation weights (original assets/ layout)
+  models/                  voices/ indexes/ base/ separation/ attached-indexes/
+  experiments/<name>/      experiment.json and stage directories
+  outputs/<date>/<job id>/  Conversion and separation results
+  uploads/                 Raw uploads (cleaned after 24 hours unless referenced by outputs); imports/<session>/
+  cache/peaks/             Waveform peak cache
+  jobs/<job id>.log       Job logs
+  trash/                   Fallback when the operating system's trash is unavailable
+```
+
+`server.json` has another purpose: at startup, `JobService` marks jobs still active as `interrupted`, but skips this if `server.json` shows that another server is using the data directory, avoiding misclassifying that server's jobs as interrupted.

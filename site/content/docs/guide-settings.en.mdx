@@ -1,0 +1,204 @@
+---
+title: "Settings"
+description: "The Settings page brings together all rvc-next options in eight tabs: General, Compute, Audio, Storage, Downloads, Training defaults, Appearance and About."
+icon: Settings
+---
+
+Most options save immediately when changed, showing **Settings saved**. Folders in **Storage** require you to click **Save**. A few options (server address and port) take effect the next time the server starts, as noted in the UI.
+
+## Where settings are saved
+
+- Server settings are stored in `settings.toml` in the data folder. The default data folder is:
+    - Windows: `%APPDATA%\rvc-next`
+    - macOS: `~/Library/Application Support/rvc-next`
+    - Linux: `~/.local/share/rvc-next` (or `$XDG_DATA_HOME/rvc-next`)
+
+    Set a different location with `RVC_NEXT_DATA_DIR` or `rvc-next webui --data-dir`. `rvc-next config path` prints the settings file path.
+
+- **Appearance** and **General › Language** are UI preferences. They are stored on the server (so they are the same in another browser), with a local browser copy, and are not written to `settings.toml`.
+
+<Callout type="info" title="Values set by environment variables">
+
+Every setting can be overridden by an environment variable in the form `RVC_NEXT_<GROUP>__<FIELD>`, for example `RVC_NEXT_SERVER__PORT=8000` or `RVC_NEXT_PATHS__ASSETS_DIR=D:\rvc-assets`. Environment variables take precedence over `settings.toml`. The UI shows the effective value; edits in the UI write to `settings.toml`, but the environment variable's value stays effective while it is set. Folders pinned by environment variables in **Storage** are marked **Set by an environment variable**. See [Configuration and environment variables](/docs/cli-config) for the full list, or run `rvc-next env`.
+
+</Callout>
+## General
+
+| Option | Default | Description |
+| --- | --- | --- |
+| **Language** | **Auto (…)** | UI language: follow the system automatically, or choose English / Simplified Chinese. Takes effect immediately |
+| **Open the browser when the server starts** | On | Opens the page automatically when running `rvc-next webui`. The command-line `--open/--no-open` temporarily overrides this |
+| **Server address** | `127.0.0.1` | Address the server listens on. **Takes effect the next time the server starts.** |
+| **Port** | `7868` | Server port; takes effect on the next start. If occupied, the next port is tried automatically |
+
+### Access token
+
+An access token protects the server. Once set, every request to the server API (including those made by the web UI itself) must include it.
+
+1. Enter a sufficiently long random string in **Access token**.
+2. Click **Set token**. The label on the left becomes **An access token is set**.
+3. The browser then opens the **Access token** dialog (**This server asks for its access token.**). Enter the same token to continue.
+
+To remove it, click **Clear token**. The token is not displayed again after saving.
+
+<Callout type="warn" title="Set a token before allowing access from other computers">
+
+The default address `127.0.0.1` allows only local access. If you change **Server address** to `0.0.0.0` or a LAN IP without setting an access token, the server refuses to start. Remote browsers can browse server files only after a token is set. See [Remote access and security](/docs/advanced-remote).
+
+</Callout>
+## Compute
+
+| Option | Default | Description |
+| --- | --- | --- |
+| **Device** | **Automatic** | Device used to run models. The dropdown lists detected devices and their GPU memory; unsupported devices are marked ✕. Automatic selects the most suitable NVIDIA GPU (highest compute capability, most GPU memory), then tries DirectML, then CPU. You can also choose a specific GPU (`cuda:N`), DirectML, CPU or experimental Apple MPS (`mps`) |
+| **Precision** | **Automatic** | **Automatic** / **fp32** / **fp16**. Automatic uses half precision (fp16) on supported GPUs, otherwise fp32, following the original's rules |
+| **CUDA Graph for conversion** | Off | Uses CUDA Graph to reduce GPU scheduling overhead in offline conversion |
+| **CUDA Graph for Live** | On | Uses CUDA Graph for live voice conversion |
+| **Unload models after idle minutes (0: never)** | 10 | Automatically unloads models after this idle period to free GPU memory. 0 disables automatic unloading |
+| **GPU jobs at once** | 1 | 1–16. Increase this with enough GPU memory to run several conversion/separation jobs in parallel |
+
+The table below lists each device's ID, name, precision that will be used, and the reason if it cannot be used.
+
+Changing device, precision or **CUDA Graph for conversion** unloads the server's loaded models; the next job loads them with the new settings. Live voice conversion runs in its own background process and reads these settings when that process starts. If Live does not reflect a change, restart the server.
+
+<Callout type="warn">
+
+CUDA, fp16, CUDA Graph, DirectML and MPS have not been verified on real hardware (the build machine has no GPU). If you encounter problems, try changing **Device** to CPU to rule out device issues.
+
+</Callout>
+## Audio
+
+The device panel here is identical to the one on **Live**; both edit the same settings. See “Audio devices” in [Live](/docs/guide-live) for instructions.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| **Enable ASIO drivers (Windows)** | Off | Adds ASIO drivers to the device list (requires an audio interface with an ASIO driver). After enabling it, click **Refresh devices** on **Live** |
+| **Reconnect a lost device automatically** | On | If a device disconnects during live voice conversion, searches every 2 seconds and resumes automatically when it returns. When off, disconnection stops the session immediately |
+| **Show the input meter while stopped** | On | The device panel opens the microphone and shows **Input level** even when Live is stopped. Turn this off if you do not want the microphone kept in use |
+| **List every device in the input and output menus** | Off | When on, the **Input** menu also lists output devices, and the **Output** and **Monitor** menus also list input devices, for special routings such as sending audio into an input device (the recording side of a virtual cable, say). Devices from the other direction come last, marked **input device** or **output device**. If the driver does not support that direction, the device panel reports the problem before **Start** |
+
+## Storage
+
+### Folders
+
+| Option | Location when empty | Contents |
+| --- | --- | --- |
+| **Voices** | `<data directory>/models` | Voice library, imported base models, separation models and unassigned indexes |
+| **Experiments** | `<data directory>/experiments` | Training experiments |
+| **Results** | `<data directory>/outputs` | Conversion and separation results |
+| **Assets** | `<data directory>/assets` | Downloaded files such as HuBERT, RMVPE, base models and separation models |
+
+Each field shows **Default: \{path\}** below it. Leave it empty to use the default location within the data folder.
+
+- **Assets** uses the original RVC layout, so you can point it directly at an original RVC install's `assets` folder to reuse downloaded HuBERT, RMVPE and base models without downloading them again.
+- Changing a folder does not move existing files automatically. To change locations, move the folder yourself first, then update the setting.
+
+### Folders the browser may open
+
+**Folders the browser may open** controls which server locations the web UI's **Server files** and **Browse…** dialogs can access. Enter one path per line.
+
+When empty (default), this includes your home folder, added original RVC installs, the data folder and every drive (Windows `C:\`, `D:\`…) or mounted volume (macOS `/Volumes/…`; Linux `/media/<user>/…`, `/run/media/<user>/…`, `/mnt/…`). The gray placeholder lists the folders currently allowed. Entering paths restricts access to those folders.
+
+<Callout type="info">
+
+Regardless of these settings, server files can be browsed only when you open the page on the server machine or the server has an access token set.
+
+</Callout>
+### Result retention
+
+**Delete results after days (0: keep)** defaults to 0. Set a positive number to automatically delete conversion/separation results older than that many days.
+
+After changing folders or browsable locations, click **Save** at the bottom right.
+
+## Downloads
+
+| Option | Default | Description |
+| --- | --- | --- |
+| **Model repository** | `licyk/rvc-model · organised for rvc-next, with demo voices` | Hugging Face repository to download model files from |
+| **Download endpoint** | **Hugging Face** | Address used to access repositories: **Hugging Face**, **hf-mirror.com** or **Custom** |
+| **Custom endpoint** | — | Appears when **Custom** is selected; enter the mirror's address |
+| **Verify checksums** | On | Checks SHA-256 after download; damaged files are marked **Checksum mismatch** |
+
+Two model repositories:
+
+- **licyk/rvc-model** (default): organized for rvc-next, containing every model it uses by category, plus demo voices.
+- **lj1995/VoiceConversionWebUI**: the official RVC repository, with the same models but no demo voices.
+
+As the UI explains: **rvc-model holds every model rvc-next uses, by category, and the demo voices. The official repository has the same models but no demo voices; demo voices always come from rvc-model.** If the selected repository lacks a file, it is fetched automatically from the other one.
+
+<Callout type="idea" title="Slow downloads in mainland China?">
+
+Changing **Download endpoint** to **hf-mirror.com** is usually much faster. You can also specify it temporarily on the command line: `rvc-next assets download --source hf-mirror` (also saves it to settings).
+
+</Callout>
+## Training defaults
+
+These values provide the initial settings for a **New experiment**. Existing experiments are unaffected (edit each experiment's settings on its page; see [Train](/docs/guide-train)).
+
+| Option | Default |
+| --- | --- |
+| **Sample rate** | 40k (32k / 40k / 48k available) |
+| **Model version** | v2 (v1 / v2 available) |
+| **Epochs** | 20 |
+| **Save every N epochs** | 5 |
+| **Pitch guidance** | On |
+| **Cache the dataset in GPU memory** | Off |
+
+This tab also has two defaults unrelated to training:
+
+| Option | Default | Description |
+| --- | --- | --- |
+| **Default separation preset** | `vocals` (Vocals) | Initially selected preset on **Separate** |
+| **Result format** | WAV | Default output format on **Convert**: WAV, FLAC, MP3 or M4A |
+
+<Accordions>
+<Accordion title="Training settings available only on the command line">
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `training.f0_method` | `auto` | Pitch method for new experiments: `auto` (rmvpe with a CUDA GPU, otherwise pm), `pm` or `rmvpe` |
+| `training.batch_size` | Empty | Batch size for new experiments; empty means the smallest GPU's memory (GiB) ÷ 2 |
+| `training.gpus` | `auto` | GPUs for new experiments: `auto`, `cpu` or IDs such as `0-1` (each experiment can override this in its settings) |
+| `training.save_small_every` | `false` | Whether new experiments save a voice at every save point |
+| `training.cpu_workers` | Empty | Number of processes for slicing and pitch extraction; empty means CPU cores ÷ 1.5 |
+| `separation.output_format` | `flac` | Default output format on **Separate** |
+
+For example: `rvc-next config set training.gpus 0-1`.
+
+</Accordion>
+</Accordions>
+## Appearance
+
+| Option | Choices | Description |
+| --- | --- | --- |
+| **Theme** | **Light** / **Dark** / **System** | Follows the system by default |
+| **Colour** | 6 color swatches | Primary color for the entire UI; the palette is generated automatically from the selected color |
+| **Contrast** | **Standard** / **Medium** / **High** | Increases contrast between text and background |
+| **Motion** | **As the system** / **Reduced** | **Reduced** always uses reduced motion, regardless of system settings |
+
+**Preview** plays a transition animation to help compare motion settings. Appearance settings take effect immediately and are stored on the server.
+
+## About
+
+Lists:
+
+- The **rvc-next** version;
+- The **Data folder** path;
+- The current **Device**;
+- The **torch** version and its CUDA version.
+
+Also shows license information: RVC (MIT) · PyMSS (MIT) · rvc-next (GPL-3.0).
+
+## Change settings from the command line
+
+All settings can also be viewed and changed from the command line. Changes are written to the same `settings.toml`:
+
+```bash
+rvc-next config show                          # Show effective settings
+rvc-next config get server.port               # Read one setting
+rvc-next config set server.port 8000          # Change one setting (JSON is parsed)
+rvc-next config set server.access_token null  # null clears the value
+rvc-next config path                          # Settings file location
+```
+
+See [Configuration and environment variables](/docs/cli-config).

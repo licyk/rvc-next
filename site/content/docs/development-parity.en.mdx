@@ -1,0 +1,165 @@
+---
+title: "Parity with the original"
+description: "RVC Next rewrites the orchestration, storage, process control, and all interfaces of Retrieval-based-Voice-Conversion-WebUI (the original, ~/codeworkspace/Retrieval-based-Voice-Conversion-WebUI, commit 81eed5e), but ports the numerical code rather than reinventing it*"
+icon: Scale
+---
+
+RVC Next rewrites the orchestration, storage, process control, and all interfaces of Retrieval-based-Voice-Conversion-WebUI (the “original” below, `~/code_workspace/Retrieval-based-Voice-Conversion-WebUI`, commit `81eed5e`), but **the numerical code is ported, not reinvented**: users' existing voices must sound the same as in the original. This page explains the porting rules, how parity is proven (golden tests), intentional behavior changes, and the original's structure for maintainers comparing the two.
+
+The original is a heavily modified 2026 branch, not upstream: it replaces fairseq HuBERT with transformers, UVR5 with PyMSS, and adds CUDA Graph acceleration, multi-speaker training, a CLI, and a VST plugin. “Original” below always means this branch.
+
+## Porting rules
+
+**Copied directly**: these files are copied from the original with only import paths fixed, preserving their shape for line-by-line diffs:
+
+| rvc-next | Original |
+| --- | --- |
+| `engine/models/{synthesizer,modules,attentions,commons,transforms}.py` | `infer/module/*.py` (four synthesizer classes and two discriminator types) |
+| `engine/f0/rmvpe.py` | `infer/rmvpe.py` |
+| `engine/audio/denoise.py` | `tools/torchgate/` (TorchGate) |
+| `engine/graph.py` | `tools/cuda_graph.py` (only the switch changes from an environment variable to a process-level setting) |
+| `engine/train/{slicer,losses,mel}.py` | `train/dataset/slicer2.py`, `train/losses.py`, `train/mel_processing.py` |
+| `engine/train/dataset.py` | `train/data_utils.py` |
+
+**Ported line by line to new interfaces**: pipeline mathematics stays unchanged, wrapped in new functions and classes—offline conversion (`engine/convert/offline.py` ← `infer/vc/pipeline.py`), streaming conversion (`engine/stream/engine.py` ← `infer/rtrvc.py` plus `start_vc`/`audio_callback` in `realtime_gui.py`), training stages (`engine/train/*` ← `train/*.py`, `train/dataset/*.py`, `tools/multispeaker.py`, file-list code in `webui.py`), checkpoint tools (`engine/models/{checkpoint,merge,extract}.py` ← `train/process_ckpt.py`), GPU rules (`engine/runtime.py` ← `configs/config.py`), separation model table (`engine/separate/` ← `tools/pymss_webui.py`).
+
+**Not ported**: Gradio handlers, live GUI callbacks and controls, process launching (`Popen(cmd, shell=True)` with `%`-formatted command lines), Chinese status strings, engine interfaces returning Gradio update dictionaries.
+
+To keep copied files comparable with the original, `pyproject.toml` excludes `engine/models/{attentions,commons,modules,transforms,synthesizer}.py` and `engine/f0/rmvpe.py` from `ruff format` and ty, and applies per-file ignores for `B`, `SIM`, `UP`, `E402`, `E712`, `E741`, `F841`, and other rules to these files plus `engine/audio/denoise.py` and `engine/train/{dataset,losses,mel,slicer}.py` (see [Development environment](/docs/development-setup)). Preserve the original style when editing these files; use golden tests to confirm bug fixes do not change numerical results.
+
+## Golden tests
+
+Golden tests run the original and rvc-next on the same machine and compare outputs. Both use **CPU, fp32**, the same random seed, and the same 16 kHz input (decoded only once).
+
+### Offline: `scripts/golden.py`
+
+```bash
+python scripts/golden.py --original ~/code_workspace/Retrieval-based-Voice-Conversion-WebUI \
+    --assets <assets directory> --voice a.pth [--voice b.pth] --clip speech.wav [--clip …] \
+    [--f0 pm --f0 rmvpe --f0 fcpe] [--pitch 2] [--speaker-id 1] [--index x.index --index-rate 0.75]
+```
+
+[`scripts/golden.py`](https://github.com/licyk/rvc-next/blob/main/scripts/golden.py) adds the original checkout to `sys.path`, importing only `infer.hubert`, `infer.vc.pipeline`, and `infer.module.models` (no interfaces), and builds `Pipeline` with the original CPU chunking parameters (`x_pad/x_query/x_center/x_max = 1/6/38/41`); rvc-next uses `Runtime(device="cpu", precision="fp32")` and `OfflineConverter`. Each (voice, clip, F0 method) produces one line: RMS sample difference (on a −1..1 scale) and whether the output is bit-identical. Exceeding `TOLERANCE = 1e-4` gives exit code 1. Without `--f0`, only `pm` and `rmvpe` are compared.
+
+### pytest: `tests/golden/`
+
+Both tests carry the `golden` marker, deselected by default (`addopts = "-m 'not live and not golden and not assets'"`); run with `pytest -m golden`. Environment variables:
+
+| Variable | Meaning |
+| --- | --- |
+| `RVC_NEXT_GOLDEN_ORIGINAL` | Original checkout, default `~/code_workspace/Retrieval-based-Voice-Conversion-WebUI` |
+| `RVC_NEXT_TEST_ASSETS` | Asset directory in the original layout (`hubert_base/`, `rmvpe/`; offline tests also need `fcpe/fcpe_c_v001.pt`) |
+| `RVC_NEXT_GOLDEN_VOICES` | `.pth` list separated by `os.pathsep` |
+| `RVC_NEXT_GOLDEN_CLIP` | An audio file |
+
+- `test_offline_golden.py`: runs `pm`, `rmvpe`, and `fcpe` for each voice through `scripts/golden.py`, with pitch shift 2 and speaker 1; all must be within 1e-4 **and bit-identical**. The original's FCPE depends on torchfcpe, so the test uses `importorskip("torchfcpe")`—torchfcpe must be installed in the test environment for the original side; rvc-next itself does not depend on it.
+- `test_stream_golden.py`: the original `start_vc`/`audio_callback` live in the GUI's `__main__` block and cannot be imported, so the test has a GUI-free copy (`OriginalStream`) driving the original `rtrvc.RVC`; rvc-next uses `StreamEngine`. Compare each voice block by block (up to 12 blocks), with the same seed before each block. Three parameter sets cover 48k/40k, RMVPE/pm, pitch shifts, formant 1.0, input/output denoising, and thresholds. The original live code imports torchaudio, so the test uses `importorskip("torchaudio")`.
+
+Tests skip rather than fail when the original checkout, assets, or required packages are missing (CI lacks these original dependencies).
+
+### Proven results
+
+As recorded in AGENTS.md, on CPU fp32:
+
+- **Offline**, pm and RMVPE: four voice types—v1 40k, v2 40k, v2 40k without pitch, v2 48k—on speech, silence, and a 70-second clip exceeding the chunking threshold, with pitch shift and speaker ID, produce **bit-identical** output; FCPE is also bit-identical.
+- **Streaming**: `StreamEngine` is bit-identical block by block to `rtrvc.RVC.infer` plus the live GUI callback mathematics (gate, input/output TorchGate, formant, RMS mix, SOLA).
+
+Parity on GPU, fp16, and CUDA Graph has no golden validation (the build machine has no GPU; see [Tests and checks](/docs/development-testing)).
+
+<Callout type="warn" title="Build models before setting the seed">
+
+HuBERT, RMVPE, and FCPE weight initialization (later overwritten by checkpoints) consumes the global RNG, while the original builds RMVPE/FCPE inside `Pipeline`. If one side seeds before building models and the other does the reverse, subsequent random sequences (such as the NSF noise source) diverge, and results cease to be bit-identical. Golden code therefore calls `runtime.hubert()` and `runtime.f0(method)` first; the original side also builds RMVPE/FCPE in advance and assigns them to `pipeline.model_rmvpe`/`model_fcpe`, then calls `torch.manual_seed()`. Keep this order in new golden cases.
+
+</Callout>
+## Intentional behavior changes
+
+Each change has a reason found in the original code; with default parameters, changes affecting numerical results do not alter golden results.
+
+| Change | Original | rvc-next | Reason |
+| --- | --- | --- | --- |
+| Slicing keeps every slice's tail | The final `norm_write(tmp_audio…)` in `train/preprocess.py` sits outside `for audio in self.slicer.slice(audio)`, writing only the last segment's tail (regression introduced in `81eed5e`; inside the loop in `5d47da1`) | `PreProcess.slices()` collects tails inside the loop | Every slice's tail was silently dropped from the original training dataset |
+| Live honors the speaker | `sid` hard-coded to 0 in `infer/rtrvc.py` | Uses `VoiceParams.speaker_id` | Multi-speaker voices allow speaker selection in Live |
+| Rebuild indexes when data changes | `train/train_index.py` skips if any `added_*.index` exists | Checks feature fingerprints (`index_fingerprint.json`) | The original kept using old indexes after retraining on changed data |
+| Load indexes once | `infer/vc/pipeline.py` calls `faiss.read_index` + `reconstruct_n` for every file | `Runtime.index()` caches by path and modification time | Slow batch conversion |
+| pm, rmvpe, fcpe everywhere | Original CLI accepts only pm and rmvpe, inference UI also has fcpe | UI, CLI, API, and Live offer all three; training still only pm and rmvpe | Consistent parameter behavior everywhere |
+| HuBERT normalization | Training feature extraction applies `layer_norm` when `do_normalize` is true; inference never does | One shared function, `features/hubert.normalize_input`, for training and inference | Real assets have `do_normalize: false`, so neither normalizes and results remain unchanged |
+| Offline formant shift | Only available live | Offline uses the live method (pitch at `key − formant`, generate `ceil(n·2^(f/12))` frames with scaled NSF pitch, then resample back) | The parameter works alike in Convert and Live; bit-identical when `formant = 0` |
+| Any path | Live GUI rejects paths with non-ASCII characters; `clean_path` strips quotes | Any path accepted by the OS | — |
+| Inference outside the audio callback | Live GUI performs the entire conversion in the `sounddevice` callback | Callback only moves data; a processing thread runs the engine | Avoid audio glitches; callbacks must not block |
+| Change block length without stopping the stream to reload | Block, crossfade, or context changes require stopping the stream | Rebuild buffers, keep the voice loaded | — |
+| Resume training | Repeats the saved epoch after restoration | Continues from the next epoch | — |
+| mp3/m4a output | `wav2` leaves sample rate unchanged; 40k models fail to export mp3/m4a | Raise to the nearest encoder-supported rate (40 kHz → 44.1 kHz) | — |
+
+Other differences visible during comparison, without being behavior changes:
+
+- **Offline output is up to two 10 ms frames shorter**—the original's per-chunk flooring; preserved for bit-identical results.
+- **transformers 5**: the original pins below 4.50; rvc-next needs `transformers>=5,<6` (4.x requires `huggingface_hub < 1`). HuBERT layer outputs are unchanged and golden runs are bit-identical.
+- **Index k-means** uses faiss rather than scikit-learn MiniBatchKMeans (only above 200,000 vectors), removing a dependency; same purpose, different numbers.
+- **CUDA Graph switches**: the original uses `RVC_CUDA_GRAPH`; rvc-next uses settings `compute.cuda_graph_offline` (default off) and `compute.cuda_graph_live` (default on); the cache capacity variable is renamed to `RVC_NEXT_CUDA_GRAPH_MAX_CACHE`. Golden code clears `RVC_CUDA_GRAPH` before running.
+
+## Porting torchaudio and torchfcpe
+
+The original uses torchaudio for live resampling and torchfcpe for FCPE. torchaudio's last version is 2.11, and it declares no torch dependency, so unconstrained torch can resolve to a version it cannot load; torchfcpe also pulls in torchaudio. rvc-next therefore ports the parts it uses and no longer depends on either package:
+
+| Port | Source | Used for | Evidence |
+| --- | --- | --- | --- |
+| [`engine/audio/sinc_resample.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/audio/sinc_resample.py): `Resample`, `sinc_resample_kernel`, `apply_sinc_resample_kernel` | torchaudio 2.11 `transforms.Resample` and `functional._get_sinc_resample_kernel`/`_apply_sinc_resample_kernel` (BSD-2, full license in the file header) | Streaming input→16 kHz, voice→device sample rate, two formant resampling steps, non-16 kHz FCPE input | `tests/engine/test_sinc_resample.py`: kernels and outputs satisfy `torch.equal` against torchaudio at rate pairs rvc-next actually uses (48000→16000, 44100→16000, 40000→48000, 471→400, 504→480, etc.); Kaiser windows also match |
+| [`engine/f0/fcpe_model.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/f0/fcpe_model.py): `Wav2Mel`, convolution-only `CFNaiveMelPE`, decoders, `load_fcpe` | torchfcpe (FCPE, MIT; conformer from Diffusion-SVC) | `fcpe` F0 method | `tests/engine/test_fcpe_model.py`: mel and F0 are bit-identical to torchfcpe with both `argmax` and `local_argmax` decoding (unvoiced frames are NaN on both sides); bundled weights match those shipped with torchfcpe |
+
+Both ports change only types, exception types, and removal of deprecated names; arithmetic remains unchanged step by step. Without torchaudio/torchfcpe installed, these comparisons skip via `importorskip`; other tests (length, identity, frequency preservation, invalid arguments, creating providers from the runtime) still run. FCPE weights `fcpe_c_v001.pt` download as the `fcpe` asset; see [Assets and model repositories](/docs/development-assets) for the source. Licenses are in the root `NOTICE`.
+
+## Original codebase overview
+
+A map for diagnosing issues against the original.
+
+### Entry points
+
+| Entry point | What it is | In rvc-next |
+| --- | --- | --- |
+| `webui.py` (about 2,800 lines) | Gradio 3.14 app, port 7865; all handlers in one file | Web UI + API |
+| `realtime_gui.py` | FreeSimpleGUI desktop live voice converter (sounddevice) | Live screen and `workers.live` |
+| `infer/cli.py` | Offline conversion CLI | `rvc-next convert` |
+| `train/*.py`, `train/dataset/*.py` | One script per training stage, positional arguments, launched by WebUI as shell subprocesses with log tracking | `workers.train` and training service |
+| `tools/pymss/cli.py` | Bundled PyMSS CLI and HTTP server (unused by RVC itself) | Not provided; pymss is a dependency |
+| `RVCRealtimeVST/` | Windows VST2/VST3 plugin (iPlug2) driving a Python worker | Not implemented (an adapter over the same Live worker is planned) |
+
+Each entry point builds its own engine from shared `infer/` code; the live DSP chain exists in three copies in `realtime_gui.py`, `infer/rtrvc.py`, and the VST worker, F0 postprocessing in `pipeline`, `rtrvc`, and `extract_f0`, and PyMSS is both bundled and installed as a pip package (`tools/pymss_webui.py` puts `tools/` first on `sys.path`, selecting the bundled version). rvc-next consolidates these into one copy each.
+
+### Key implementation locations
+
+| Feature | Original location | Key points |
+| --- | --- | --- |
+| GPU rules | `configs/config.py:get_device_dtype_sm` | Runs at import; `Config` singleton parses `argparse` |
+| Offline pipeline | `infer/vc/modules.py:VC` → `infer/vc/pipeline.py:Pipeline` | 48 Hz high-pass, reflection padding, chunking at lowest-energy points, whole-clip F0, per-chunk features/retrieval/protect/synthesis |
+| Live | `infer/rtrvc.py:RVC.infer` + `realtime_gui.py` callback | All conversion in the callback; `skip_head`/`return_length`; 1024-frame pitch cache |
+| CUDA Graph | `tools/cuda_graph.py` | Default off offline, on live, off for training |
+| Training scheduling | `webui.py`, about lines 723–1530 | Locked global `TRAIN_TASK`, one stage at a time; track `logs/<exp>/*.log` every second |
+| Training loop | `train/train.py` | No DDP on one GPU, DDP over gloo on multiple GPUs; mel L1 ×45, KL, feature matching, LSGAN; AdamW with exponential decay; ends with `os._exit(0)` |
+| Multi-speaker | `tools/multispeaker.py` | `Name_ID_Repeat` folders or a paginated table; `spk_embed_dim` fixed at 110; one `_spkid<N>.index` per speaker; `get_index_path_from_model` scores names to assign indexes at inference |
+| Separation | `tools/pymss_webui.py` | Five hard-coded models; one subprocess per run, JSON request file + JSON-lines events (retained by rvc-next's worker protocol); DirectML fp16 failure exits 75 for an fp32 rerun |
+
+### Formats that must remain readable
+
+| Format | Details | Why |
+| --- | --- | --- |
+| Small-model `.pth` | `weight` (fp16), 18 positional `config` items, `info`, `sr`, `f0`, `version`, optional `speaker_info` | All existing user models; models written by rvc-next also work in the original |
+| faiss index | `added_IVF*_Flat_nprobe_*_<exp>_<version>[_spkid<N>].index` (version `v1` or `v2`); `trained` paths replaced with `added` | Existing indexes |
+| Base models | `assets/pretrained{,_v2}/{f0,}{G,D}{32k,40k,48k}.pth`; v2 40k uses `configs/v1/40k.json` | Fine-tuning |
+| Experiment folders | `0_gt_wavs` … `3_feature768`, `filelist.txt` line format, `config.json`, `multispeaker_manifest.json` | Legacy experiment import (`engine/train/experiment.py:read_legacy`) |
+| Asset layout | `assets/hubert_base/` (Hugging Face format), `assets/rmvpe/rmvpe.pt` and `rmvpe.onnx`, `assets/pymss_weights/`, `logs/mute/` | `paths.assets_dir` can point directly to the original's `assets/` without downloading again |
+
+### Issues found in the original and their resolution
+
+| Issue | Resolution |
+| --- | --- |
+| Slicing drops tails (regression) | Fixed; see table above |
+| Live speaker fixed at 0 | Fixed |
+| Existing index skips building | Rebuild by fingerprint |
+| Reread index for every file | Runtime cache |
+| Inconsistent F0 options | Unified |
+| Inconsistent training/inference normalization | One function |
+| Old web stack (Gradio 3.14, pydantic 1, FastAPI &lt; 0.100) | FastAPI + Vue 3, pydantic v2 |
+| Stages run with `shell=True` and `%`-formatted commands, fragile with special paths | Workers read JSON request files, launched with `sys.executable` |
+| Engine returns Gradio update dictionaries and Chinese statuses | Engine has no UI dependencies |
+| Multiple copies of code | One copy of each |
+| Live inference in the audio callback; VST does not resynchronize after underruns, takes a 5-second timeout to detect worker death, one CUDA context per instance | Processing thread + ring buffers + watchdog; VST not implemented |

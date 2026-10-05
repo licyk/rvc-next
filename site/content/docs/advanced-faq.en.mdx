@@ -1,0 +1,251 @@
+---
+title: "FAQ"
+description: "Common questions grouped by topic. Expand a question to see its answer. If you encounter a problem, run rvc-next doctor first: it checks torch and CUDA, audio devices, and assets, and suggests commands to fix issues."
+icon: CircleQuestionMark
+---
+
+## Installation and startup
+
+<Accordions>
+<Accordion title="What if the port is already in use at startup?">
+
+The default port is 7868. If it is in use, the server automatically tries 7869, 7870, … (up to 20 ports), logs "Port 7868 is unavailable. Using port 7869.", and opens the browser on the actual port.
+
+To use a specific port:
+
+```bash
+rvc-next webui --port 8000              # This time only
+rvc-next config set server.port 8000    # From now on (takes effect at the next server start)
+```
+
+With `--strict-port` (or `server.strict_port` set to `true`), the server fails immediately if the port is in use (exit code 3), without switching ports.
+
+</Accordion>
+<Accordion title="Where are data (voices, experiments, results) saved?">
+
+By default, in the data directory: `%APPDATA%\rvc-next` on Windows, `~/Library/Application Support/rvc-next` on macOS, and `~/.local/share/rvc-next` (or `$XDG_DATA_HOME/rvc-next`) on Linux. `data_dir` in `rvc-next config show`, or **Data folder** under **Settings** › **About** in the Web UI, shows the current location.
+
+Use `RVC_NEXT_DATA_DIR` or `rvc-next webui --data-dir <path>` to choose another location. To move only one category of files, change the **Voices**, **Experiments**, **Results**, or **Assets** folder under **Settings** › **Storage**. For the directory layout, see [Configuration and environment variables](/docs/cli-config#data-dir).
+
+</Accordion>
+<Accordion title="How do I reset settings to defaults?">
+
+Stop the server, then delete or rename `settings.toml` in the data directory (`rvc-next config path` prints its path). The next start uses all defaults; the voice library, experiments, and results are unaffected.
+
+To reset just one setting, write it back with `rvc-next config set <key> <default value>`. Defaults are listed in [Configuration and environment variables](/docs/cli-config#all-settings). Values set by `RVC_NEXT_<GROUP>__<FIELD>` environment variables always take precedence.
+
+</Accordion>
+<Accordion title="I changed a setting with rvc-next config set, but the server did not change?">
+
+The server picks up `settings.toml` changes within about 1 second, and the Web UI refreshes too. If nothing changes, first check the server log for an “Ignored a change to … settings.toml” warning (an invalid file edit). Then check whether an environment variable overrides the same setting (`rvc-next config show` marks this). A few settings, such as the port and listening address, require a server restart.
+
+</Accordion>
+<Accordion title="Can I use the command line while the server is running?">
+
+Yes. Command-line jobs run in their own processes and write records to the same database, so both the Web UI's **Jobs** panel and `rvc-next jobs list` show jobs from either side. Keep two points in mind: command-line jobs do not participate in the server's GPU queue, so concurrent jobs compete for GPU memory; for settings changes, see the previous question.
+
+</Accordion>
+</Accordions>
+## Asset and model downloads
+
+<Accordions>
+<Accordion title="What if HuBERT, RMVPE, or another asset is missing?">
+
+Conversion needs at least HuBERT, and also RMVPE when using the RMVPE pitch method. When assets are missing, the UI shows **Needs …** and a **Download (size)** button; click it to download. You can also download them in **Models** › **Assets**. Command-line errors suggest the specific command (exit code 7), for example:
+
+```bash
+rvc-next assets download          # HuBERT and RMVPE
+rvc-next assets download fcpe     # FCPE
+rvc-next assets download pretrained-v2-40k   # Base models for training
+```
+
+If you have original RVC, point `paths.assets_dir` to its `assets` folder to avoid downloading again; see [Migrate from original RVC](/docs/advanced-migrate).
+
+</Accordion>
+<Accordion title="Why does selecting FCPE report a missing asset?">
+
+The FCPE model (`fcpe`, about 41 MB) is an asset in the default `inference` download group, so `rvc-next assets download` with no arguments fetches it too. If only FCPE is missing, the UI prompts you to download it when you select FCPE; on the command line you can also run `rvc-next assets download fcpe` on its own.
+
+</Accordion>
+<Accordion title="Downloads are slow or cannot reach Hugging Face?">
+
+Switch to the hf-mirror endpoint:
+
+<Tabs items={["Web UI", "Command line"]}>
+<Tab value="Web UI">
+
+Under **Settings** › **Downloads** › **Download endpoint**, select **hf-mirror.com**. Or select **Custom** and enter another mirror in **Custom endpoint**.
+
+</Tab>
+<Tab value="Command line">
+
+```bash
+rvc-next assets download --source hf-mirror
+# Or
+rvc-next config set downloads.source hf-mirror
+```
+
+</Tab>
+</Tabs>
+Downloads support resuming: after an interruption, downloading again continues from the `.part` file, with automatic retries on failure. **Model repository** can switch between `rvc-model` (default, including demo voices) and the official repository; both contain the same model files.
+
+</Accordion>
+<Accordion title="An asset shows “Checksum mismatch”?">
+
+The file's SHA-256 differs from the catalog, usually because the download is incomplete or the file was replaced. Download the asset again in **Models** › **Assets**, or run `rvc-next assets download <id>`. `rvc-next assets verify` rechecks all installed assets.
+
+</Accordion>
+</Accordions>
+## Conversion
+
+<Accordions>
+<Accordion title="What can I do about slow CPU conversion?">
+
+First check whether the GPU is actually being used: the "Selected" line in `rvc-next doctor` shows the selected device. Common reasons for seeing CPU:
+
+- You installed a CPU build of PyTorch and need a CUDA build (see [Installation](/docs/installation));
+- The GPU does not meet the GPU rules (less than 4 GiB of memory or insufficient compute capability); see [Hardware and performance](/docs/advanced-hardware#gpu-rule);
+- `compute.device` is set to `cpu`.
+
+If CPU is your only option, switch the pitch method to **pm (fast)** and use **Preview 15 s** to tune parameters before converting the whole song. Vocal separation is especially slow on CPU, so skip it if you can.
+
+</Accordion>
+<Accordion title="What does “no index” on a voice mean?">
+
+Without an index, **Index strength** has no effect (the UI tells you). Conversion still works, but voice characteristics come entirely from the model itself. To attach an index:
+
+- Click **Attach index** on the voice page and upload or choose a server `.index` file (any file name is accepted, but the version must match: 256 dimensions for v1, 768 for v2);
+- If you have a training experiment, click **Build from experiment**;
+- Command line: `rvc-next model index attach <voice> <file>`, or `rvc-next model index build <voice> --experiment <experiment>`.
+
+`trained_*.index` contains no feature vectors and cannot be used; use `added_*.index`.
+
+</Accordion>
+<Accordion title="How do I select a speaker in a multi-speaker voice?">
+
+A voice with speaker information in its `.pth` is multi-speaker. Its card shows **N speakers**, and the parameter panel includes a **Speaker** option. On the command line, use `--speaker <id>`; `rvc-next model info <voice> --speakers` lists speakers. You can name them with `rvc-next model edit <voice> --speaker-name 0=Alice`. Multi-speaker voices can also have a separate index for each speaker (`--speaker`). Live voice conversion uses the selected speaker too.
+
+</Accordion>
+<Accordion title="Where are conversion results saved?">
+
+By default, in `outputs/<date>/<job id>/` under the data directory, with file names `<original name>.<voice>.<format>`. Existing files are never overwritten. The Web UI's **Results** list lets you play or download them (**Download all** packages them as a zip), or click **Show in folder** (only in a browser on the server machine). On the command line, use `-o` to specify an output folder; each result's path is printed when finished.
+
+To change the default location, set the **Results** folder under **Settings** › **Storage**. When **Delete results after days (0: keep)** is greater than 0, the server deletes expired results at startup.
+
+</Accordion>
+<Accordion title="Why does an import ask me to “Review the import”?">
+
+If an imported index cannot be paired with certainty (for example, several voices of the same version are imported together and their names do not match), the Web UI opens **Review the import**. Each index lists only version-compatible voices for you to choose. You can also select **Keep unassigned** and assign it later under **Unassigned indexes** in **Models** › **Voices**. The command line prints the import plan and exits with code 3; rerun with `--pair voice.pth=index.index` or `--keep-unassigned`.
+
+</Accordion>
+</Accordions>
+## Live voice conversion
+
+<Accordions>
+<Accordion title="The Live page has no audio devices or reports that devices are unavailable (Linux)?">
+
+Live voice conversion accesses sound cards through PortAudio. On Linux, install the system PortAudio library:
+
+```bash
+sudo apt install libportaudio2        # Debian / Ubuntu
+```
+
+Then check the "Audio devices" line in `rvc-next doctor`, or list devices with `rvc-next live devices`. **Live is not available on this server yet.** means `sounddevice` is not installed in the server's Python environment.
+
+Also remember: these are devices on **the server computer**. Opening the Web UI from another computer or phone does not show or use that device's microphone; see [Remote access and security](/docs/advanced-remote#live-devices).
+
+</Accordion>
+<Accordion title="Live voice conversion crackles or cuts out?">
+
+Audio cuts out when inference cannot keep up with the block length. Check **Load** on the Live page: above 80%, **Increase block to … ms** appears; click it to apply. You can also increase **Block** manually, or:
+
+- Reduce **Context**, disable **Reduce input noise** and **Reduce output noise**;
+- Switch the pitch method to pm;
+- Stop concurrent conversion or training jobs (they compete with live voice conversion for the GPU);
+- Confirm the GPU is actually being used (CPU usually needs very long blocks).
+
+Continually increasing **underruns** and **overruns** counts also indicate a need for larger blocks. See [Hardware and performance](/docs/advanced-hardware#live-latency).
+
+</Accordion>
+<Accordion title="Why does starting live voice conversion say the saved output device is missing?">
+
+The output device used last time is disconnected (for example, headphones or a sound card were unplugged). The UI reports **The saved output device is missing; the system default would be used.** Click **Start with the default output** to confirm, or choose another device in the device panel. On the command line, add `--allow-fallback`. With **Reconnect a lost device automatically** enabled, a device lost during a session resumes automatically when reconnected.
+
+</Accordion>
+</Accordions>
+## GPU memory and performance
+
+<Accordions>
+<Accordion title="What if I see “The GPU is not available or ran out of memory”?">
+
+An out-of-memory failure is not retried automatically; the server unloads all unused models. You can:
+
+1. Stop live voice conversion and other jobs, then click **Free GPU memory** in the top bar's **GPU memory** menu;
+2. Click **Retry** in **Jobs**;
+3. If memory is still insufficient, set **GPU jobs at once** to 1, reduce the training batch size, disable **Cache the dataset in GPU memory**, or set **Precision** to fp16 (if the GPU supports it).
+
+See [Hardware and performance](/docs/advanced-hardware#out-of-memory).
+
+</Accordion>
+<Accordion title="Why does a job stay on “Waiting for the GPU”?">
+
+When the number of GPU jobs reaches **GPU jobs at once**, other jobs queue. While live voice conversion runs, new GPU jobs also wait to avoid affecting live audio. **Run anyway** on the job card starts a job without waiting for live voice conversion to stop (which may cause audio glitches).
+
+</Accordion>
+<Accordion title="Why are jobs marked “Interrupted” after a server restart?">
+
+Jobs still queued or running when the server exits are marked **Interrupted** at the next start. Their requests are saved in the database; click **Retry** to rerun. Training resumes from the last saved checkpoint.
+
+</Accordion>
+</Accordions>
+## Files and remote access
+
+<Accordions>
+<Accordion title="Why does Server files not show D: (or another drive)?">
+
+By default, **Server files** can browse all drives (`C:\`, `D:\`, etc. on Windows), mounted volumes (`/Volumes/*` on macOS; `/media/<user>/*`, `/run/media/<user>/*`, `/mnt/*` on Linux), the user's home directory, the data directory, and original RVC installations.
+
+If a drive is missing, **Folders the browser may open** (`paths.browse_roots`) is usually set: once set, only listed folders can be browsed. Add the drive you need, or clear the list to restore defaults:
+
+```bash
+rvc-next config set paths.browse_roots '[]'
+```
+
+The command line is not subject to this restriction.
+
+</Accordion>
+<Accordion title="How do I access the Web UI from another computer?">
+
+Set an access token first, then bind to all interfaces:
+
+```bash
+rvc-next config set server.access_token "a long random string"
+rvc-next webui --host 0.0.0.0
+```
+
+On the other computer, open `http://<server IP>:7868` and enter the token in the **Access token** dialog. Without a token, the server refuses to bind to a non-local address. See [Remote access and security](/docs/advanced-remote).
+
+</Accordion>
+<Accordion title="Forgot the access token?">
+
+The token is not displayed in plaintext (`config show` only reports whether it is set). Stop the server on the server computer, then set a new token or clear it:
+
+```bash
+rvc-next config set server.access_token "a new token"
+rvc-next config set server.access_token null    # Clear it (only local access afterward)
+```
+
+Once a token is set, all browsers (including those on the server machine) require it, so a forgotten token can only be reset from the command line. The browser shows the **Access token** dialog; enter the new token.
+
+</Accordion>
+<Accordion title="Can I use original RVC voices and model files directly?">
+
+Yes. In **Models** › **Voices**, use **Add an RVC install** under **Original RVC installs**. Voices in the original `assets/weights` appear directly in the voice list (marked **legacy**), with indexes recommended using the original rules. Point `paths.assets_dir` to the original `assets` folder to reuse HuBERT, RMVPE, base models, and separation models. See [Migrate from original RVC](/docs/advanced-migrate).
+
+</Accordion>
+<Accordion title="Where do deleted voices go?">
+
+Library voices are moved to the system recycle bin (or `trash/` in the data directory if no recycle bin is available), where you can recover them. Voices in original RVC installations are only hidden; their files are unchanged. Enable **Show hidden** in the voice list, or use `rvc-next model list --all` to see them.
+
+</Accordion>
+</Accordions>

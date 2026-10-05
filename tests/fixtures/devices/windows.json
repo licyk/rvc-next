@@ -1,0 +1,460 @@
+{
+ "platform": "win32",
+ "default_hostapi": 0,
+ "hostapis": [
+  {
+   "name": "MME",
+   "devices": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+   ],
+   "default_input_device": 1,
+   "default_output_device": 6
+  },
+  {
+   "name": "Windows DirectSound",
+   "devices": [
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19
+   ],
+   "default_input_device": 11,
+   "default_output_device": 16
+  },
+  {
+   "name": "Windows WASAPI",
+   "devices": [
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27
+   ],
+   "default_input_device": 24,
+   "default_output_device": 20
+  },
+  {
+   "name": "Windows WDM-KS",
+   "devices": [
+    28,
+    29
+   ],
+   "default_input_device": -1,
+   "default_output_device": -1
+  }
+ ],
+ "devices": [
+  {
+   "name": "Microsoft Sound Mapper - Input",
+   "index": 0,
+   "hostapi": 0,
+   "max_input_channels": 2,
+   "max_output_channels": 0,
+   "default_low_input_latency": 0.09,
+   "default_low_output_latency": 0.01,
+   "default_high_input_latency": 0.18,
+   "default_high_output_latency": 0.1,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "Microphone (USB Audio Device)",
+   "index": 1,
+   "hostapi": 0,
+   "max_input_channels": 2,
+   "max_output_channels": 0,
+   "default_low_input_latency": 0.09,
+   "default_low_output_latency": 0.01,
+   "default_high_input_latency": 0.18,
+   "default_high_output_latency": 0.1,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "CABLE Output (VB-Audio Virtual ",
+   "index": 2,
+   "hostapi": 0,
+   "max_input_channels": 8,
+   "max_output_channels": 0,
+   "default_low_input_latency": 0.09,
+   "default_low_output_latency": 0.01,
+   "default_high_input_latency": 0.18,
+   "default_high_output_latency": 0.1,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "Microphone (Realtek(R) Audio)",
+   "index": 3,
+   "hostapi": 0,
+   "max_input_channels": 2,
+   "max_output_channels": 0,
+   "default_low_input_latency": 0.09,
+   "default_low_output_latency": 0.01,
+   "default_high_input_latency": 0.18,
+   "default_high_output_latency": 0.1,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "VoiceMeeter Output (VB-Audio Vo",
+   "index": 4,
+   "hostapi": 0,
+   "max_input_channels": 8,
+   "max_output_channels": 0,
+   "default_low_input_latency": 0.09,
+   "default_low_output_latency": 0.01,
+   "default_high_input_latency": 0.18,
+   "default_high_output_latency": 0.1,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "Microsoft Sound Mapper - Output",
+   "index": 5,
+   "hostapi": 0,
+   "max_input_channels": 0,
+   "max_output_channels": 2,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.09,
+   "default_high_input_latency": 0.1,
+   "default_high_output_latency": 0.18,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "Speakers (Realtek(R) Audio)",
+   "index": 6,
+   "hostapi": 0,
+   "max_input_channels": 0,
+   "max_output_channels": 2,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.09,
+   "default_high_input_latency": 0.1,
+   "default_high_output_latency": 0.18,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "CABLE Input (VB-Audio Virtual C",
+   "index": 7,
+   "hostapi": 0,
+   "max_input_channels": 0,
+   "max_output_channels": 8,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.09,
+   "default_high_input_latency": 0.1,
+   "default_high_output_latency": 0.18,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "VoiceMeeter Input (VB-Audio Voi",
+   "index": 8,
+   "hostapi": 0,
+   "max_input_channels": 0,
+   "max_output_channels": 8,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.09,
+   "default_high_input_latency": 0.1,
+   "default_high_output_latency": 0.18,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "Headphones (USB Audio Device)",
+   "index": 9,
+   "hostapi": 0,
+   "max_input_channels": 0,
+   "max_output_channels": 2,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.09,
+   "default_high_input_latency": 0.1,
+   "default_high_output_latency": 0.18,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "Primary Sound Capture Driver",
+   "index": 10,
+   "hostapi": 1,
+   "max_input_channels": 2,
+   "max_output_channels": 0,
+   "default_low_input_latency": 0.09,
+   "default_low_output_latency": 0.01,
+   "default_high_input_latency": 0.18,
+   "default_high_output_latency": 0.1,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "Microphone (USB Audio Device)",
+   "index": 11,
+   "hostapi": 1,
+   "max_input_channels": 2,
+   "max_output_channels": 0,
+   "default_low_input_latency": 0.09,
+   "default_low_output_latency": 0.01,
+   "default_high_input_latency": 0.18,
+   "default_high_output_latency": 0.1,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "CABLE Output (VB-Audio Virtual Cable)",
+   "index": 12,
+   "hostapi": 1,
+   "max_input_channels": 8,
+   "max_output_channels": 0,
+   "default_low_input_latency": 0.09,
+   "default_low_output_latency": 0.01,
+   "default_high_input_latency": 0.18,
+   "default_high_output_latency": 0.1,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "Microphone (Realtek(R) Audio)",
+   "index": 13,
+   "hostapi": 1,
+   "max_input_channels": 2,
+   "max_output_channels": 0,
+   "default_low_input_latency": 0.09,
+   "default_low_output_latency": 0.01,
+   "default_high_input_latency": 0.18,
+   "default_high_output_latency": 0.1,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "VoiceMeeter Output (VB-Audio VoiceMeeter VAIO)",
+   "index": 14,
+   "hostapi": 1,
+   "max_input_channels": 8,
+   "max_output_channels": 0,
+   "default_low_input_latency": 0.09,
+   "default_low_output_latency": 0.01,
+   "default_high_input_latency": 0.18,
+   "default_high_output_latency": 0.1,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "Primary Sound Driver",
+   "index": 15,
+   "hostapi": 1,
+   "max_input_channels": 0,
+   "max_output_channels": 2,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.09,
+   "default_high_input_latency": 0.1,
+   "default_high_output_latency": 0.18,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "Speakers (Realtek(R) Audio)",
+   "index": 16,
+   "hostapi": 1,
+   "max_input_channels": 0,
+   "max_output_channels": 2,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.09,
+   "default_high_input_latency": 0.1,
+   "default_high_output_latency": 0.18,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "CABLE Input (VB-Audio Virtual Cable)",
+   "index": 17,
+   "hostapi": 1,
+   "max_input_channels": 0,
+   "max_output_channels": 8,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.09,
+   "default_high_input_latency": 0.1,
+   "default_high_output_latency": 0.18,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "VoiceMeeter Input (VB-Audio VoiceMeeter VAIO)",
+   "index": 18,
+   "hostapi": 1,
+   "max_input_channels": 0,
+   "max_output_channels": 8,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.09,
+   "default_high_input_latency": 0.1,
+   "default_high_output_latency": 0.18,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "Headphones (USB Audio Device)",
+   "index": 19,
+   "hostapi": 1,
+   "max_input_channels": 0,
+   "max_output_channels": 2,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.09,
+   "default_high_input_latency": 0.1,
+   "default_high_output_latency": 0.18,
+   "default_samplerate": 44100.0
+  },
+  {
+   "name": "Speakers (Realtek(R) Audio)",
+   "index": 20,
+   "hostapi": 2,
+   "max_input_channels": 0,
+   "max_output_channels": 2,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.003,
+   "default_high_input_latency": 0.1,
+   "default_high_output_latency": 0.01,
+   "default_samplerate": 48000.0,
+   "supported_rates": [
+    48000
+   ]
+  },
+  {
+   "name": "CABLE Input (VB-Audio Virtual Cable)",
+   "index": 21,
+   "hostapi": 2,
+   "max_input_channels": 0,
+   "max_output_channels": 2,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.003,
+   "default_high_input_latency": 0.1,
+   "default_high_output_latency": 0.01,
+   "default_samplerate": 48000.0,
+   "supported_rates": [
+    48000
+   ]
+  },
+  {
+   "name": "VoiceMeeter Input (VB-Audio VoiceMeeter VAIO)",
+   "index": 22,
+   "hostapi": 2,
+   "max_input_channels": 0,
+   "max_output_channels": 2,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.003,
+   "default_high_input_latency": 0.1,
+   "default_high_output_latency": 0.01,
+   "default_samplerate": 48000.0,
+   "supported_rates": [
+    48000
+   ]
+  },
+  {
+   "name": "Headphones (USB Audio Device)",
+   "index": 23,
+   "hostapi": 2,
+   "max_input_channels": 0,
+   "max_output_channels": 2,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.003,
+   "default_high_input_latency": 0.1,
+   "default_high_output_latency": 0.01,
+   "default_samplerate": 48000.0,
+   "supported_rates": [
+    48000
+   ]
+  },
+  {
+   "name": "Microphone (USB Audio Device)",
+   "index": 24,
+   "hostapi": 2,
+   "max_input_channels": 2,
+   "max_output_channels": 0,
+   "default_low_input_latency": 0.003,
+   "default_low_output_latency": 0.01,
+   "default_high_input_latency": 0.01,
+   "default_high_output_latency": 0.1,
+   "default_samplerate": 48000.0,
+   "supported_rates": [
+    48000
+   ]
+  },
+  {
+   "name": "CABLE Output (VB-Audio Virtual Cable)",
+   "index": 25,
+   "hostapi": 2,
+   "max_input_channels": 2,
+   "max_output_channels": 0,
+   "default_low_input_latency": 0.003,
+   "default_low_output_latency": 0.01,
+   "default_high_input_latency": 0.01,
+   "default_high_output_latency": 0.1,
+   "default_samplerate": 48000.0,
+   "supported_rates": [
+    48000
+   ]
+  },
+  {
+   "name": "Microphone (Realtek(R) Audio)",
+   "index": 26,
+   "hostapi": 2,
+   "max_input_channels": 2,
+   "max_output_channels": 0,
+   "default_low_input_latency": 0.003,
+   "default_low_output_latency": 0.01,
+   "default_high_input_latency": 0.01,
+   "default_high_output_latency": 0.1,
+   "default_samplerate": 48000.0,
+   "supported_rates": [
+    48000
+   ]
+  },
+  {
+   "name": "VoiceMeeter Output (VB-Audio VoiceMeeter VAIO)",
+   "index": 27,
+   "hostapi": 2,
+   "max_input_channels": 2,
+   "max_output_channels": 0,
+   "default_low_input_latency": 0.003,
+   "default_low_output_latency": 0.01,
+   "default_high_input_latency": 0.01,
+   "default_high_output_latency": 0.1,
+   "default_samplerate": 48000.0,
+   "supported_rates": [
+    48000
+   ]
+  },
+  {
+   "name": "Speakers (Realtek HD Audio output)",
+   "index": 28,
+   "hostapi": 3,
+   "max_input_channels": 0,
+   "max_output_channels": 2,
+   "default_low_input_latency": 0.01,
+   "default_low_output_latency": 0.003,
+   "default_high_input_latency": 0.1,
+   "default_high_output_latency": 0.01,
+   "default_samplerate": 48000.0,
+   "supported_rates": [
+    44100,
+    48000,
+    96000
+   ]
+  },
+  {
+   "name": "Microphone (Realtek HD Audio Mic input)",
+   "index": 29,
+   "hostapi": 3,
+   "max_input_channels": 2,
+   "max_output_channels": 0,
+   "default_low_input_latency": 0.003,
+   "default_low_output_latency": 0.01,
+   "default_high_input_latency": 0.01,
+   "default_high_output_latency": 0.1,
+   "default_samplerate": 48000.0,
+   "supported_rates": [
+    44100,
+    48000,
+    96000
+   ]
+  }
+ ]
+}

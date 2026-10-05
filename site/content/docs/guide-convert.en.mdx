@@ -1,0 +1,162 @@
+---
+title: "Conversion"
+description: "The Convert page changes audio files to the selected voice. It handles single files, multiple files or an entire folder, and can separate vocals before conversion and add the accompaniment back afterward to make a song cover in one operation."
+icon: AudioLines
+---
+
+The page has three sections from top to bottom, with a fixed action bar at the bottom:
+
+1. **Inputs**: audio to convert;
+2. Voice picker, **Voice parameters** and collapsed **Optional steps**;
+3. **Results**: results produced on this page in the current session;
+4. Bottom action bar: job cards, **Preview 15 s** and **Convert** buttons.
+
+## Add inputs [#inputs]
+
+The **Inputs** section offers three ways to add audio, which you can combine:
+
+### Drop or select files
+
+Drag files onto “Drop audio files here”, or click the area to choose files in a dialog; you can select several at once. Common audio formats (WAV, FLAC, MP3, M4A, OGG, OPUS, AAC, WMA, etc.) are supported. You can also drop video files directly; their audio track will be used.
+
+Files upload to the server, with upload progress beneath each file. Once uploaded, a play button appears on the left and the duration on the right. Failed uploads show “Could not upload …” and the reason.
+
+### Server files
+
+When browser and server are on the same computer (or the server has an access token set), a **Server files** button appears. It uses files directly from the server's disk, **without uploading**, making it suitable for large files or large numbers of files:
+
+1. Click **Server files**; the dialog first lists the **Folders** you can browse.
+2. Click a folder to enter it, or **Up** to go back. The dialog lists only folders and audio files.
+3. Select the files you want and click **Add N**; or click **Add this folder** within a folder to add the entire folder as one input.
+
+When a folder is an input, conversion processes all audio files at its **top level**, excluding subfolders.
+
+By default, browsable folders include your home folder, added original RVC installations, the data folder and each disk partition. Change them in **Folders the browser may open** under **Settings › Storage** (one per line).
+
+### Earlier results
+
+Click **Earlier results** to select from all historical results (including other pages and earlier sessions), then click **Add N** to add them as inputs. For example, convert vocals produced by **Separate**, or convert a conversion result again.
+
+### Manage the input list
+
+- Click the play button on the left of each item to listen;
+- Click **Remove** (×) on the right to remove an item;
+- With more than one input, click **Clear** to remove them all at once.
+
+## Choose a voice
+
+Click the voice picker (showing “Choose a voice” when nothing is selected) to open the voice list:
+
+- **Search voices** at the top filters by name or tag;
+- Each voice shows its sample rate, version (v1/v2), **pitch guidance** or **no pitch guidance**, and speaker count for multi-speaker voices;
+- Voices without an index have a **no index** label; voices from an original RVC installation (read directly, without copying into the library) have a **legacy** label.
+
+If the voice library is empty, this shows “No voices yet” and an **Open Models** button. See [Model management](/docs/guide-models) for importing and downloading voices.
+
+**Multi-speaker voices** add a **Speaker** dropdown beneath the picker, where you choose the speaker to use. Selecting a new voice automatically selects its first speaker.
+
+When you select a voice, **Voice parameters** loads that voice's default preset automatically, so the same voice sounds consistent in conversion and live voice conversion. RVC Next remembers the last voice you selected on this page.
+
+## Adjust voice parameters
+
+The **Voice parameters** panel contains **Pitch method**, **Pitch**, **Formant**, **Index strength**, **Consonant protection** and **Loudness match**. The **Presets** menu at the top right applies or saves presets. On Convert, the panel says “Changes apply to the next conversion.” Click **Preview 15 s** or **Convert** after editing to use the new values.
+
+See [Voice parameters](/docs/guide-parameters) for each parameter's meaning, range, default and adjustment tips. **Pitch** is the most commonly adjusted: around +12 for a male voice to a female voice model, or −12 for a female voice to a male voice model.
+
+## Optional steps [#optional-steps]
+
+Expand **Optional steps** to configure the following.
+
+### Separate first
+
+Enable **Separate first** (described as “Convert only the vocals of a song.”) to split the audio with a separation model before conversion and convert only the vocals. This reveals:
+
+- **Preset**: the separation preset to use, defaulting to **Vocals**. See [Vocal separation](/docs/guide-separate#presets) for differences between presets.
+- **Add accompaniment back**: mix the converted vocals over the separated accompaniment to output a complete song.
+- **Accompaniment level**: accompaniment gain when adding it back, from −24 to +12 dB, default 0 dB. Lower it if the accompaniment overwhelms the vocals, or raise it for the opposite.
+
+Keep in mind:
+
+- Conversion uses the preset's “primary stem”: `vocals` for **Vocals** and **Vocals, aggressive**, lead vocals `main_vocal` for **Lead vocal** and **Lead vocal, clean**, and dereverberated `vocals` for **Vocals, clean**.
+- The “accompaniment” added back is preferably the `instrumental` stem; if the preset has no accompaniment stem, the other stem is used. For example, with **Remove reverb**, the separated reverb is added back, equivalent to “convert the dry vocals, then add the original reverb back”.
+- Adding accompaniment back produces stereo output; if mixing would clip, the overall level is automatically lowered to prevent clipping.
+- Intermediate separated stems are deleted after conversion. If you also need these stems, use the [Vocal separation](/docs/guide-separate) page first, then send the vocals to Convert.
+- Enabling **Separate first** adds the selected preset's separation models to the required-download check. Separation models are large (300–440 MB each).
+
+### Output
+
+- **Format**: WAV, FLAC, MP3 or M4A. The default comes from **Result format** under **Settings › Training defaults** (initially WAV).
+- **Sample rate**: defaults to **The voice's own** (for example, a 40 kHz voice outputs 40 kHz); you can also choose 22.05, 32, 40, 44.1 or 48 kHz, and the result is resampled to that rate.
+
+## Preview and convert
+
+The bottom action bar has two buttons:
+
+| Button | Purpose |
+| --- | --- |
+| **Preview 15 s** | Convert only the first 15 seconds of each input. Preview jobs go ahead of other queued jobs, making them useful for trying parameters quickly. Results have a **preview** label and `.preview` in the filename |
+| **Convert** | Convert every input in full |
+
+When buttons are unavailable, the left side explains why: “Choose a voice.” or “Add audio to convert.” You also cannot start while inputs are still uploading. If required models are missing (HuBERT, the selected pitch method's model, separation models), the buttons are replaced by “**Needs …**” and a **Download** button; see [Interface overview](/docs/guide-interface#missing-models).
+
+Recommended workflow:
+
+1. Add inputs, choose a voice and set **Pitch**;
+2. Click **Preview 15 s** and compare using **Result / Source** in **Results**;
+3. Adjust parameters based on the result (see [Voice parameters](/docs/guide-parameters)) and preview again;
+4. Once satisfied, click **Convert**.
+
+## Jobs
+
+Each click on **Convert** (or **Preview 15 s**) creates **one** job containing all current inputs. Its card appears in the bottom action bar:
+
+- Titles look like `Convert song.wav · kikiV1`, or `Convert song.wav and 4 more · kikiV1` for multiple inputs; previews use `Preview ……`;
+- With **Separate first** enabled, the first step is `Separate` (processing all inputs at once), followed by one step per input;
+- You can **Cancel** at any time, or **Retry** after failure, cancellation or interruption. Click **Log** for details. For example, if the voice has no index and **Index strength** is above 0, the log records `No index for this voice; index strength has no effect`.
+
+After clicking, you can continue changing parameters or inputs and submit again; the new job is queued afterward. See [Interface overview › Jobs](/docs/guide-interface#jobs) for general information about jobs.
+
+## Results
+
+Completed outputs appear in **Results**, labeled **converted**, **remix** (accompaniment added back) or **preview**. See [Interface overview › Results list](/docs/guide-interface#results) for playback, waveform seeking, **Result / Source** comparison and the **More actions** menu. Two actions are especially useful here:
+
+- **Use as input**: add the result back to this page's inputs, for example to process a conversion result again;
+- **Re-run with these settings**: restore the voice and parameters used to generate the result and add its source file back to the inputs, making it easy to fine-tune from earlier settings.
+
+### Where files are saved and how they are named
+
+Results are saved in `outputs/<date>/<job id>/` in the data folder (you can change the results folder in **Settings › Storage**). The filename pattern is:
+
+```text
+<original name>.<voice>.<format>
+```
+
+For example, converting `song.flac` with `kikiV1` to WAV produces `song.kikiv1.wav`. The voice name is lowercased, spaces and symbols become `-`, and text such as Chinese characters is preserved. A preview is named `song.kikiv1.preview.wav`.
+
+RVC Next **never overwrites existing files**: if a filename already exists (for example, both `song.wav` and `song.flac` are in the same batch), a number is appended automatically, such as `song.kikiv1_1.wav`.
+
+Results are kept indefinitely by default. To clean up old results automatically, set “Delete results after days (0: keep)” in **Settings › Storage**.
+
+## Batch conversion
+
+There are several ways to convert many files at once:
+
+- **Select or drop multiple files**: they are converted sequentially in one job;
+- **Add a folder**: use **Add this folder** in **Server files** to convert all audio files at the folder's top level;
+- **Use the command line**: recurse into subfolders and specify an output folder.
+
+```bash
+# Convert a folder (including subfolders) to out/, with pitch +12
+rvc-next convert ./songs --recursive --voice kikiV1 --pitch 12 -o out/
+
+# Separate vocals first, convert and add accompaniment back (lowered by 3 dB), output FLAC
+rvc-next convert song.wav --voice kikiV1 --separate vocals --remix --remix-gain -3 --format flac
+```
+
+The command line starts from the voice's default preset. Use `--preset` to choose another preset, then override individual values with `--pitch`, `--index-rate`, etc. `--overwrite` can overwrite matching filenames only when you specify an output folder with `-o`. See [Command reference](/docs/cli-commands) for all options.
+
+<Callout type="info" title="Processing device">
+
+Conversion uses the **Device** selected in **Settings › Compute**. The default is **Automatic**: select a GPU using the original RVC's rules, or use CPU if no suitable GPU is available. Conversion results on CPU are bit-identical to the original; GPU paths (CUDA, DirectML, MPS) have not yet been validated on physical hardware.
+
+</Callout>

@@ -1,0 +1,67 @@
+---
+title: "开发文档"
+description: "这一部分写给要修改、扩展或审查 RVC Next 代码的人：维护者、贡献者，以及在这个仓库里工作的编程智能体。"
+icon: Code
+---
+
+这一部分写给要修改、扩展或审查 RVC Next 代码的人：维护者、贡献者，以及在这个仓库里工作的编程智能体。它解释代码**现在**是怎样搭起来的、每条规则为什么存在、哪些地方必须与原版 RVC 保持一致。使用方法请看[快速开始](/docs/quick-start)与[使用教程](/docs/guide)，命令的逐项说明请看[命令行](/docs/cli)。
+
+## 与 AGENTS.md 的关系
+
+仓库根目录的 [`AGENTS.md`](https://github.com/licyk/rvc-next/blob/main/AGENTS.md)（英文，`CLAUDE.md` 只是引用它）是**设计记录**：用尽量少的文字记下代码做了什么、守哪些规则、在哪里偏离了最初的计划。它跟代码放在一起、随代码一起修改，是关于"代码现在是什么样"的唯一权威摘要。
+
+这些页面与它的分工是：
+
+| | `AGENTS.md` | 开发文档（本部分） |
+| --- | --- | --- |
+| 语言 | 英文 | 简体中文 |
+| 篇幅 | 每条规则一两行 | 展开讲原因、数据流、边界情况和操作步骤 |
+| 读者 | 动手改代码前必须先读 | 想弄懂一个子系统、或第一次接触项目时读 |
+| 冲突时 | 以它和代码为准 | 应当随之更新 |
+
+<Callout type="info" title="约定">
+
+新得出的、长期有效的结论先简短地写进 `AGENTS.md`；需要展开解释的部分再写到这里。两者矛盾时以代码为准，其次是 `AGENTS.md`。
+
+</Callout>
+## 页面地图
+
+| 页面 | 内容 |
+| --- | --- |
+| [开发环境](/docs/development-setup) | 独立虚拟环境、依赖约束及其原因、`scripts/dev.py` 的全部任务、构建 wheel 与文档站 |
+| [整体架构](/docs/development-architecture) | 包结构与分层规则、`build_services()`、worker 子进程、错误与退出码、设置分层、事件、数据库、数据目录 |
+| [引擎](/docs/development-engine) | `rvc_next.engine`：运行时与 GPU 规则、HuBERT、F0、索引、模型与检查点、离线转换、流式引擎、音频 I/O、人声分离、训练阶段 |
+| [核心服务](/docs/development-core) | `rvc_next.core`：任务、显存管理、资源、音色库与导入、音频文件、转换、分离、训练、实时变声、设置、事件、数据库 |
+| [API 与事件](/docs/development-api) | FastAPI 路由约定、上传、安全模型、socket.io 事件与载荷、OpenAPI → TypeScript 类型生成、端口选择 |
+| [Web UI](/docs/development-webui) | Vue 3 前端：目录结构、`ui/` 组件与 MD3 动效、统一体验约定、数据流、布局规则、国际化、测试、如何新增页面 |
+| [命令行实现](/docs/development-cli) | Typer 工厂、命令注册、错误到退出码、`--json`、前台任务、如何新增命令 |
+| [资源与模型仓库](/docs/development-assets) | `catalog.json` 格式、两个下载仓库、校验与断点续传、如何新增资源、只存在于整合包中的模型 |
+| [与原版的一致性](/docs/development-parity) | 移植规则、golden 测试、与原版的行为差异及原因、torchaudio / torchfcpe 的移植 |
+| [测试与检查](/docs/development-testing) | `dev.py check`、pytest 标记与环境变量、tiny 模型、测试布局、CI、尚未在真实硬件上验证的部分 |
+
+第一次接触代码，建议按 [开发环境](/docs/development-setup) → [整体架构](/docs/development-architecture) → 与手头工作相关的那一层 的顺序读。
+
+## 项目由来
+
+RVC Next 是对 [Retrieval-based-Voice-Conversion-WebUI](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI)（下称"原版"，以本地检出 `81eed5e` 为准，那是一个 2026 年的重度修改分支：用 `transformers` 的 HuBERT 取代 fairseq，用 PyMSS 取代 UVR5，加入了 CUDA Graph、多说话人训练和 VST 插件）的重写。原版把功能分散在五个入口里：Gradio WebUI、桌面实时变声 GUI、VST 插件、各训练阶段的命令行脚本，以及内置的 PyMSS 命令行，每个入口各有一套设置、模型选择和进度显示。重写把它们合并成一个应用：**转换（Convert）**、**实时变声（Live）**、**人声分离（Separate）**、**训练（Train）**和**模型（Models）**，放在同一个 FastAPI 服务、同一个 Vue 3 Web UI 和同一个 Typer 命令行后面。
+
+代码有三个来源，处理方式各不相同：
+
+| 来源 | 拿来了什么 | 处理方式 |
+| --- | --- | --- |
+| SD Model Hub（经由 Hanaikada） | 应用骨架：设置、事件总线、SQLite 数据库、安全中间件、端口绑定、CLI 工厂、Web UI 的主题、`ui/` 组件库、动效系统和规则测试 | 改名后沿用；Hanaikada 的 `embed.py`（嵌入其他应用）没有带过来，因为没有宿主应用需要嵌入 RVC Next |
+| 原版 RVC | 合成器与判别器网络、RMVPE、TorchGate、CUDA Graph 缓存、离线 / 流式 / 训练的数值计算 | **移植而非重写**，用 golden 测试与原版逐位比对，保证已有音色听起来完全一样（见[与原版的一致性](/docs/development-parity)） |
+| torchaudio、torchfcpe | `transforms.Resample` 的加窗 sinc 重采样器；FCPE 推理路径（mel 前端、纯卷积的 `CFNaiveMelPE`、解码器、加载器） | 逐步移植到 `engine/audio/sinc_resample.py` 和 `engine/f0/fcpe_model.py`，测试在装有原库时与之逐位相等。这样 RVC Next 不再依赖 torchaudio（其最后一个版本是 2.11）和 torchfcpe |
+
+编排、存储、进程控制和全部用户界面都是新写的。
+
+## 许可
+
+RVC Next 以 **GPL-3.0-only** 发布（[`LICENSE`](https://github.com/licyk/rvc-next/blob/main/LICENSE)，`pyproject.toml` 中 `license = "GPL-3.0-only"`）。原因是骨架代码来自 GPLv3 的 SD Model Hub 与 Hanaikada。移植来的代码保留其原许可声明，集中列在 [`NOTICE`](https://github.com/licyk/rvc-next/blob/main/NOTICE)：
+
+- 原版 RVC：MIT；
+- torchaudio：BSD 2-Clause，全文同时保留在 `engine/audio/sinc_resample.py` 里；
+- FCPE / torchfcpe：MIT（其 conformer 来自 Diffusion-SVC，同为 MIT）；
+- PyMSS 作为依赖使用（MIT）；RMVPE、DDSP-SVC 的 SOLA 交叉淡化、TorchGate 也在其中注明出处。
+
+运行时下载的模型权重（HuBERT、RMVPE、FCPE、底模、分离模型、演示音色）各有其条款，不属于本仓库的许可范围。移植新代码时，请同时在文件头和 `NOTICE` 中写明来源与许可。

@@ -1,0 +1,171 @@
+---
+title: "Assets and model repositories"
+description: "Assets are model files RVC Next needs at runtime but does not distribute with its Python package: HuBERT, RMVPE (including ONNX), FCPE, training base models, and vocal separation weights."
+icon: Package
+---
+
+Assets are model files RVC Next needs at runtime but does not distribute with its Python package: HuBERT, RMVPE (including ONNX), FCPE, training base models, and vocal separation weights. A set of demo voices is also available to download. This page describes the `catalog.json` asset catalog format, the two download repositories, download and verification implementation, and how to add or update assets. See [Core services](/docs/development-core) for how other core services call `AssetService`.
+
+## The asset catalog: `catalog.json`
+
+[`rvc_next/core/assets/catalog.json`](https://github.com/licyk/rvc-next/blob/main/rvc_next/core/assets/catalog.json) is distributed as package data (`package-data` in `pyproject.toml`), read by `core/assets/service.py:load_catalog()`, and validated into records from `core/assets/models.py`. It has three top-level keys:
+
+```json
+{
+  "repositories": {
+    "rvc-model": {"repo": "licyk/rvc-model", "revision": "main", "title": "…"},
+    "official":  {"repo": "lj1995/VoiceConversionWebUI", "revision": "main", "title": "…"}
+  },
+  "assets": [
+    {
+      "id": "rmvpe", "title": "RMVPE", "description": "…", "group": "inference",
+      "files": [
+        {
+          "path": "rmvpe/rmvpe.pt",
+          "size": 181184272,
+          "sha256": "6d62215f…c193",
+          "sources": {"rvc-model": "rmvpe/rmvpe.pt", "official": "rmvpe.pt"}
+        }
+      ]
+    }
+  ],
+  "voices": [
+    {
+      "id": "kikiv1", "name": "kikiV1", "description": "…",
+      "sample_rate": 40000, "version": "v1", "pitch_guidance": true,
+      "files": [
+        {"role": "model", "size": 55025320, "sha256": "fb48c0a9…b5b5", "sources": {"rvc-model": "voices/kikiV1/kikiV1.pth"}},
+        {"role": "index", "size": 58956235, "sha256": "5f20e83f…c647", "sources": {"rvc-model": "voices/kikiV1/kikiV1.index"}}
+      ]
+    }
+  ]
+}
+```
+
+| Record | Fields | Description |
+| --- | --- | --- |
+| `Repository` | `id` (`rvc-model` or `official`), `repo`, `revision`, `title` | A Hugging Face repository. `selected` is computed from settings, not stored in the catalog |
+| `AssetSpec` | `id`, `title`, `description`, `group` (`inference`/`training`/`separation`), `files` | A unit that can be downloaded and have its status determined independently |
+| `AssetFile` | `path`, `size`, `sha256`, `sources` | `path` is relative to the asset directory (`paths.assets_dir`), using **the original's `assets/` layout**; `sources` maps repository IDs to the file's path in each repository |
+| `CatalogVoice` | `id`, `name`, `description`, `sample_rate`, `version`, `pitch_guidance`, `files` | A demo voice; `size`, `has_index`, and `repositories` (repositories hosting all its files) are computed at load time |
+| `CatalogVoiceFile` | `role` (`model`/`index`), `size`, `sha256`, `sources` | Imported into the voice library after download, rather than stored in the asset directory |
+
+### Current assets
+
+| id | Group | Files in the asset directory | Purpose |
+| --- | --- | --- | --- |
+| `hubert` | inference | `hubert_base/config.json`, `preprocessor_config.json`, `pytorch_model.bin` | All conversion and feature extraction (transformers format) |
+| `rmvpe` | inference | `rmvpe/rmvpe.pt` | RMVPE pitch (default method) |
+| `rmvpe-onnx` | inference | `rmvpe/rmvpe.onnx` | RMVPE on DirectML |
+| `fcpe` | inference | `fcpe/fcpe_c_v001.pt` | FCPE pitch; only in rvc-model |
+| `pretrained-{v1,v2}-{32k,40k,48k}` | training | `pretrained[_v2]/[f0]{G,D}<rate>.pth` | Training base models, 4 files per asset (G/D pairs with and without pitch) |
+| `separation-<model>` | separation | `pymss_weights/<checkpoint>.ckpt` | Five separation models: `dereverb`, `dereverb-aggressive`, `vocals`, `vocals-aggressive`, `karaoke`; YAML is bundled (`engine/separate/configs/`) |
+
+There are 15 assets and 35 files, totaling about 4.8 GiB. Base models are split by version × sample rate instead of the planned two assets `pretrained-v1`/`pretrained-v2`: training at one rate requires downloading 4 files rather than 12 (AGENTS.md §8). Separation weights live in `pymss_weights/` instead of the planned `separation/`, also to match the original layout.
+
+`ids_for_group()` determines what `rvc-next assets download --group` includes: assets matching the catalog's `group`, or all assets for `all`, excluding the DirectML-only `rmvpe-onnx` (downloaded on demand). Thus `inference` (the default without arguments) includes `hubert`, `rmvpe`, and `fcpe`.
+
+<Callout type="info" title="Why keep the original assets/ layout">
+
+`paths.assets_dir` can point directly to the `assets/` folder of an existing original RVC installation. HuBERT, RMVPE, base models, and `pymss_weights` use the same relative paths, so nothing needs to be downloaded again.
+
+</Callout>
+## Two download repositories
+
+| Repository ID | Hugging Face repository | Contents |
+| --- | --- | --- |
+| `rvc-model` (default) | [licyk/rvc-model](https://huggingface.co/licyk/rvc-model) | Every file RVC Next uses, organized by category, plus demo voices and `manifest.json` |
+| `official` | [lj1995/VoiceConversionWebUI](https://huggingface.co/lj1995/VoiceConversionWebUI) | The official RVC repository; no demo voices or FCPE weights |
+
+Two settings determine download URLs (`AssetService.url()`):
+
+- `downloads.repository` (`rvc-model` or `official`) selects the **repository**. If a file is absent from the selected repository (no matching key in `sources`), use another listed repository automatically—demo voices and FCPE therefore always download from rvc-model, even when the official repository is selected.
+- `downloads.source` selects the **endpoint**: `huggingface` (`https://huggingface.co`), `hf-mirror` (`https://hf-mirror.com`), or `custom` (`downloads.endpoint`). Both repositories use the same endpoint.
+
+The resulting URL is `<endpoint>/<repo>/resolve/<revision>/<sources[repository]>`. Both repositories currently use `main` as `revision`.
+
+Why rvc-model exists: the official repository retains an early flat layout, mixing code, Windows executables, and tens of GB of distributions; some models (demo voices) exist only inside `.7z` distributions and cannot be downloaded individually (see below). rvc-model copies the required files unchanged into categories, making each file available separately.
+
+### rvc-model layout
+
+| Directory | Contents | Source |
+| --- | --- | --- |
+| `hubert/hubert_base/` | HuBERT (transformers format) | Official repository `hubert_base/` |
+| `rmvpe/` | `rmvpe.pt`, `rmvpe.onnx` | Official repository root |
+| `fcpe/` | `fcpe_c_v001.pt` | Weights bundled with torchfcpe 0.0.4 (the model RVC uses through `spawn_bundled_infer_model`) |
+| `pretrained/v1/`, `pretrained/v2/` | `[f0]G`, `[f0]D` for each sample rate | Official repository `pretrained/`, `pretrained_v2/` |
+| `separation/` | Five separation checkpoints | Official repository `pymss_weights/` |
+| `voices/<name>/` | Demo voice `.pth` and `.index` | Extracted from official `RVC*.7z` distributions |
+
+The repository root also contains the official license files and `manifest.json`. `manifest.json` records each file's size, SHA-256, and upstream path (which official repository path, distribution archive, or torchfcpe it came from), serving as rvc-model's own inventory. Convention: update `manifest.json` when uploading files to rvc-model; sizes, hashes, and `rvc-model` paths in `catalog.json` are generated from the manifest. No script for this step is committed in this repository; changes to `catalog.json` must remain consistent with the manifest.
+
+All files copied from the official repository are unchanged; catalog hashes were recalculated against a full download of the official repository (revision `e6d0c1a`) and all matched.
+
+FCPE previously used the torchfcpe package, which depends on torchaudio and bundles a 43 MB model. Its inference path is now ported to `engine/f0/fcpe_model.py` (see [Parity with the original](/docs/development-parity)), with weights downloaded as the `fcpe` asset, so RVC Next no longer depends on torchfcpe or torchaudio.
+
+## Downloads, resume, and verification
+
+Downloads are `download` jobs (`io` resource, concurrency capacity 4), submitted by `AssetService.download(ids, group, verify_only, foreground)`; the CLI runs them in the foreground with `foreground=True`. Each asset is one job step.
+
+- **Skip existing files**: files whose sizes match the catalog are not downloaded again.
+- **Resume** (`_fetch()`): write downloads to `<filename>.part`; when partial data exists, send `Range: bytes=<downloaded bytes>-`. A 200 response instead of 206 restarts writing; 416 with a complete `.part` counts as finished; an oversized `.part` is deleted and downloaded again. Retry at most 4 times (`RETRIES`), with 1, 2, 4… seconds of backoff (capped at 10 seconds). On completion, check size and rename `.part` to the final file.
+- **Verification**: compute SHA-256 and compare with the catalog when `downloads.verify_checksums` (default on) or `verify_only` is enabled.
+- **Verification cache**: store results in the data directory's `assets-verified.json`, keyed by `<path>|<size>|<mtime_ns>`. Size or modification-time changes naturally invalidate the cache. Listing asset status avoids repeatedly hashing several GB, while replaced files appear unverified again.
+- **Progress**: measured in bytes; `ctx.transfer(done, total)` lets job cards display speed and remaining time (see [Core services](/docs/development-core)).
+- Failed assets are marked `failed`; the job ends with `RvcNextError`, with failed IDs listed in `detail.assets`.
+
+### Status
+
+`AssetService.status(id)` reads only disk and the verification cache, without network requests:
+
+| Status | Condition |
+| --- | --- |
+| `downloading` | A download job is processing it |
+| `installed` | Every file exists with the correct size, with no recorded verification failures |
+| `corrupt` | All files exist, but one failed verification |
+| `partial` | Some files (or partial bytes) exist |
+| `missing` | No bytes exist |
+
+`verified` is `True` (all verified), `False` (a failure), or `None` (some files not yet verified). `is_installed()` also counts `corrupt` as installed—the user may have replaced files with another version, so the UI warns rather than blocks use.
+
+`delete(id)` removes all asset files and `.part` files (refused while downloading, 409) and clears the verification cache; deleting an official base model only calls `delete_files()` for its own G/D pair, making the asset `partial`. Status changes publish `assets_changed` (with all asset statuses as payload).
+
+## Demo voices
+
+`voice_catalog()` (`GET /models/catalog`, `rvc-next model catalog`) lists demo voices, marking those already downloaded into the library (`installed_voice_id`, matched through `catalog_id` in `voice.json`; DB migration 2 adds `voice_models.catalog_id` for this). `download_voices(ids, all_missing)` (`POST /models/catalog/download`, `rvc-next model download`) submits a `download` job with request `{"voices": [...]}`: download `.pth` and `.index` into a temporary directory under `uploads/`, check SHA-256 (always checked here, regardless of `verify_checksums`), then add them to the library with `catalog_id` as their source. Demo voices are ordinary library voices; deleting one makes it downloadable again in the catalog.
+
+| id | Version | Sample rate | Index |
+| --- | --- | --- | --- |
+| `kikiv1` | v1 | 40k | Yes |
+| `keruanv1` | v1 | 40k | Yes |
+| `guanguanv1` | v1 | 40k | Yes |
+| `zhanzhanv2-xi` | v2 | 40k | Yes |
+| `youzhanv2-xi` | v2 | 48k | No (no distribution contains its index; use index strength 0) |
+
+These voices have no named speakers and are treated as single-speaker voices despite their usual 109-row speaker embeddings. Like the official repository, they follow the MIT license and the authors' additional terms (research use only; users bear full responsibility for generated and distributed audio).
+
+## Models found only in official distributions
+
+The official repository contains two kinds of files: weights themselves and 21 Windows distributions (`RVC*.7z`, from 2023-03 to 2026-07, each a complete installation). A full inventory was taken of revision `e6d0c1a` (155 files, about 103 GB): index every `.7z`, compare model files over 50 KB (`.pth .pt .ckpt .onnx .bin .safetensors .index`, excluding bundled `runtime/` and legacy `TEMP/`) with repository files by size, then content; for files found only inside archives, extract by CRC-32, compute SHA-256, and actually load them. Findings:
+
+| Category | Files | Handling |
+| --- | --- | --- |
+| Demo voices | `kikiV1`, `keruanV1`, `guanguanV1` (with indexes), `youzhanv2-xi`, `zhanzhanv2-xi` (with index) | Uploaded unchanged to `voices/<name>/` in rvc-model and added to `voices` in `catalog.json` |
+| Indexes without corresponding voices | `anchun`, `keqing`, `mi-test`, `mi-test-v1`, `test` | Unused: their voices were never published |
+| Superseded or duplicate weights | Old `rmvpe.pt` (weights before 2023-07); another archive copy of `model_bs_roformer_ep_317` | Unused: superseded by files in the repository itself |
+| Non-model files | `Synthesizer_inputs.pth`, `hubert_inputs.pth` (sample inputs for ONNX export), `logs/mute/*.spec.pt` (spectrogram caches generated by the training loader) | Unused |
+
+All remaining model files in the archives are byte-identical to a file in the repository.
+
+Why not download directly from distributions: these `.7z` files use solid compression; voices share 1.3–1.9 GB compressed blocks with other assets, so fetching one file requires downloading and decompressing at least its entire block. This is a major reason for rvc-model.
+
+Other repository files excluded from the catalog, and why: `mute.zip` (identical silence samples are already bundled as package data; see `engine/train/data/mute/`); `hubert_base.pt` (fairseq checkpoint; RVC Next uses transformers format); `pretrained_v0/` (early v1 generators, never selected anywhere); `uvr5_weights/`, etc. (UVR5 separation; the ported branch had switched to PyMSS); `weights/白菜357k.pt` (a pre-RVC model format that cannot be loaded); `ffmpeg.exe`/`ffprobe.exe` (RVC Next decodes through PyAV); `RVCRealtime-Win64VST.zip` (live VST plugin, relevant to future VST adaptation); and early-version code.
+
+## Adding or updating assets
+
+1. Upload files to the appropriate category in rvc-model and update its `manifest.json` (size, SHA-256, upstream path). If the official repository also has the file, record its path there.
+2. Add or update an entry in `assets` in `catalog.json`: `path` uses a relative path in the original `assets/` layout; `sources` lists at least one repository; `size` and `sha256` must match the manifest—downloads use size to determine completion and hashes to detect corruption.
+3. For vocal separation weights, also update `MODELS` in `engine/separate/presets.py` (checkpoint name, YAML name, size, SHA-256, primary and secondary stems), preset `assets` in `core/separation/presets.json`, and place the YAML in `engine/separate/configs/`. `tests/engine/test_separate_presets.py` checks preset consistency with `MODELS`, but does not check sizes and hashes in `MODELS` against `catalog.json`; compare those manually.
+4. If a feature requires the new asset, add its ID to the corresponding service's `require()` call (e.g. `ConversionService.required_assets()`, `LiveService._require_assets()`, `TrainingService._preflight()`); the UI automatically offers downloads through `AssetGate`.
+5. Add demo voices to `voices`; never change an `id` once published, since downloaded voices use it to match catalog entries.
+6. Run `python scripts/dev.py check`. `tests/core/test_assets.py` uses mock transport to cover resume, verification, repository fallback, deletion, and demo voice import.

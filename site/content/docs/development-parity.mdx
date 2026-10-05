@@ -1,0 +1,165 @@
+---
+title: "与原版的一致性"
+description: "RVC Next 重写了 Retrieval-based-Voice-Conversion-WebUI（下称“原版”，~/codeworkspace/Retrieval-based-Voice-Conversion-WebUI，提交 81eed5e）的编排、存储、进程控制和全部界面，但数值代码是移植的，不是重新发明的*"
+icon: Scale
+---
+
+RVC Next 重写了 Retrieval-based-Voice-Conversion-WebUI（下称“原版”，`~/code_workspace/Retrieval-based-Voice-Conversion-WebUI`，提交 `81eed5e`）的编排、存储、进程控制和全部界面，但**数值代码是移植的，不是重新发明的**：用户已有的音色必须听起来和在原版里一样。本页说明移植的规则、用什么来证明一致（golden 测试）、哪些行为是有意改变的，以及维护者对照原版时需要知道的原版结构。
+
+原版是一个 2026 年的重度修改分支，不是上游：它用 transformers 的 HuBERT 替换了 fairseq，用 PyMSS 替换了 UVR5，并加入了 CUDA Graph 加速、多说话人训练、命令行和 VST 插件。下文所说的“原版”都指这个分支。
+
+## 移植规则
+
+**照搬**：以下文件从原版复制，只修正导入路径，保持原版的形状，以便逐行 diff：
+
+| rvc-next | 原版 |
+| --- | --- |
+| `engine/models/{synthesizer,modules,attentions,commons,transforms}.py` | `infer/module/*.py`（四个合成器类和两种判别器） |
+| `engine/f0/rmvpe.py` | `infer/rmvpe.py` |
+| `engine/audio/denoise.py` | `tools/torchgate/`（TorchGate） |
+| `engine/graph.py` | `tools/cuda_graph.py`（只有开关从环境变量改为进程级设置） |
+| `engine/train/{slicer,losses,mel}.py` | `train/dataset/slicer2.py`、`train/losses.py`、`train/mel_processing.py` |
+| `engine/train/dataset.py` | `train/data_utils.py` |
+
+**逐行移植到新接口**：管线的数学一行不改，但包在新的函数和类里——离线转换（`engine/convert/offline.py` ← `infer/vc/pipeline.py`）、流式转换（`engine/stream/engine.py` ← `infer/rtrvc.py` 加 `realtime_gui.py` 的 `start_vc`/`audio_callback`）、训练各阶段（`engine/train/*` ← `train/*.py`、`train/dataset/*.py`、`tools/multispeaker.py`、`webui.py` 的文件列表代码）、检查点工具（`engine/models/{checkpoint,merge,extract}.py` ← `train/process_ckpt.py`）、GPU 规则（`engine/runtime.py` ← `configs/config.py`）、分离模型表（`engine/separate/` ← `tools/pymss_webui.py`）。
+
+**不移植**：Gradio 处理函数、实时 GUI 的回调和控件、进程启动方式（`Popen(cmd, shell=True)` 加 `%` 格式化的命令行）、中文状态字符串、返回 Gradio 更新字典的引擎接口。
+
+为了让照搬的文件能与原版对比，`pyproject.toml` 把 `engine/models/{attentions,commons,modules,transforms,synthesizer}.py` 和 `engine/f0/rmvpe.py` 排除在 `ruff format` 和 ty 之外，并给它们以及 `engine/audio/denoise.py`、`engine/train/{dataset,losses,mel,slicer}.py` 按文件忽略 `B`、`SIM`、`UP`、`E402`、`E712`、`E741`、`F841` 等规则（见[开发环境](/docs/development-setup)）。修改这些文件时保持原版风格；修 bug 时在 golden 测试里确认数值没变。
+
+## golden 测试
+
+golden 测试在同一台机器上同时运行原版和 rvc-next，对比输出。两边都在 **CPU、fp32**、相同随机种子、相同的 16 kHz 输入（只解码一次）上运行。
+
+### 离线：`scripts/golden.py`
+
+```bash
+python scripts/golden.py --original ~/code_workspace/Retrieval-based-Voice-Conversion-WebUI \
+    --assets <资源目录> --voice a.pth [--voice b.pth] --clip speech.wav [--clip …] \
+    [--f0 pm --f0 rmvpe --f0 fcpe] [--pitch 2] [--speaker-id 1] [--index x.index --index-rate 0.75]
+```
+
+[`scripts/golden.py`](https://github.com/licyk/rvc-next/blob/main/scripts/golden.py) 把原版 checkout 放到 `sys.path` 上，只导入 `infer.hubert`、`infer.vc.pipeline` 和 `infer.module.models`（不加载任何界面），用原版的 CPU 分块参数（`x_pad/x_query/x_center/x_max = 1/6/38/41`）构造 `Pipeline`；rvc-next 一侧用 `Runtime(device="cpu", precision="fp32")` 和 `OfflineConverter`。每个 (音色, 片段, F0 方法) 输出一行：样本差的 RMS（−1..1 刻度）以及是否逐位相同。容差 `TOLERANCE = 1e-4`，超出则退出码 1。不给 `--f0` 时只比 `pm` 和 `rmvpe`。
+
+### pytest：`tests/golden/`
+
+两个测试都带 `golden` 标记，默认不选（`addopts = "-m 'not live and not golden and not assets'"`），用 `pytest -m golden` 运行。环境变量：
+
+| 变量 | 含义 |
+| --- | --- |
+| `RVC_NEXT_GOLDEN_ORIGINAL` | 原版 checkout，默认 `~/code_workspace/Retrieval-based-Voice-Conversion-WebUI` |
+| `RVC_NEXT_TEST_ASSETS` | 原版布局的资源目录（`hubert_base/`、`rmvpe/`，离线测试还需 `fcpe/fcpe_c_v001.pt`） |
+| `RVC_NEXT_GOLDEN_VOICES` | 用 `os.pathsep` 分隔的 `.pth` 列表 |
+| `RVC_NEXT_GOLDEN_CLIP` | 一个音频文件 |
+
+- `test_offline_golden.py`：通过 `scripts/golden.py` 对每个音色跑 `pm`、`rmvpe`、`fcpe`，移调 2、说话人 1；要求全部在 1e-4 以内**且逐位相同**。原版的 FCPE 依赖 torchfcpe，所以测试 `importorskip("torchfcpe")`——torchfcpe 要装在运行测试的环境里，供原版一侧使用，rvc-next 自己不依赖它。
+- `test_stream_golden.py`：原版的 `start_vc`/`audio_callback` 写在 GUI 的 `__main__` 块里无法导入，测试里有一份去掉 GUI 的拷贝（`OriginalStream`），驱动原版的 `rtrvc.RVC`；rvc-next 一侧是 `StreamEngine`。对每个音色逐块（最多 12 块）比较，每块前用相同种子。三组参数覆盖 48k/40k、RMVPE/pm、移调、共振峰 1.0、输入输出降噪和门限。原版实时代码导入 torchaudio，所以测试 `importorskip("torchaudio")`。
+
+缺少原版 checkout、资源或所需的包时，测试跳过而不是失败（CI 里没有原版的这些依赖）。
+
+### 已经证明的
+
+按照 AGENTS.md 的记录，CPU fp32 下：
+
+- **离线**，pm 和 RMVPE：v1 40k、v2 40k、v2 40k 无音高、v2 48k 四类音色，在语音、静音和一段超过分块阈值的 70 秒片段上，带移调和说话人 id，输出**逐位相同**；FCPE 同样逐位相同。
+- **流式**：`StreamEngine` 与 `rtrvc.RVC.infer` 加实时 GUI 回调数学（门限、输入输出 TorchGate、共振峰、RMS 混合、SOLA）逐块逐位相同。
+
+GPU、fp16、CUDA Graph 下的一致性没有 golden 验证（构建机没有 GPU，见[测试与检查](/docs/development-testing)）。
+
+<Callout type="warn" title="模型必须在设置种子之前构建">
+
+HuBERT、RMVPE 和 FCPE 的权重初始化（随后被检查点覆盖）会从全局随机数生成器取数，而原版在 `Pipeline` 内部才构建 RMVPE/FCPE。如果一边先播种再建模型、另一边相反，两边后续的随机序列就错开了（例如 NSF 的噪声源），结果不再逐位相同。所以 golden 代码先 `runtime.hubert()`、`runtime.f0(method)`，原版一侧也预先构建 RMVPE/FCPE 塞进 `pipeline.model_rmvpe`/`model_fcpe`，然后才 `torch.manual_seed()`。新增 golden 用例时保持这个顺序。
+
+</Callout>
+## 有意的行为变化
+
+每一项都在原版代码里找到了原因；默认参数下，影响数值的变化都不改变 golden 结果。
+
+| 变化 | 原版 | rvc-next | 原因 |
+| --- | --- | --- | --- |
+| 切片保留每一片的尾部 | `train/preprocess.py` 里最后的 `norm_write(tmp_audio…)` 在 `for audio in self.slicer.slice(audio)` 循环之外，只写最后一段的尾部（`81eed5e` 引入的回归，`5d47da1` 时在循环内） | `PreProcess.slices()` 在循环内收集尾部 | 原版每段切片的尾部都被悄悄丢出训练集 |
+| Live 使用说话人 | `infer/rtrvc.py` 中 `sid` 写死为 0 | 用 `VoiceParams.speaker_id` | 多说话人音色在实时里可以选人 |
+| 索引按数据重建 | `train/train_index.py` 只要有任何 `added_*.index` 就跳过 | 按特征文件指纹（`index_fingerprint.json`）判断 | 换了数据重新训练时原版仍用旧索引 |
+| 索引只加载一次 | `infer/vc/pipeline.py` 每个文件都 `faiss.read_index` + `reconstruct_n` | `Runtime.index()` 按路径和修改时间缓存 | 批量转换慢 |
+| 处处都有 pm、rmvpe、fcpe | 原版 CLI 只接受 pm 和 rmvpe，推理界面有 fcpe | 界面、命令行、API、Live 都提供三种；训练仍只有 pm 和 rmvpe | 同一个参数在各处行为一致 |
+| HuBERT 归一化 | 训练特征提取在 `do_normalize` 为真时 `layer_norm`，推理从不 | 一个函数 `features/hubert.normalize_input`，训练和推理共用 | 真实资源 `do_normalize: false`，所以两边都不归一化，数值不变 |
+| 离线共振峰 | 只有实时有 | 离线用实时的方法（`key − formant` 移调，生成 `ceil(n·2^(f/12))` 帧并缩放 NSF 音高，再重采样回来） | 同一个参数在 Convert 和 Live 里一样；`formant = 0` 时逐位相同 |
+| 任意路径 | 实时 GUI 拒绝含非 ASCII 字符的路径；`clean_path` 剥引号 | 操作系统接受的路径都可以 | — |
+| 推理不在音频回调里 | 实时 GUI 在 `sounddevice` 回调里做整个转换 | 回调只搬数据，处理线程运行引擎 | 避免爆音，回调不该阻塞 |
+| 改块长不停流重载 | 改块长、交叉淡化、上下文都要停流 | 重建缓冲，音色保持加载 | — |
+| 训练续跑 | 恢复后重复已保存的那一轮 | 从下一轮继续 | — |
+| mp3/m4a 输出 | `wav2` 不改采样率，40k 模型导出 mp3/m4a 失败 | 升到编码器支持的最近采样率（40 kHz → 44.1 kHz） | — |
+
+另有几处不是行为变化、但对比时会看到的差异：
+
+- **离线输出最多短两个 10 ms 帧**——这是原版逐块取整的结果，保留它才能逐位一致。
+- **transformers 5**：原版钉在 4.50 以下；rvc-next 需要 `transformers>=5,<6`（4.x 要求 `huggingface_hub < 1`）。HuBERT 各层输出不变，golden 运行逐位相同。
+- **索引 k-means** 用 faiss 而不是 scikit-learn 的 MiniBatchKMeans（只在超过 20 万个向量时触发），少一个依赖，作用相同但数值不同。
+- **CUDA Graph 开关**：原版环境变量 `RVC_CUDA_GRAPH`，rvc-next 是设置 `compute.cuda_graph_offline`（默认关）和 `compute.cuda_graph_live`（默认开）；缓存容量变量改名为 `RVC_NEXT_CUDA_GRAPH_MAX_CACHE`。golden 代码运行前会清掉 `RVC_CUDA_GRAPH`。
+
+## torchaudio 和 torchfcpe 的移植
+
+原版通过 torchaudio 做实时重采样，通过 torchfcpe 做 FCPE。torchaudio 的最后一个版本是 2.11，而且不声明对 torch 的依赖，无约束的 torch 会解析到它无法加载的版本；torchfcpe 又会拉入 torchaudio。所以 rvc-next 把用到的部分移植进来，不再依赖这两个包：
+
+| 移植 | 来源 | 用在 | 证明 |
+| --- | --- | --- | --- |
+| [`engine/audio/sinc_resample.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/audio/sinc_resample.py)：`Resample`、`sinc_resample_kernel`、`apply_sinc_resample_kernel` | torchaudio 2.11 的 `transforms.Resample` 与 `functional._get_sinc_resample_kernel`/`_apply_sinc_resample_kernel`（BSD-2，许可证全文在文件头） | 流式引擎的输入→16 kHz、音色→设备采样率、两处共振峰重采样、FCPE 的非 16 kHz 输入 | `tests/engine/test_sinc_resample.py`：在 rvc-next 实际用到的采样率对上（48000→16000、44100→16000、40000→48000、471→400、504→480 等），核与输出与 torchaudio `torch.equal`；Kaiser 窗也相同 |
+| [`engine/f0/fcpe_model.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/f0/fcpe_model.py)：`Wav2Mel`、纯卷积的 `CFNaiveMelPE`、解码器、`load_fcpe` | torchfcpe（FCPE，MIT；conformer 来自 Diffusion-SVC） | `fcpe` F0 方法 | `tests/engine/test_fcpe_model.py`：mel 与 F0 在 `argmax` 和 `local_argmax` 两种解码下与 torchfcpe 逐位相同（清音帧两边都是 NaN）；内置权重与 torchfcpe 附带的一致 |
+
+两处改动都只涉及类型、异常类型和去掉弃用名字，算术逐步不变。torchaudio/torchfcpe 不安装时，这些对比测试 `importorskip` 跳过，其余测试（长度、恒等、频率保持、非法参数、从运行时创建 provider）照常运行。FCPE 的权重 `fcpe_c_v001.pt` 作为 `fcpe` 资源下载，来源见[资源与模型仓库](/docs/development-assets)。许可证见仓库根目录的 `NOTICE`。
+
+## 原版代码库速览
+
+对照原版排查问题时需要的地图。
+
+### 入口
+
+| 入口 | 是什么 | 在 rvc-next 中 |
+| --- | --- | --- |
+| `webui.py`（约 2,800 行） | Gradio 3.14 应用，端口 7865；所有处理函数在一个文件里 | Web UI + API |
+| `realtime_gui.py` | FreeSimpleGUI 桌面实时变声器（sounddevice） | Live 页面与 `workers.live` |
+| `infer/cli.py` | 离线转换命令行 | `rvc-next convert` |
+| `train/*.py`、`train/dataset/*.py` | 每个训练阶段一个脚本，位置参数，由 WebUI 以 shell 子进程启动并跟踪日志 | `workers.train` 与训练服务 |
+| `tools/pymss/cli.py` | 内置的 PyMSS 命令行与 HTTP 服务器（RVC 本身不用） | 不提供；pymss 作为依赖 |
+| `RVCRealtimeVST/` | Windows VST2/VST3 插件（iPlug2）驱动一个 Python worker | 未实现（计划在同一个 Live worker 上做适配器） |
+
+每个入口都从共享的 `infer/` 自己构建引擎；实时 DSP 链在 `realtime_gui.py`、`infer/rtrvc.py` 和 VST worker 里有三份，F0 后处理在 `pipeline`、`rtrvc` 和 `extract_f0` 里各一份，PyMSS 既内置又作为 pip 包（`tools/pymss_webui.py` 把 `tools/` 放在 `sys.path` 最前，内置版本生效）。rvc-next 把这些合成一份。
+
+### 关键实现位置
+
+| 功能 | 原版位置 | 要点 |
+| --- | --- | --- |
+| GPU 规则 | `configs/config.py:get_device_dtype_sm` | 导入时执行；`Config` 单例解析 `argparse` |
+| 离线管线 | `infer/vc/modules.py:VC` → `infer/vc/pipeline.py:Pipeline` | 48 Hz 高通、反射填充、能量最低点分块、整段 F0、逐块特征/检索/protect/合成 |
+| 实时 | `infer/rtrvc.py:RVC.infer` + `realtime_gui.py` 回调 | 回调里完成全部转换；`skip_head`/`return_length`；1024 帧音高缓存 |
+| CUDA Graph | `tools/cuda_graph.py` | 离线默认关，实时开，训练关 |
+| 训练调度 | `webui.py` 约 723–1530 行 | 全局 `TRAIN_TASK` 加锁，一次一个阶段；每秒跟踪 `logs/<exp>/*.log` |
+| 训练循环 | `train/train.py` | 单卡无 DDP，多卡 DDP over gloo；mel L1 ×45、KL、特征匹配、LSGAN；AdamW 指数衰减；以 `os._exit(0)` 结束 |
+| 多说话人 | `tools/multispeaker.py` | `Name_ID_Repeat` 文件夹或分页表格；`spk_embed_dim` 固定 110；每个说话人一个 `_spkid<N>.index`；推理时 `get_index_path_from_model` 按名字打分配索引 |
+| 分离 | `tools/pymss_webui.py` | 五个硬编码模型；每次运行一个子进程，JSON 请求文件 + JSON 行事件（rvc-next 的 worker 协议沿用了它）；DirectML fp16 失败以退出码 75 用 fp32 重跑 |
+
+### 必须继续读取的格式
+
+| 格式 | 细节 | 为什么 |
+| --- | --- | --- |
+| 小模型 `.pth` | `weight`（fp16）、18 项位置 `config`、`info`、`sr`、`f0`、`version`、可选 `speaker_info` | 用户已有的全部模型；rvc-next 写出的模型也能在原版里用 |
+| faiss 索引 | `added_IVF*_Flat_nprobe_*_<exp>_<版本>[_spkid<N>].index`（版本为 `v1` 或 `v2`）；`trained` 路径被换成 `added` | 已有索引 |
+| 底模 | `assets/pretrained{,_v2}/{f0,}{G,D}{32k,40k,48k}.pth`；v2 40k 用 `configs/v1/40k.json` | 微调 |
+| 实验文件夹 | `0_gt_wavs` … `3_feature768`、`filelist.txt` 行格式、`config.json`、`multispeaker_manifest.json` | 导入旧实验（`engine/train/experiment.py:read_legacy`） |
+| 资源布局 | `assets/hubert_base/`（Hugging Face 格式）、`assets/rmvpe/rmvpe.pt` 与 `rmvpe.onnx`、`assets/pymss_weights/`、`logs/mute/` | `paths.assets_dir` 可以直接指向原版的 `assets/`，不必重复下载 |
+
+### 原版里发现的问题与去向
+
+| 问题 | 去向 |
+| --- | --- |
+| 切片丢尾（回归） | 已修，见上表 |
+| 实时说话人固定为 0 | 已修 |
+| 有旧索引就跳过构建 | 按指纹重建 |
+| 每个文件重读索引 | 运行时缓存 |
+| 各处 F0 选项不一致 | 统一 |
+| 训练与推理归一化不一致 | 一个函数 |
+| 老旧 Web 栈（Gradio 3.14、pydantic 1、FastAPI &lt; 0.100） | FastAPI + Vue 3，pydantic v2 |
+| 阶段以 `shell=True` 加 `%` 格式化命令运行，路径特殊时脆弱 | worker 子进程读 JSON 请求文件，用 `sys.executable` 启动 |
+| 引擎返回 Gradio 更新字典和中文状态 | 引擎不依赖任何界面层 |
+| 代码多处拷贝 | 每样只有一份 |
+| 实时推理在音频回调里；VST 欠载后不重新同步、5 秒超时才发现 worker 死掉、每个实例一个 CUDA 上下文 | 处理线程 + 环形缓冲 + 看门狗；VST 未实现 |

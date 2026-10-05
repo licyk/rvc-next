@@ -1,0 +1,37 @@
+---
+title: "RVC Next"
+description: "An integrated rewrite of Retrieval-based Voice Conversion (RVC): conversion, live voice conversion, vocal separation, training and model management."
+icon: House
+---
+
+RVC Next is an integrated rewrite of [Retrieval-based-Voice-Conversion-WebUI](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI) (RVC): conversion in **Convert**, live voice conversion in **Live**, vocal separation in **Separate**, training in **Train** and model management in **Models**, provided by one server, one web interface and one command line (`rvc-next`). The numerical code is ported line by line from the original, with comparison tests ensuring identical output.
+
+<Cards>
+  <Card title="Getting started" href="/docs/quick-start" description="Get to know RVC Next, then follow the installation and first-run steps in order." />
+  <Card title="Installation" href="/docs/installation" description="Prepare an isolated Python environment and install PyTorch and RVC Next." />
+  <Card title="First run" href="/docs/first-run" description="Start the web interface, download the required models and complete your first conversion." />
+  <Card title="FAQ" href="/docs/advanced-faq" description="Answers to common questions about ports, asset downloads, devices, GPU memory and more." />
+</Cards>
+
+## What it can do
+
+| Feature | Description | Guide |
+| --- | --- | --- |
+| Conversion | Convert audio files or an entire folder with a voice model, optionally separating vocals first and mixing the accompaniment back in. | [Conversion](/docs/guide-convert) |
+| Live voice conversion | Convert your voice live through the server computer's sound card; switch parameters and voices while running. | [Live voice conversion](/docs/guide-live) |
+| Vocal separation | Separate vocals and accompaniment, remove reverb, separate backing vocals and use presets with multiple steps. | [Vocal separation](/docs/guide-separate) |
+| Training | Go from a dataset to a voice model: slicing, pitch, features, training and an index. After changes, rerun only the steps that need it. | [Training](/docs/guide-train) |
+| Model management | Import and organize voices and indexes; download demo voices, base models, separation models and required assets. | [Model management](/docs/guide-models) |
+
+## Documentation sections
+
+<Cards>
+  <Card title="User guide" href="/docs/guide" description="A screen-by-screen guide to conversion, live voice conversion, vocal separation, training, model management, voice parameters and settings." />
+  <Card title="Command line" href="/docs/cli" description="Perform every operation without opening a browser: command reference, configuration files and environment variables." />
+  <Card title="Advanced" href="/docs/advanced" description="Migration from the original RVC, remote access and security, hardware and performance tuning, and common questions." />
+  <Card title="Development documentation" href="/docs/development" description="For contributors: architecture, engine, core services, API, web interface, tests and how compatibility with the original is maintained." />
+</Cards>
+
+<Callout title="Hardware validation">
+  RVC Next's conversion, separation, training and live voice conversion have been fully tested on CPU. The device layer for live voice conversion is tested with a simulated sound card. CUDA, DirectML, MPS and real sound cards (including ASIO and WASAPI exclusive mode) have not yet been validated on physical hardware; see [Hardware and performance](/docs/advanced-hardware).
+</Callout>

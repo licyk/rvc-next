@@ -1,0 +1,35 @@
+rvc-next
+Copyright (C) 2026 licyk and contributors. Licensed under the GNU General Public License v3.0
+(see LICENSE). The application skeleton is reused from SD Model Hub and Hanaikada (GPLv3).
+
+This product ports numerical code from the following projects, under their licences:
+
+Retrieval-based-Voice-Conversion-WebUI (RVC)
+  https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI
+  MIT License. Copyright (c) 2023 liujing04, 源文雨, Ftps.
+  Ported: the synthesizer and discriminator networks (rvc_next/engine/models), the offline and
+  realtime conversion maths (rvc_next/engine/convert, rvc_next/engine/stream), RMVPE
+  (rvc_next/engine/f0/rmvpe.py), TorchGate (rvc_next/engine/audio/denoise.py), the CUDA Graph
+  cache (rvc_next/engine/graph.py), and the training stages (rvc_next/engine/train).
+
+torchaudio (https://github.com/pytorch/audio)
+  BSD 2-Clause License. Copyright (c) 2017 Facebook Inc. (Soumith Chintala). All rights reserved.
+  Ported: the windowed-sinc resampler (``transforms.Resample`` and its kernel functions) into
+  rvc_next/engine/audio/sinc_resample.py, which carries the licence text in full.
+
+FCPE / torchfcpe (https://github.com/CNChTu/FCPE)
+  MIT License. Copyright (c) 2023 CN_ChiTu. The conformer comes from Diffusion-SVC
+  (https://github.com/CNChTu/Diffusion-SVC), MIT License.
+  Ported: the bundled model's inference path (mel front end, convolution-only CFNaiveMelPE,
+  decoders, loader) into rvc_next/engine/f0/fcpe_model.py. Its weights (fcpe_c_v001.pt) are
+  downloaded as the "fcpe" asset.
+
+PyMSS (music source separation), used as a dependency, MIT License.
+
+RMVPE: https://github.com/Dream-High/RMVPE, trained by yxlllc and RVC-Boss.
+DDSP-SVC (the SOLA crossfade): https://github.com/yxlllc/DDSP-SVC, MIT License.
+TorchGate (spectral gating), by Asaf Zorea, as vendored in RVC (noisereduce, MIT License).
+
+Model weights downloaded at run time (HuBERT/ContentVec, RMVPE, the pretrained base models and
+the separation checkpoints) come from https://huggingface.co/lj1995/VoiceConversionWebUI and
+carry their own terms.

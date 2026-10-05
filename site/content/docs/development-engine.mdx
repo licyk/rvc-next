@@ -1,0 +1,408 @@
+---
+title: "引擎"
+icon: Cog
+---
+
+`rvc_next/engine/` 是全部机器学习与数字信号处理代码：设备选择、模型缓存、HuBERT 特征、F0 提取、检索索引、合成器网络、离线转换、流式转换、音频编解码、实时音频设备、人声分离和训练的每个阶段。它不知道应用的存在——不导入 `rvc_next.core/api/cli/workers`，不导入 pydantic 或任何 Web/命令行框架（由 `tests/test_architecture.py` 守住，见[整体架构](/docs/development-architecture)）。核心层、worker 子进程和测试都只是它的调用者。
+
+本页按模块讲引擎做了什么、为什么这样做。与原版逐行对照的规则、golden 测试和行为变化见[与原版的一致性](/docs/development-parity)。
+
+## 约定
+
+- **参数是冻结的 dataclass**：`VoiceParams`（`engine/convert/params.py`）、`StreamParams`（`engine/stream/params.py`），以及训练各阶段的 `SliceRequest`、`F0Request`、`FeatureRequest`、`TrainRequest`、`IndexRequest`。核心层用 `VoiceParamsModel`/`StreamParamsModel`（`core/params.py`）镜像前两者并加上取值范围；引擎自己不做范围校验。
+- **重依赖在函数内导入**：torch、transformers、faiss、av、pymss、sounddevice、parselmouth 都在用到它们的函数里 `import`，所以 `import rvc_next.engine.xxx` 很便宜，`rvc-next --help` 不会加载 torch。例外是移植文件（`engine/graph.py`、`engine/f0/rmvpe.py`、`engine/f0/fcpe_model.py`、`engine/audio/sinc_resample.py`、`engine/audio/denoise.py`、`engine/models/*.py`），它们在模块顶层导入 torch，只能从其他函数里被惰性导入。
+- **异常**只有 `engine/errors.py` 里的几种：`EngineError` 基类、`MissingAssetError`（带 `assets`，资源目录 id 列表）、`ModelFormatError`、`AudioError`、`Cancelled`。核心层在 `core/engine_errors.py:map_engine_error()` 里把它们映射成领域错误；worker 子进程在 `workers/base.py:run_worker()` 里把它们变成 `error` 事件，核心层再用 `worker_error()` 重建。
+- **取消**是协作式的：`engine/cancel.py:CancelToken`，引擎在分块之间调用 `cancel.check()`，抛出 `Cancelled`。子进程里的工作不靠它，取消就是杀进程树。
+- **`sounddevice` 只出现在 `engine/audio_io/`，`pymss` 只出现在 `engine/separate/`**（架构测试检查），这样其余引擎代码在没有 PortAudio 或 pymss 的环境里也能导入。
+
+## 模块地图
+
+| 模块 | 作用 | 来自原版 |
+| --- | --- | --- |
+| `runtime.py` | GPU 规则、`ChunkConfig`、资源路径、模型缓存、显存释放与 OOM 判断 | `configs/config.py` 的 GPU 规则 |
+| `graph.py` | CUDA Graph 捕获与回放缓存 | `tools/cuda_graph.py`（照搬） |
+| `features/hubert.py` | transformers HuBERT，v1 第 9 层 + `final_proj`，v2 最后一层 | `infer/hubert.py` |
+| `f0/` | `F0Provider` 接口与共用后处理；`pm`、`rmvpe`（含 ONNX）、`fcpe` | `infer/rmvpe.py`、`infer/fcpe.py`、三处 pm 代码；FCPE 网络来自 torchfcpe |
+| `index/` | `retrieval.py`（加载一次、top-8 融合）、`inspect.py`（只读维度与向量数）、`build.py`（索引阶段） | `infer/vc/pipeline.py` 的检索、`train/train_index.py` |
+| `models/` | 合成器与判别器网络（照搬）、`.pth` 读写与识别、加载、融合、提取 | `infer/module/*.py`、`train/process_ckpt.py` |
+| `convert/` | `VoiceParams`、`OfflineConverter` | `infer/vc/pipeline.py` |
+| `stream/` | `StreamParams`、`StreamEngine`、延迟估算 | `infer/rtrvc.py` + `realtime_gui.py` 回调 |
+| `audio/` | PyAV 编解码与探测、重采样、移植的 sinc 重采样器、DSP 小工具、波形峰值、SOLA、TorchGate | `infer/audio.py`、`tools/torchgate/`、DDSP-SVC 的 SOLA |
+| `audio_io/` | 设备枚举/分组/解析、流与会话、环形缓冲、时钟漂移校正、测试音、假后端 | 无（原版 `realtime_gui.py` 的设备代码被重写） |
+| `separate/` | 分离模型表、预设链规划、pymss 适配与运行器 | `tools/pymss_webui.py` |
+| `train/` | 切片、F0、特征、文件列表、多说话人、训练循环、超参、数据集扫描、指纹 | `train/*.py`、`train/dataset/*.py`、`tools/multispeaker.py` |
+
+## 运行时
+
+[`engine/runtime.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/runtime.py) 的 `Runtime` 持有设备、dtype、CUDA Graph 开关、分块配置和已加载模型的缓存。服务器进程里只有一个（由核心层的 `ComputeService` 构建），Live worker 子进程和每个训练、分离子进程各建自己的——所以它们的显存彼此独立。
+
+### GPU 规则与设备选择
+
+原版在 `configs/config.py` 导入时就执行 GPU 规则并解析 `argparse` 参数（CLI 和 VST worker 因此得先清空 `sys.argv`）。这里它是一个纯函数 `choose_device(requested, precision) -> DeviceChoice`：
+
+| 条件（`cuda_profile`） | 结果 |
+| --- | --- |
+| 显存 &lt; 4 GiB 或算力 &lt; 5.3 | 不可用（`eligible=False`） |
+| 算力 6.1（Pascal），或名字含 `16xx` 且算力 7.5（GTX 16 系） | fp32 |
+| 算力 > 6.1 | fp16 |
+| 其余 | 不可用 |
+
+显存按 `total_memory / 1024³ + 0.4` 计，与原版一致。`requested="auto"` 时在可用 CUDA 卡中选 `(sm, memory_gb)` 最大的一张；没有就试 DirectML（`directml_device()` 真的跑一次张量运算来确认能用），再退到 CPU。显式的 `cuda:N` 即使规则会跳过也照用，但只在 fp32；`dml`、`mps` 不可用时退回 CPU 并在 `reason` 里说明。`precision` 为 `fp32`/`fp16` 时覆盖规则（fp16 只对 CUDA 生效）。MPS 只在显式请求时使用，`auto` 永远不选它。
+
+`list_devices()` 列出全部设备（CPU 在最后），供 `GET /compute/devices` 和 `rvc-next doctor` 显示每张卡的规则判定。
+
+### 分块配置
+
+`ChunkConfig.for_device()` 给出原版的 `x_pad/x_query/x_center/x_max`（秒）：
+
+| 设备 | `x_pad` | `x_query` | `x_center` | `x_max` |
+| --- | --- | --- | --- | --- |
+| CUDA 且显存 ≤ 4 GiB | 1 | 5 | 30 | 32 |
+| fp16 | 3 | 10 | 60 | 65 |
+| 其余（fp32、CPU） | 1 | 6 | 38 | 41 |
+
+golden 测试在 CPU fp32 上运行，原版那边用的正是最后一行（`scripts/golden.py` 的 `_OriginalConfig`）。
+
+### 模型缓存
+
+| 方法 | 缓存键 | 策略 |
+| --- | --- | --- |
+| `hubert()` | 唯一 | 加载一次 |
+| `f0(method)` | `pm`/`rmvpe`/`fcpe` | 每种加载一次（`engine/f0/__init__.py:create_provider`） |
+| `voice(path)` | 解析后的路径 + `st_mtime_ns` | LRU，保留最近 `max_voices`（默认 3）个；淘汰时清掉该网络的 CUDA Graph 缓存 |
+| `index(path)` | 路径 + `st_mtime_ns` | 每个文件加载一次 |
+
+以修改时间入键，是为了让覆盖同名文件（重新导出、重新构建索引）自动生效，而不必通知运行时。所有方法都在一把 `RLock` 下，可以从多个线程调用。
+
+`cached()` 返回 `hubert`、`f0:<method>`、`voice:<文件名>`、`index:<文件名>` 这样的名字列表，供计算面板显示；`release()` 卸载全部并调用 `soft_empty_cache()`；`release_idle(seconds)` 在所有条目都闲置超过给定秒数时整体卸载（核心层按 `compute.unload_after_minutes` 调用）；`vram()` 在 CUDA 上用 `torch.cuda.mem_get_info` 返回 `(已用, 总量)` MiB。
+
+### 显存释放与 OOM
+
+这两个函数的做法参考 ComfyUI 的 `comfy/model_management.py`：
+
+- `soft_empty_cache()`：先 `gc.collect()`，然后在 CUDA 上 `synchronize` → `empty_cache` → `ipc_collect`（MPS 上 `torch.mps.empty_cache()`）。先同步，保证没有内核仍在使用要归还的块。torch 未加载时什么也不做。
+- `is_oom(error)`：识别 `torch.OutOfMemoryError`、CUDA 的 `AcceleratorError` 错误码 2、以及消息里含 "out of memory"/"not enough gpu video memory" 的 `RuntimeError`/`MemoryError`（MPS、DirectML）。识别到 CUDA 的异步错误时，会触发一次小运算并同步，把挂起的错误“消化”掉，以免下一次操作继承它。它从 `sys.modules` 取 torch，不会因为判断错误而导入 torch。
+
+OOM 之后由谁卸载什么，是核心层的策略（`release_after_oom`），见[核心服务](/docs/development-core)。
+
+## CUDA Graph
+
+[`engine/graph.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/graph.py) 照搬原版 `tools/cuda_graph.py`：每个“所有者”对象（`net_g`、HuBERT、RMVPE、重采样器……）上挂一个 `_GraphCache`，按调用点命名空间加上每个输入张量的形状、步长、dtype、设备和 `requires_grad` 作键。第一次遇到新签名时在侧流上预热三次再捕获；之后回放时把输入复制进静态张量、`replay()`、克隆输出。捕获失败的签名记入 `failures`，以后直接走 eager。缓存按 LRU 淘汰，容量来自环境变量 `RVC_NEXT_CUDA_GRAPH_MAX_CACHE`（默认 8）。`get_cuda_graph_stats()` 返回捕获、回放、回退、淘汰计数。
+
+与原版的区别只有开关：原版读环境变量 `RVC_CUDA_GRAPH`，这里由 `Runtime` 构造时调用 `configure_cuda_graph(device, wanted)` 设置进程级开关，并且只在设备通过一次捕获—回放探测（`detect_cuda_graph_support`）后才打开。`wanted` 来自设置：服务器进程用 `compute.cuda_graph_offline`（默认关，与原版离线默认一致），Live worker 用 `compute.cuda_graph_live`（默认开）。训练从不开启。
+
+调用方写法统一为 `run_cuda_graph(owner, namespace, fn, *inputs)`；开关关闭或输入不在 CUDA 上时它直接调用 `fn`。由于形状是键的一部分，命名空间里要带上影响形状的参数（例如流式引擎的 `rvc-realtime-f0-{skip}-{ret}-{ret2}`、离线共振峰的 `rvc-synth-f0-formant-{n_res}`），否则会误用同一张图。
+
+<Callout type="info" title="开启 CUDA Graph 时不调用 emptycache`">
+
+离线转换器的 `_empty_cache()` 只在 CUDA Graph 关闭时调用 `torch.cuda.empty_cache()`：图捕获的内存池必须保留，归还后回放会失败。这一点与原版 `Pipeline` 相同。
+
+</Callout>
+## HuBERT 特征
+
+[`features/hubert.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/features/hubert.py) 用 transformers 的 `HubertModel` 加一层 `final_proj`（`HubertModelWithFinalProj`），从资源目录 `hubert_base/`（`config.json`、`preprocessor_config.json`、`pytorch_model.bin` 或 `model.safetensors`）以 `local_files_only=True` 加载；缺文件抛 `MissingAssetError(["hubert"])`。DirectML（设备字符串含 `privateuseone`）上强制 `attn_implementation="eager"`，因为 DirectML 不实现 transformers 用的全部 SDPA 内核。
+
+`extract_features(model, source, version, padding_mask)`：
+
+- v1：`hidden_states[9]` 经 `final_proj`，256 维；
+- v2：`last_hidden_state`，768 维；
+- 四种（版本 × 有无 mask）各自一个 CUDA Graph 命名空间。
+
+**归一化只有一处**：`normalize_input()` 读 `preprocessor_config.json` 的 `do_normalize`（`requires_normalization()`，`lru_cache`），为真时做 `F.layer_norm`。原版在训练特征提取里按这个标志归一化、推理里从不归一化，潜在地造成训练/推理不一致；真实资源的 `do_normalize` 是 `false`，所以两边都不归一化，结果与原版一致，而训练（`train/feature_extract.py`）和推理共用这一个函数，以后换资源也不会再分叉。
+
+## F0 提取
+
+[`f0/base.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/f0/base.py) 定义 `F0Provider` 协议：`compute(x, p_len)` 对 16 kHz 音频每 10 ms（160 个采样点）给出一个 Hz 值，清音为 0。原版把移调、清音插值和 256 级量化在离线管线、实时引擎和训练提取里各写了一遍，这里各只有一份：
+
+- `interpolate_unvoiced()`：用相邻浊音帧线性插值填补清音帧（离线规则）；
+- `shift(f0, semitones)`：乘以 `2^(semitones/12)`；
+- `to_coarse()`：mel 刻度上量化到合成器音高嵌入读取的 1..255；
+- `offline_f0()`：计算 → 插值 → 移调 → 量化，返回 `(coarse, hz)`，即原版 `Pipeline.get_f0`。
+
+流式引擎因为要在设备上处理张量，有自己的 `_get_f0`/`_f0_post`，数学相同（见下文）。训练的 F0 不移调。
+
+| 方法 | 实现 | 设备 | 资源 |
+| --- | --- | --- | --- |
+| `pm` | `PmProvider`：parselmouth `to_pitch_ac`，时间步 10 ms，浊音阈值 0.6，50–1100 Hz，两端补零到 `p_len` | CPU | 无 |
+| `rmvpe` | `RmvpeProvider` → `f0/rmvpe.py:RMVPE`（照搬），`infer_from_audio(x, thred=0.03)` | CUDA/CPU 用 PyTorch；DirectML 用 onnxruntime 的 `DmlExecutionProvider` | `rmvpe`（`rmvpe/rmvpe.pt`）；DirectML 上 `rmvpe-onnx`（`rmvpe/rmvpe.onnx`） |
+| `fcpe` | `FcpeProvider` → `f0/fcpe.py:FCPEInfer` → `f0/fcpe_model.py`，`local_argmax` 解码，阈值 0.006 | 全部；DirectML 上 mel 与解码在 CPU | `fcpe`（`fcpe/fcpe_c_v001.pt`） |
+
+`RmvpeProvider` 根据设备检查对应文件，缺失时抛出带正确资源 id 的 `MissingAssetError`，这样界面提示下载的是 ONNX 还是 PyTorch 权重。`RMVPE` 只在 CUDA 上用半精度（运行时已按 GPU 规则决定）。
+
+### FCPE 的移植
+
+原版通过 `torchfcpe.spawn_bundled_infer_model` 使用 FCPE。[`f0/fcpe_model.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/f0/fcpe_model.py) 只移植了这一个模型真正走到的路径：`Wav2Mel`（128 bin log-mel，16 kHz，hop 160）、纯卷积的 `CFNaiveMelPE`（`ConvOnlyEncoder` 堆叠 `ConformerConvModule`）、两种解码器和 `load_fcpe()`。注意力分支（依赖 `einops`、`local_attention`）对 `conv_only: true` 的 `fcpe_c_v001.pt` 永远不执行，所以没有移植；非 16 kHz 输入用移植的 `sinc_resample.Resample` 重采样，与 torchfcpe 使用 torchaudio 时相同。算术未改，输出与 torchfcpe 逐位相同（`tests/engine/test_fcpe_model.py`）。这样 rvc-next 不再依赖 torchfcpe（它会拉入 torchaudio），权重作为 `fcpe` 资源下载（来源见[资源与模型仓库](/docs/development-assets)）。
+
+`f0/fcpe.py:FCPEInfer` 在此之上处理设备差异：CUDA 且 CUDA Graph 开启时，mel 在图外计算，网络和解码在图内（解码的偏移张量提前放在设备上，因为图捕获禁止主机到设备拷贝）；DirectML 缺少 mel 阶段用的复数 STFT，且 `gather` 返回错误的 bin，所以 mel 和解码在 CPU、只有网络在 GPU。
+
+## 检索索引
+
+- **检索**（[`index/retrieval.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/index/retrieval.py)）：`load_index()` 读 faiss 索引并一次性 `reconstruct_n` 出全部向量，得到 `LoadedIndex(path, index, vectors)`；名字含 `trained` 且同目录有对应 `added` 文件时换成后者（原版行为）。`blend(feats, index, k=8)` 用 top-8 近邻按距离平方倒数加权平均。原版每转换一个文件都重新 `read_index` + `reconstruct_n`，批量转换很慢；这里由 `Runtime.index()` 按路径和修改时间缓存。
+- **识别**（`index/inspect.py`）：`inspect_index()` 以 mmap 方式打开，只读 `d` 和 `ntotal`。`IndexInfo.version` 由维度给出（256 → v1，768 → v2），`empty` 表示 `ntotal == 0`，即没有加入向量的 `trained_*` 索引。导入会话和索引收件箱用它按内容判断索引与音色是否匹配，而不是按文件名。
+- **构建**（`index/build.py`，训练的 `index` 阶段，移植自 `train/train_index.py`）：拼接特征、打乱、存 `total_fea*.npy`；超过 `KMEANS_THRESHOLD`（200,000）个向量时用 faiss k-means 降到 `KMEANS_CENTRES`（10,000）个中心（原版用 scikit-learn 的 MiniBatchKMeans，换成 faiss 少一个依赖）；`IVF{n},Flat`，`n = min(16·√N, N/39)`，`nprobe = 1`；先写 `trained_IVF…index`，再分批 8192 加入向量写 `added_IVF…index`。多说话人实验（有 `multispeaker_manifest.json`）每个说话人一个索引，文件名带 `_spkid<N>`。
+
+<Callout type="info" title="索引何时重建">
+
+原版只要存在任何 `added_*.index` 就跳过构建，新数据训练后仍用旧索引。这里每组特征文件的指纹（`train/fingerprint.py:of_paths`，混入版本和名字）存在 `index_fingerprint.json`，指纹变了或 `force=True` 才删掉旧文件重建，否则返回 `reused: true`。
+
+</Callout>
+## 模型与检查点
+
+### 网络
+
+`models/{synthesizer,modules,attentions,commons,transforms}.py` 从原版 `infer/module/` 照搬，只改了导入路径，并保持原版格式（不参加 `ruff format` 和 ty，见[与原版的一致性](/docs/development-parity)）。四个合成器类按 `(version, pitch_guidance)` 选择（`models/loader.py:synthesizer_class`）：
+
+| | 有音高引导 | 无音高引导 |
+| --- | --- | --- |
+| v1（256 维） | `SynthesizerTrnMs256NSFsid` | `SynthesizerTrnMs256NSFsid_nono` |
+| v2（768 维） | `SynthesizerTrnMs768NSFsid` | `SynthesizerTrnMs768NSFsid_nono` |
+
+判别器为 `MultiPeriodDiscriminator`（v1）和 `MultiPeriodDiscriminatorV2`（v2）。
+
+### `.pth` 格式
+
+[`models/checkpoint.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/models/checkpoint.py) 是用户已有模型能否继续使用的关键，所以原样读写：
+
+- **小模型**（音色）：`{weight: 去掉 enc_q 的 fp16 state_dict, config: 18 个位置超参, info, sr, f0, version, speaker_info?}`。`read_small_model()` 解析成 `SmallModel`，未知键保存在 `extra` 里并在写回时保留；`target_sample_rate` 取 `config[-1]`，`speaker_slots` 取 `emb_g.weight` 的行数。`speaker_info` 经 `normalize_speaker_info()` 规范为 id 唯一、小于 110 的 `{id, name}` 列表。
+- **完整检查点**：`G_<step>.pth`/`D_<step>.pth`，`{model, optimizer, learning_rate, iteration}`；“只保存最新”时步数固定为 `2333333`。
+- 写入一律经 `torch_save()` 先写 `.tmp` 再 `os.replace`，崩溃不会留下半个模型。
+
+`summarize()` 不建网络就能描述一个小模型或 G 检查点；`inspect_checkpoint()` 则按内容识别任意 `.pth`，供导入会话使用，读得出来的文件从不抛异常：
+
+| 种类 | 判断依据 |
+| --- | --- |
+| `small` | 有 `weight` 和 `config` |
+| `D` | 状态字典有 `discriminators.*`；子判别器 7 个为 v1，9 个为 v2；D 无法告诉采样率 |
+| `G` | 有 `dec.*`；`enc_p.emb_phone.weight` 宽 768 为 v2，否则 v1；`dec.m_source*` 存在即有音高引导；采样率由 `enc_q.pre.weight` 输入宽度（513 → 32k，1025 → 40k/48k）加上采样卷积核尺寸查 `_G_RATES` |
+| `unknown` | 其他，附说明 |
+
+| `enc_q.pre` 宽度 | 上采样核 | 结果 |
+| --- | --- | --- |
+| 513 | `(16, 16, 4, 4, 4)` | 32k v1 |
+| 513 | `(20, 16, 4, 4)` | 32k v2 |
+| 1025 | `(16, 16, 4, 4)` | 40k（v1、v2 同构） |
+| 1025 | `(16, 16, 4, 4, 4)` | 48k v1 |
+| 1025 | `(24, 20, 4, 4)` | 48k v2 |
+
+### 加载、融合、提取、改信息
+
+- `loader.py:load_voice()`：读小模型，把 `config[-3]`（说话人数）改成 `emb_g` 的实际行数，构建对应合成器、删除 `enc_q`、`load_state_dict(strict=False)`，按精度转半精度或单精度。即原版 `VC.get_vc`，去掉了返回 Gradio 更新字典的部分。
+- `merge.py:merge_models(a, b, dst, alpha=…)`：`alpha·a + (1−alpha)·b`，结果为 fp16。两者的版本、音高引导和采样率必须相同、结构必须一致；`emb_g` 行数不同时保留较短的（原版规则）；采样率、版本取自 `a`；`speaker_info` 只在两者相同时保留。
+- `extract.py:extract_small_model()`：从 G 检查点提取小模型。`config_for(sample_rate, version)` 生成原版写入的 18 项配置——v2 的 40k 用 v1 的 40k 布局，与原版 `configs/v1/40k.json` 一致。
+- `checkpoint.py:change_info()`：复制一个小模型并改写 `info` 或说话人名（原版“修改信息”）。音色库把用户改的说话人名存在 `voice.json`，不改 `.pth`。
+
+## 离线转换
+
+[`convert/offline.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/convert/offline.py) 的 `OfflineConverter.convert(audio_16k, voice, params, index=…, resample_to=…, progress=…, cancel=…)` 逐行移植原版 `infer/vc/pipeline.py`，返回 `(int16 采样, 采样率)`。输入是已经解码成 16 kHz 单声道的 float32（解码由核心层用 `audio/io.py:decode` 完成）。
+
+<Mermaid chart={"flowchart TD\n    A[16 kHz 单声道] --> B[\"prepare_input: 峰值超过 0.95 时缩放\"]\n    B --> C[\"highpass_16k: 48 Hz 5 阶 Butterworth, filtfilt\"]\n    C --> D{\"长度超过 x_max?\"}\n    D -- 是 --> E[\"每隔 x_center 秒, 在 ±x_query 内找能量最低点作为切点 opt_ts\"]\n    D -- 否 --> F[整段]\n    E --> G[\"反射填充 x_pad 秒\"]\n    F --> G\n    G --> H[\"整段一次计算 F0: offline_f0, 移调量 pitch − formant\"]\n    H --> I[\"逐块 _vc: HuBERT → 索引融合 → 2× 插值 → protect 混合 → net_g.infer\"]\n    I --> J[\"去掉每块两端 x_pad 的输出\"]\n    J --> K[\"拼接 → change_rms (rms_mix_rate ≠ 1) → 可选重采样\"]\n    K --> L[\"to_int16: 峰值超过 0.99 时归一\"]"} />
+
+要点：
+
+- **F0 只算一次**，覆盖整个填充后的音频，再按块切片，避免块边界处音高不连续。
+- **索引**：`index_rate == 0` 或没有索引时完全跳过检索。融合在 fp32 下进行（半精度时先转 fp32 再转回），与原版一致。
+- **protect**：`protect < 0.5` 且有音高时，把原始特征按 `pitchf` 混回——浊音帧权重 1、清音帧权重 `protect`——以保护辅音和呼吸声。`0.5` 关闭保护。
+- **说话人** `params.speaker_id` 直接作为 `sid` 传给合成器。
+- **取消与进度**：每块之前 `cancel.check()`，每块之后 `progress(n/total)`。
+
+### 离线共振峰偏移
+
+原版只有实时引擎支持共振峰（formant）偏移，这里把实时的方法搬到了离线：
+
+1. F0 按 `pitch − formant` 移调（与实时相同）；
+2. `factor = 2^(formant/12)`，要求合成器生成 `n_res = ceil(frames · factor)` 帧，并把 NSF 的连续音高 `pitchf` 乘以 `n_res / frames`，使生成更长的音频时音高不变；
+3. `_formant_resample()` 用 `upp_res = floor(factor · tgt_sr / 100)` 个采样每帧截取，再用 `sinc_resample.Resample(upp_res → tgt_sr/100)` 压回原长度——时长恢复，频谱包络整体上移 `factor`。
+
+`formant == 0` 时 `n_res` 为 `None`，走的是原版完全相同的调用，所以默认参数下输出与原版逐位相同。
+
+<Callout type="info" title="输出比输入略短">
+
+输出可能比输入短至多两个 10 ms 帧，这来自原版逐块 `p_len = len // 160` 的取整，有意保留以维持逐位一致。
+
+</Callout>
+## 流式引擎
+
+[`stream/engine.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/stream/engine.py) 的 `StreamEngine` 是“一块进、一块出、没有 I/O”的实时转换器。数学来自原版 `infer/rtrvc.py`（`RVC.infer`）和 `realtime_gui.py` 的 `start_vc`、`audio_callback`；原版这套 DSP 链在 GUI 回调、`rtrvc` 和 VST worker 里有三份拷贝，这里合为一个类。`process()` 是同步的、只接受普通数组，所以它可以由 PortAudio 会话驱动、由测试拿 WAV 驱动，也可以在将来由 VST 适配器或浏览器传输驱动。
+
+### 缓冲区（`_build`）
+
+全部长度按设备采样率 `sample_rate` 计，`zc = sample_rate // 100`（10 ms），毫秒参数都四舍五入到整 10 ms（`_frames`，原版的取整方式）：
+
+| 量 | 值 |
+| --- | --- |
+| `block_frame` | `block_ms` |
+| `crossfade_frame` | `crossfade_ms` |
+| `sola_buffer_frame` | `min(crossfade_frame, 4·zc)`（最多 40 ms） |
+| `sola_search_frame` | `zc`（10 ms） |
+| `extra_frame` | `context_ms`（原版的 `extra_time`） |
+| `input_wav` | `extra + crossfade + sola_search + block`，设备采样率滚动缓冲 |
+| `input_wav_res` | 同一缓冲的 16 kHz 版本 |
+| `skip_head` / `return_length` | `extra_frame // zc` / `(block + sola_buffer + sola_search) // zc` |
+
+### 每块的处理（`_process` 与 `_infer`）
+
+<Mermaid chart={"flowchart TD\n    A[\"一块输入 (设备采样率)\"] --> B{\"threshold_db > −60?\"}\n    B -- 是 --> C[\"RMS 门限: 低于阈值的 10 ms 段置零\"]\n    B -- 否 --> D\n    C --> D[\"滚入 input_wav\"]\n    D --> E{\"input_denoise?\"}\n    E -- 是 --> F[\"TorchGate 降噪 + 与上一块尾部交叉淡化\"]\n    E -- 否 --> G\n    F --> G[\"sinc 重采样到 16 kHz, 滚入 input_wav_res\"]\n    G --> H{\"passthrough?\"}\n    H -- 否 --> I[\"_infer: 整个上下文跑 HuBERT; 只对新帧做索引检索; 尾部算 F0 并滚入 1024 帧音高缓存; net_g.infer(skip_head, return_length, return_length2)\"]\n    I --> J[\"共振峰重采样 upp_res → tgt_sr/100; 重采样到设备采样率\"]\n    H -- 是 --> K[\"直接取 (降噪后的) 输入\"]\n    J --> L{\"output_denoise?\"}\n    L -- 是 --> M[TorchGate 输出降噪]\n    L -- 否 --> N\n    M --> N{\"rms_mix_rate < 1?\"}\n    N -- 是 --> O[RMS 包络混合]\n    N -- 否 --> P\n    O --> P[\"SOLA: 10 ms 窗内归一化互相关找偏移, sin² 交叉淡化\"]\n    P --> Q[\"一块输出\"]"} />
+
+- HuBERT 对整个 `context` 运行（上下文越长，特征越稳），但检索只处理 `skip_head // 2` 之后的新帧，生成也只生成新的音频（`skip_head`/`return_length`），这是延迟可控的原因。
+- F0 只在缓冲尾部计算：长度 `block_frame_16k + 800`，RMVPE 时向上取整到 5120 的倍数再减 160（RMVPE 的帧对齐）。结果去掉首尾几帧后滚入 1024 帧的 `cache_pitch`/`cache_pitchf`。实时的 pm 与离线不同：两端按 65 Hz 下限补零、截到块的帧数（`_pm`），这是原版的实时写法。
+- 共振峰：`return_length2 = ceil(return_length · factor)`，`cache_pitchf` 乘 `return_length2 / return_length`，生成后按 `upp_res` 重采样回来——离线方法就是从这里来的。
+- SOLA（[`audio/sola.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/audio/sola.py)，来自 DDSP-SVC）：在 `sola_search_frame` 范围内找与上一块尾部归一化互相关最大的偏移，`sin²` 淡入淡出，保存下一块要用的尾部。
+- 设备采样率与 16 kHz、合成器采样率与设备采样率之间的重采样都用移植的 `sinc_resample.Resample`，并走 CUDA Graph（`realtime-input-resample`、`realtime-output-resample`）。
+
+### 与原版的两处不同
+
+- **说话人生效**：原版 `rtrvc.py` 把 `sid` 写死为 0，多说话人音色在实时 GUI 和 VST 里无法选人；这里用 `params.speaker_id`，并钳制到 `[0, n_spk−1]`。
+- **改块长不重载模型**：见下一节。
+
+### 热更新
+
+| 调用 | 效果 |
+| --- | --- |
+| `update(VoiceParams)` | 音高、共振峰、索引强度、protect、响度混合、说话人、F0 方法从下一块生效 |
+| `reconfigure(StreamParams)` | 阈值、降噪开关是热的；`block_ms`、`crossfade_ms`、`context_ms` 变化时（`StreamParams.same_buffers()` 为假）重建缓冲区，音色保持加载，约一块静音 |
+| `set_voice(voice, index)` | 在两块之间换音色；HuBERT 和 F0 模型由运行时共享 |
+| `set_index(index)` / `reset()` | 换索引 / 清空全部缓冲（设备切换后） |
+| `prewarm()` | 用一块 220 Hz 测试音走一遍全部阶段，触发 CUDA Graph 捕获和惰性加载，然后 `reset()` |
+| `passthrough` 属性 | 跳过音色，返回（门限、降噪后的）输入，取代原版的 `im` 模式 |
+
+所有入口都在同一把 `RLock` 下，所以控制线程的更新不会和处理线程的 `process()` 交错。
+
+<Callout type="warn" title="removeweightnorm() 会修改缓存里的网络">
+
+`prepare_voice()` 对音色的 `net_g` 调用 `remove_weight_norm()`，与原版实时加载器一致（权重归一化折叠进权重，推理更快）。这会就地改变运行时缓存里的对象，所以 `StreamEngine` 只在 Live worker 自己的 `Runtime` 里使用，从不使用服务器进程的运行时。
+
+</Callout>
+### 延迟估算
+
+`stream/latency.py:estimate_latency_ms()` 是原版显示公式（输出延迟 + 块 + 交叉淡化 + 10 ms，加上输入降噪项 `min(crossfade, 40 ms)`）的扩展：再加上输出环形缓冲预填充的一块、分离流时环形缓冲的目标填充一块，以及输入设备延迟。实测的推理耗时另外在统计里报告（`infer_ms_p50/p95`）。
+
+## 音频编解码与 DSP
+
+| 模块 | 内容 |
+| --- | --- |
+| [`audio/io.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/audio/io.py) | `probe()`（时长、采样率、声道、编码；无时长的容器逐帧计数）、`decode()`（PyAV + libswresample 一次完成解码、混音、重采样，`max_seconds` 用于预览）、`encode()`（wav/flac 用 soundfile，mp3/m4a 经 PyAV 转码；先写 `.<name>.part` 再改名）、`to_int16()`。PyAV 失败时退回 `ffmpeg`/`ffprobe` 命令（若在 PATH 上）。原版 `clean_path` 去引号、去空格的处理被删掉——路径到这里已是干净的，任何操作系统接受的路径都可用 |
+| `audio/resample.py` | `resample()`：librosa 默认（soxr）重采样，用于转换后的“重采样到”选项，与原版相同 |
+| [`audio/sinc_resample.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/audio/sinc_resample.py) | 从 torchaudio 2.11 移植的 `Resample`、`sinc_resample_kernel`、`apply_sinc_resample_kernel`，逐位相同（见[与原版的一致性](/docs/development-parity)） |
+| `audio/dsp.py` | `highpass_16k()`（48 Hz 5 阶 Butterworth，零相位）、`change_rms()`（原版响度包络混合）、dB 换算 |
+| `audio/peaks.py` | `compute_peaks()`：波形显示用的交错 (min, max) 对，由核心层缓存到 `cache/peaks/` |
+| `audio/sola.py` | SOLA 交叉淡化 |
+| `audio/denoise.py` | TorchGate 谱门降噪，照搬原版 `tools/torchgate/`（它复用 `f0/rmvpe.py` 的 `STFT`） |
+
+PyAV 用的 libavformat/libswresample 正是原版通过 `ffmpeg` 命令调用的库，所以不必依赖系统里装了 ffmpeg。mp3 和 AAC 只接受固定的采样率，`_transcode()` 用 `encoder_rate()` 把 40 kHz 输出升到 44.1 kHz——原版的 `wav2` 不做这一步，40k 模型导出 mp3/m4a 会失败。
+
+## 实时音频设备（`audio_io`）
+
+原版 `realtime_gui.py` 的设备处理有一串问题：同一个麦克风按 Windows 每种驱动（MME、DirectSound、WASAPI、WDM-KS）各出现一次，用户必须先选驱动类型；MME 把名字截到 31 个字符，GUI 又按名字保存和匹配；单个双工 `sd.Stream` 要求输入输出同一驱动类型；保存的设备不在时静默换成系统默认；刷新列表要停止转换并调用私有的 `sd._terminate()`/`sd._initialize()`；改任何设备都要停流重载模型。`audio_io/` 是对这些问题的重写。
+
+### 枚举与分组（`devices.py`）
+
+`enumerate_raw()` 是唯一导入 `sounddevice` 的函数：`query_hostapis()`、`query_devices()`，并用 `check_input_settings`/`check_output_settings` 探测 44.1/48/88.2/96 kHz 是否支持。它在短命的 `workers.devices` 子进程里运行，所以重新枚举不会扰动正在运行的流。
+
+`group_devices()` 与 `resolve_selection()` 都是纯函数，测试用捕获的真实枚举结果（`tests/fixtures/devices/{windows,macos,linux_pipewire}.json`）驱动：
+
+- 名字规范化（`normalize_name`）：大小写折叠、合并空白、去掉某些驱动追加的 `(<host api>)` 后缀。
+- 按名字从长到短分组，这样 MME 截断到 31 字符的名字可以作为前缀找到同一设备的完整名字；前缀有歧义时单独成组——分错的代价是重复显示，比合错安全。
+- 每组是一个物理设备，`variants` 按驱动排名排列，第一个是推荐驱动。排名（`HOST_API_RANKS`，越小越好）：Windows ASIO → WASAPI → WDM-KS → DirectSound → MME；macOS Core Audio；Linux JACK → ALSA → Pulse → OSS。
+- 设备 id 是 `sha1(host_api | 原始名字 | 方向 | 同名序号)[:12]`，跨枚举稳定；`portaudio_index` 只在本次枚举内有效，从不保存。
+- `Microsoft Sound Mapper`、`Primary Sound Driver` 这类“跟随系统默认”的别名不列出；虚拟设备（VB-Audio、VoiceMeeter、BlackHole、Loopback、Soundflower、null sink……）打上 `is_virtual`。
+
+`resolve_selection(selection, device_list, direction)` 在新列表里找回保存的选择，依次尝试：相同 `device_id` → 相同物理键且同驱动 → 相同物理键的推荐驱动 → 任意驱动上的相同名字 → 系统默认。返回状态 `exact`、`matched`、`default_fallback` 或 `missing`，后两者带一句说明。是否允许输出回退到默认设备是核心层的决定（`allow_output_fallback`），因为把转换后的声音送到扬声器而不是虚拟线缆，是用户最先注意到的错误。
+
+### 会话与拓扑（`streams.py`）
+
+`AudioSession` 在一个 `Backend` 上打开输入、输出和可选的监听输出，用环形缓冲连接，并运行一个处理线程把整块交给处理器（通常是 `StreamEngine.process`）。
+
+- **引擎采样率**（`engine_rate`）：输出端选定的采样率；否则输出设备默认采样率（若支持）；否则 48 kHz。这取代了原版用户难以判断的 `sr_model`/`sr_device` 开关。
+- **拓扑**（`choose_topology`）：输入输出同一驱动且都支持该采样率时用一个双工流（`duplex`，延迟最低）；否则输入流 + 输出流（`split`），中间的环形缓冲带漂移校正。输入设备不支持引擎采样率时以自己的默认采样率打开，用 `LinearResampler` 线性插值转换——引擎反正要再重采样到 16 kHz，这里线性插值的代价很小。监听输出永远是独立的输出流，由处理线程分出一路（`monitor_source`：`converted`、`input` 或 `both`）。
+- **声道**：输入打开到所选最高声道，回调里把所选声道混成单声道；输出把单声道写到所选声道（默认前两个）。
+- **回调只搬数据和计数**，不碰 torch、不写日志、不分配大对象。输出环形缓冲启动时预填一块静音（`split` 时两块）。
+- **设备丢失**：流的 `finished_callback` 意外触发，或看门狗发现某个角色超过 `max(0.5 s, 3 块)` 没有回调，即报告丢失（`on_device_lost(role, device_id, reason, message)`），只报一次。PortAudio 错误文本由 `classify_portaudio_error()` 归入 `missing`、`busy`、`format`、`permission`。
+- **统计**：输入/输出峰值与 RMS、推理耗时 p50/p95（最近 50 块）、欠载/过载计数、`split` 时的漂移 ppm。
+
+`Ring`（`rings.py`）是单生产者单消费者的 float32 环形缓冲，锁只覆盖索引运算和两次切片拷贝，所以音频回调等待处理线程的时间不超过一次拷贝；写满算一次过载，读空算欠载。
+
+`DriftCorrector`（`drift.py`）解决两个设备时钟永远不完全同步的问题：读端对环形缓冲的填充量做指数平滑；偏离目标超过半块时，每 10 ms 删除或复制一个采样（选在每段 10 ms 中最安静的位置），直到回到目标的 1/8 块以内。目标填充量在前 1 秒后取实测值，因为两个回调的相位决定了填充量稳定在哪里，任何常数都猜不准。真实时钟的漂移是几十 ppm，相当于每秒几个采样，听不出来。
+
+`SounddeviceBackend` 用 PortAudio（`latency="low"`，WASAPI 独占模式经 `WasapiSettings`）；`enable_asio` 设置 `SD_ENABLE_ASIO=1`，选用 sounddevice 0.5.1 起在 Windows 上附带的 ASIO 版 PortAudio。`fake.py:FakeBackend` 模拟设备：每个流一个线程按设备自己的时钟（`1 + ppm·1e-6` 倍标称速率）调用回调，`lose(index)` 模拟拔出 USB 设备，`refuse` 让打开失败，输出被录下来供断言。测试和 worker 请求里的 `backend: "fake"` 都走它（`backend_from_request`）。`tone.py:chime()` 是“测试”按钮播放的提示音。
+
+## Live worker 与控制协议
+
+[`workers/live.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/workers/live.py) 是一个长期运行的进程，拥有音频设备和实时线程，与服务器的事件循环、GIL 竞争和崩溃隔离。它用 `multiprocessing.connection.Client` 连回核心层（地址和随机 authkey 在请求文件里，`protocol/live.py:WorkerRequest`），收发 `protocol/live.py` 定义的 JSON 消息。
+
+<Mermaid chart={"flowchart LR\n    subgraph worker[\"workers.live 进程\"]\n        IN[\"输入回调\"] --> R1[(输入环形缓冲)]\n        R1 --> PT[\"处理线程: StreamEngine.process\"]\n        PT --> R2[(输出环形缓冲)]\n        R2 --> OUT[输出回调]\n        PT --> R3[(监听环形缓冲)]\n        R3 --> MON[监听回调]\n        CT[\"控制线程\"] -. 更新 .-> PT\n        ST[\"统计线程 10 Hz\"]\n    end\n    CORE[\"核心层 LiveSupervisor\"] <-- \"JSON 消息\" --> CT\n    ST --> CORE"} />
+
+| 发往 worker | 作用 |
+| --- | --- |
+| `Start(config)` | 加载音色（`voice_path`、`index_path`）、构建引擎、预热、打开设备；状态依次 `starting` → `loading` → `prewarming` → `running` |
+| `Stop` / `Shutdown` | 停止会话 / 退出进程 |
+| `UpdateVoice(params)` | 热更新；换 F0 方法时先在控制线程里加载新模型，缺资源就保留旧方法并报 `asset_missing` |
+| `UpdateStream(stream)` | 阈值、降噪热更新；块长等变化时关流、`reconfigure`、重新开流，音色不重载 |
+| `SetVoice(voice_path, index_path, speaker_id)` | 运行中换音色：新音色加载期间旧音色继续转换；加载失败报 `detail.reason == "voice_load"` 并继续用旧音色。无论成败都回送带 `voice_path` 的 `State`，核心层据此知道实际在转换的是哪个音色 |
+| `SetDevices(devices)` | 只关闭和重开流；引擎采样率变了才重建引擎（音色仍在运行时缓存里） |
+| `Meter(on, input)` | 停止时单独打开输入，只测电平 |
+| `TestTone(device)` | 在一个输出上播放提示音 |
+| `Passthrough(on)` | 把输入直通到监听（或输出），检查路由 |
+| `ReleaseMemory` | 卸载引擎和全部模型；会话活动时忽略 |
+
+| 来自 worker | 内容 |
+| --- | --- |
+| `State` | `state`、`error`（`{code, message, detail}`）、`topology`、`sample_rate`、`meter`、`passthrough`、`cached`（worker 运行时里加载的模型，用于“释放显存”）、`voice_path` |
+| `Stats` | 10 Hz 的电平、推理耗时、块长、估算延迟、欠载/过载、漂移、显存 |
+| `DeviceLost` | 角色、设备 id、原因、消息 |
+| `Log` | 日志 |
+
+设备丢失后 worker 报告 `DeviceLost`、停止会话并进入 `reconnecting`，然后等待 `SetDevices`；重新枚举、按 `exact`/`matched` 重开的策略在核心层（见[核心服务](/docs/development-core)）。处理线程出错、或加载/预热时 OOM，worker 先卸载自己的全部模型，再报 `compute_unavailable`（`detail.reason = "out_of_memory"`）。
+
+## 人声分离
+
+- **模型表与预设**（[`separate/presets.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/separate/presets.py)）：`MODELS` 是原版 `tools/pymss_webui.py` 的 `MODEL_SPECS`——五个 Roformer 模型（`vocals`、`vocals-aggressive`、`dereverb`、`dereverb-aggressive`、`karaoke`），每个有检查点、YAML、主/副输出音轨及其标签、批大小、重叠、大小和 SHA-256。预设本身是数据，放在 `core/separation/presets.json`：五个单模型预设，加两个链 `vocals-clean`（vocals → dereverb）和 `lead-clean`（vocals → karaoke → dereverb）。YAML 随包分发（`separate/configs/`），只有检查点需要下载；`resolve_model()` 若在资源目录的 `pymss_weights/` 旁找到 YAML 就优先用它，以便直接指向原版安装。
+- **链规划**（`plan_chain`）：每一步分离上一步的主音轨；最后一步的主音轨以预设的 `primary_stem` 标签写出，其他音轨在预设 `stems` 列出其标签时写出，每个标签只写一次。输出名 `<输入>.<标签>.<格式>`，冲突时加 `-2`、`-3`。
+- **运行器**（`separate/runner.py:run_separation`）：每个输入以 44.1 kHz 立体声解码一次，按计划逐步分离并写出音轨；模型在一个任务里只加载一次；进度按“已处理音频秒数 / 总秒数 × 步数”计算。`PymssSeparator` 用 pymss 2.1.7 的 `MSSeparator`，选项与原版相同；pymss 只认识 cpu/cuda/mps，所以 DirectML 上模型先在 CPU 加载再移到设备（fp16 尝试时转半精度）。
+- **DirectML 的 fp16 → fp32 重试**：DirectML 先用 fp16；在任何文件成功之前出现可重试的错误（不是内存不足）时抛 `RetryInFp32`，worker 以退出码 `75`（`EXIT_RETRY`）结束，核心层用 `precision: "fp32"` 在新进程里重跑——与原版的设计相同，因为失败的 DirectML 上下文无法在进程内恢复。
+- **导入检查**：`workers/separate.py` 的 `check` 动作在 CPU 上加载一次导入的模型，让错误的检查点/YAML 组合在导入时就失败。`inspect_config()` 用 pymss_core 的 `detect_model_type` 识别 YAML，`custom_model()` 为导入的模型生成与 `resolve_model()` 同形的描述。
+- `FakeSeparator` 把输入减半作为两个音轨，可配置延迟和 fp16 失败，供测试使用。
+
+## 训练
+
+核心层在这些阶段之前还有一个可选的 `clean` 阶段（用分离预设清理数据集），它调用分离服务而不是引擎的训练代码，见[核心服务](/docs/development-core)。
+
+每个阶段是一个函数：接收冻结的请求 dataclass，写入实验文件夹，通过回调报告进度和日志，已完成的工作跳过。它们在 `workers.train` 子进程里运行（每个阶段一个进程，取消即杀进程树）；需要并行的部分由 `train/parallel.py:run_parts()` 以 `spawn` 方式启动子进程（fork 会破坏 CUDA 和部分 BLAS），只有一个部分时在本进程内运行。
+
+| 阶段 | 函数 | 输出（实验文件夹内） | 说明 |
+| --- | --- | --- | --- |
+| `slice` | `train/preprocess.py:run(SliceRequest)` | `0_gt_wavs/`、`1_16k_wavs/`、`slice_done.txt` | slicer2（−42 dB），约 3.7 s 一片、0.3 s 重叠，因果高通后归一化写出；**每一片的尾部都写出**（修正原版回归）；完成的输入键记入 `slice_done.txt`，中断后只重切未完成的 |
+| `f0` | `train/f0_extract.py:run(F0Request)` | `2a_f0/`（粗）、`2b-f0nsf/`（连续） | 只提供 `pm`（CPU 多进程）和 `rmvpe`（单设备，或多卡每卡一进程，`CUDA_VISIBLE_DEVICES`）；不移调；全清音的片段跳过 |
+| `features` | `train/feature_extract.py:run(FeatureRequest)` | `3_feature256/` 或 `3_feature768/` | 与推理共用 `extract_features` |
+| `fit` | `train/loop.py:run(TrainRequest)` | `G_*.pth`、`D_*.pth`、`weights/*.pth`、`metrics.jsonl`、`filelist.txt`、`config.json` | 单卡或 CPU 在本进程；多卡 DDP over gloo，每卡一个 spawn 进程 |
+| `index` | `index/build.py:run(IndexRequest)` | `trained_*.index`、`added_*.index`、`total_fea*.npy`、`index_fingerprint.json` | 见上文“检索索引” |
+
+`fit` 的细节：
+
+- `train/filelist.py` 像原版 `run_train_model` 那样写 `filelist.txt`（`gt.wav|feature.npy|f0.npy|f0nsf.npy|speaker_id`，无音高时去掉两列，多说话人时追加 `|speaker_name`），按说话人的重复次数重复行，并为每个说话人加两行静音样本。静音样本随包分发（`engine/train/data/mute/`，内容与原版的 `mute.zip` 相同），复制到 `<实验>/mute/`，因为数据加载器会在旁边缓存 `.spec.pt`。
+- 超参在 `train/hparams.py` 的 `CONFIGS`（原版 `configs/v1|v2/*.json`）；v2 没有 40k 文件，用 `v1/40k`。
+- 从最新的 G/D 恢复，继续**之后**的轮次（原版会重复已保存的那一轮）；否则加载底模，说话人数多于底模时扩展 `emb_g`（`load_pretrained_generator`）。AMP 仅当所选的每张卡都符合 fp16 时开启（`training_is_half`，原版 `get_training_dtype`）。
+- 原版的 `os._exit(0)`、`argparse` 和全局状态都去掉了；进度、日志、指标、保存的文件经 `Sink` 报告（同进程直接回调，DDP 时 rank 0 经队列）。每行指标写入 `metrics.jsonl` 并作为 `metric` 事件发出，核心层转成 `train_metrics`。TensorBoard 可选。小模型写入 `<实验>/weights/`，不再写进全局的 `assets/weights/`。
+
+其他辅助：`train/multispeaker.py`（说话人表、`Name_ID_Repeat` 文件夹约定、`multispeaker_manifest.json`，切片文件以 `output_key` 命名，从而把说话人带过 F0、特征、文件列表和索引）、`train/scan.py:scan_dataset()`（切片前报告片段数、时长、采样率、过短/过长/削波等问题）、`train/experiment.py`（阶段输出是否存在、检查点列表、读取 `metrics.jsonl`、读取原版实验文件夹 `read_legacy()`、默认批大小为最小显卡显存 GiB ÷ 2、默认 CPU 进程数为核数 ÷ 1.5）。
+
+### 指纹
+
+`train/fingerprint.py:of_paths(paths, extra)` 对给定文件和文件夹（递归）的相对名字、大小、修改时间做 SHA-1，`extra`（采样率、F0 方法等决定输出的设置）以文本混入；缺失的路径与空文件夹哈希不同。只看元数据而不读内容，所以对几 GB 的数据集也是瞬间完成。它有两个用户：索引阶段用它决定是否重建（见上文“检索索引”）；核心层在 `experiment.json` 里为每个完成的阶段记下指纹。“全部运行”会把存储的指纹与重新计算的指纹比较，不一致的阶段及其后各阶段都重跑；设置修改和上游重跑另外会显式标记过期（见[核心服务](/docs/development-core)）。
+
+## Worker 子进程的入口
+
+四个 worker 都是 `python -m rvc_next.workers.<name> <request.json>`，共用 [`workers/base.py:run_worker()`](https://github.com/licyk/rvc-next/blob/main/rvc_next/workers/base.py)：
+
+- 把真正的 stdout 复制一份留给事件，再把 fd 1 重定向到 stderr——第三方库 `print` 的内容就不会混进事件流，而是作为日志文本保留。
+- 事件是带前缀 `@rvc ` 的 JSON 行（`protocol/jsonl.py`）；没有前缀的行由 `parse_line()` 当作 info 日志。事件类型在 `protocol/messages.py`：`progress`、`step`、`log`、`metric`、`output`、`result`、`error`。
+- `rvc_next` 日志记录器的输出转成 `log` 事件；`SIGTERM` 以退出码 130（`EXIT_CANCELLED`）结束。
+- 异常映射：`Cancelled` → 130；`MissingAssetError` → `asset_missing`（带 `detail.assets`）；`ModelFormatError` → `invalid_model`；OOM → `compute_unavailable`（`detail.reason = "out_of_memory"`）；其他 → `internal_error`，先把完整回溯作为 `log` 事件发出。
+
+| Worker | 请求 | 结果 |
+| --- | --- | --- |
+| `train` | `{"stage": …}` 加该阶段请求的字段、`assets_dir`、`device`、`precision` | 阶段的结果字典 |
+| `separate` | 输入、预设、已解析的模型、输出目录与格式、设备与精度；或 `{"action": "check", "model": …}` | `{outputs, failed, processed, device, precision}`；退出码 75 表示用 fp32 重跑 |
+| `devices` | `{"action": …}`，动作为 `enumerate`、`check` 或 `test_tone` | 设备列表，或 `{ok, reason, message, role, …}` |
+| `live` | `WorkerRequest`（地址、authkey、资源目录、设备、精度、`cuda_graph`、`enable_asio`、后端） | 无；全部经连接通信 |
+
+进程如何启动、事件如何变成任务进度，见[整体架构](/docs/development-architecture)和[核心服务](/docs/development-core)。

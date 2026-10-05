@@ -1,0 +1,644 @@
+"""Audio streams around the streaming engine.
+
+``AudioSession`` opens the input, the output and an optional monitor on a ``Backend``, joins them
+with rings, and runs a processing thread that feeds blocks to a processor (normally
+``StreamEngine.process``). Device callbacks only move samples and count; nothing in them touches
+torch or logs.
+
+Topology: one duplex stream when input and output share a host API and the engine rate; otherwise
+an input stream and an output stream joined by a ring with drift correction. A monitor is always
+its own output stream, fed from a tee, with its own drift correction.
+
+The backend is pluggable: ``SounddeviceBackend`` drives PortAudio; ``fake.FakeBackend`` simulates
+devices with independent clocks for tests.
+"""
+
+from __future__ import annotations
+
+import collections
+import os
+import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any, Protocol
+
+import numpy as np
+
+from rvc_next.engine.audio.dsp import db_to_gain, peak_db, rms_db
+from rvc_next.engine.audio_io.drift import DriftCorrector
+from rvc_next.engine.audio_io.rings import Ring
+
+DEFAULT_RATE = 48000
+
+
+class DeviceOpenError(Exception):
+    """A device refused to open or was lost. ``reason`` is missing, busy, format or permission."""
+
+    def __init__(self, message: str, reason: str = "busy", role: str | None = None, device_id: str | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.reason = reason
+        self.role = role
+        self.device_id = device_id
+
+
+def classify_portaudio_error(message: str) -> str:
+    """Map a PortAudio error text to a ``DeviceError`` reason."""
+    low = message.lower()
+    if any(s in low for s in ("sample rate", "samplerate", "channel", "sample format", "format")):
+        return "format"
+    if any(s in low for s in ("invalid device", "device unavailable", "no such device", "not found", "-9996", "-9985")):
+        return "missing" if "unavailable" not in low else "busy"
+    if "permission" in low or "access denied" in low:
+        return "permission"
+    return "busy"
+
+
+@dataclass
+class StatusFlags:
+    input_overflow: bool = False
+    output_underflow: bool = False
+
+
+@dataclass
+class Endpoint:
+    """A concrete device to open: an ``AudioDevice`` dict (None follows the system default) and how to use it."""
+
+    device: dict[str, Any] | None = None
+    channels: list[int] | None = None
+    """1-based. Input: channels mixed to mono (default the first). Output: channels written (default the first two)."""
+    sample_rate: int | None = None
+    exclusive: bool = False
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> Endpoint | None:
+        if data is None:
+            return None
+        return cls(device=data.get("device"), channels=data.get("channels"), sample_rate=data.get("sample_rate"), exclusive=bool(data.get("exclusive", False)))
+
+    @property
+    def index(self) -> int | None:
+        return None if self.device is None else int(self.device["portaudio_index"])
+
+    @property
+    def device_id(self) -> str | None:
+        return None if self.device is None else self.device.get("id")
+
+    @property
+    def host_api(self) -> str | None:
+        return None if self.device is None else self.device.get("host_api")
+
+    @property
+    def max_channels(self) -> int:
+        return 2 if self.device is None else int(self.device.get("channels", 2))
+
+    def supports(self, rate: int) -> bool:
+        if self.device is None:
+            return True
+        rates = self.device.get("supported_rates") or [self.device.get("default_sample_rate")]
+        return rate in rates
+
+    def open_channels(self, direction: str) -> int:
+        """How many channels to open: enough for the highest selected one."""
+        if self.channels:
+            return max(1, min(max(self.channels), self.max_channels))
+        return 1 if direction == "input" else min(2, self.max_channels)
+
+    def selected(self, direction: str) -> list[int]:
+        """0-based channel indexes to mix (input) or write (output)."""
+        n = self.open_channels(direction)
+        if self.channels:
+            return [c - 1 for c in self.channels if 1 <= c <= n]
+        return [0] if direction == "input" else list(range(n))
+
+
+def engine_rate(output: Endpoint | None, input: Endpoint | None = None) -> int:
+    """The rate the engine runs at: the output's chosen rate, else its default when supported, else 48 kHz."""
+    ep = output or input
+    if ep is None:
+        return DEFAULT_RATE
+    if ep.sample_rate:
+        return int(ep.sample_rate)
+    if ep.device is not None:
+        default = int(ep.device.get("default_sample_rate") or DEFAULT_RATE)
+        if ep.supports(default):
+            return default
+    return DEFAULT_RATE
+
+
+def choose_topology(input: Endpoint, output: Endpoint | None, rate: int) -> str:
+    """``duplex`` when one stream can carry both directions at ``rate``; else ``split``."""
+    if output is None:
+        return "input"
+    if input.device is None and output.device is None:
+        return "duplex"
+    if input.device is None or output.device is None:
+        return "split"
+    if input.host_api != output.host_api:
+        return "split"
+    if not (input.supports(rate) and output.supports(rate)):
+        return "split"
+    return "duplex"
+
+
+class StreamHandle(Protocol):
+    def start(self) -> None: ...
+    def stop(self) -> None: ...
+    def close(self) -> None: ...
+    @property
+    def latency(self) -> tuple[float, float]:
+        """(input, output) latency in seconds; 0 for a missing direction."""
+        ...
+
+
+InputCallback = Callable[[np.ndarray, int, StatusFlags], None]
+OutputCallback = Callable[[np.ndarray, int, StatusFlags], None]
+DuplexCallback = Callable[[np.ndarray, np.ndarray, int, StatusFlags], None]
+FinishedCallback = Callable[[], None]
+
+
+class Backend(Protocol):
+    name: str
+
+    def query(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]: ...
+    def check(self, ep: Endpoint, direction: str, channels: int, rate: int) -> None: ...
+    def open_duplex(self, inp: Endpoint, out: Endpoint, rate: int, block: int, in_ch: int, out_ch: int, callback: DuplexCallback, finished: FinishedCallback) -> StreamHandle: ...
+    def open_input(self, ep: Endpoint, rate: int, block: int, channels: int, callback: InputCallback, finished: FinishedCallback) -> StreamHandle: ...
+    def open_output(self, ep: Endpoint, rate: int, block: int, channels: int, callback: OutputCallback, finished: FinishedCallback) -> StreamHandle: ...
+    def play(self, ep: Endpoint | None, audio: np.ndarray, rate: int) -> None: ...
+
+
+# -- PortAudio ----------------------------------------------------------------------------------------
+
+
+class _SdHandle:
+    def __init__(self, stream: Any, duplex: bool, direction: str) -> None:
+        self.stream = stream
+        self.duplex = duplex
+        self.direction = direction
+
+    def start(self) -> None:
+        self.stream.start()
+
+    def stop(self) -> None:
+        try:
+            self.stream.abort()
+        except Exception:
+            pass
+
+    def close(self) -> None:
+        try:
+            self.stream.close()
+        except Exception:
+            pass
+
+    @property
+    def latency(self) -> tuple[float, float]:
+        lat = self.stream.latency
+        if self.duplex:
+            return float(lat[0]), float(lat[1])
+        return (float(lat), 0.0) if self.direction == "input" else (0.0, float(lat))
+
+
+class SounddeviceBackend:
+    """PortAudio through ``sounddevice``. ``enable_asio`` selects the ASIO-enabled DLL on Windows (0.5.1+)."""
+
+    name = "sounddevice"
+
+    def __init__(self, enable_asio: bool = False) -> None:
+        if enable_asio:
+            os.environ["SD_ENABLE_ASIO"] = "1"
+        import sounddevice as sd
+
+        self.sd = sd
+
+    def query(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+        from rvc_next.engine.audio_io.devices import enumerate_raw
+
+        return enumerate_raw()
+
+    def _extra(self, ep: Endpoint | None) -> Any:
+        if ep is not None and ep.exclusive and ep.host_api == "wasapi":
+            return self.sd.WasapiSettings(exclusive=True)
+        return None
+
+    def _error(self, e: Exception, role: str, ep: Endpoint | None) -> DeviceOpenError:
+        message = str(e)
+        return DeviceOpenError(message, classify_portaudio_error(message), role, ep.device_id if ep else None)
+
+    @staticmethod
+    def _flags(status: Any) -> StatusFlags:
+        return StatusFlags(bool(getattr(status, "input_overflow", False)), bool(getattr(status, "output_underflow", False)))
+
+    def check(self, ep: Endpoint, direction: str, channels: int, rate: int) -> None:
+        try:
+            if direction == "input":
+                self.sd.check_input_settings(device=ep.index, channels=channels, samplerate=rate, dtype="float32", extra_settings=self._extra(ep))
+            else:
+                self.sd.check_output_settings(device=ep.index, channels=channels, samplerate=rate, dtype="float32", extra_settings=self._extra(ep))
+        except Exception as e:
+            raise self._error(e, direction, ep) from e
+
+    def open_duplex(self, inp: Endpoint, out: Endpoint, rate: int, block: int, in_ch: int, out_ch: int, callback: DuplexCallback, finished: FinishedCallback) -> StreamHandle:
+        flags = self._flags
+
+        def cb(indata: Any, outdata: Any, frames: int, _time: Any, status: Any) -> None:
+            callback(indata, outdata, frames, flags(status))
+
+        try:
+            stream = self.sd.Stream(
+                device=(inp.index, out.index),
+                samplerate=rate,
+                blocksize=block,
+                channels=(in_ch, out_ch),
+                dtype="float32",
+                latency="low",
+                extra_settings=(self._extra(inp), self._extra(out)),
+                callback=cb,
+                finished_callback=finished,
+            )
+        except Exception as e:
+            raise self._error(e, "output", out) from e
+        return _SdHandle(stream, True, "duplex")
+
+    def open_input(self, ep: Endpoint, rate: int, block: int, channels: int, callback: InputCallback, finished: FinishedCallback) -> StreamHandle:
+        flags = self._flags
+
+        def cb(indata: Any, frames: int, _time: Any, status: Any) -> None:
+            callback(indata, frames, flags(status))
+
+        try:
+            stream = self.sd.InputStream(
+                device=ep.index,
+                samplerate=rate,
+                blocksize=block,
+                channels=channels,
+                dtype="float32",
+                latency="low",
+                extra_settings=self._extra(ep),
+                callback=cb,
+                finished_callback=finished,
+            )
+        except Exception as e:
+            raise self._error(e, "input", ep) from e
+        return _SdHandle(stream, False, "input")
+
+    def open_output(self, ep: Endpoint, rate: int, block: int, channels: int, callback: OutputCallback, finished: FinishedCallback) -> StreamHandle:
+        flags = self._flags
+
+        def cb(outdata: Any, frames: int, _time: Any, status: Any) -> None:
+            callback(outdata, frames, flags(status))
+
+        try:
+            stream = self.sd.OutputStream(
+                device=ep.index,
+                samplerate=rate,
+                blocksize=block,
+                channels=channels,
+                dtype="float32",
+                latency="low",
+                extra_settings=self._extra(ep),
+                callback=cb,
+                finished_callback=finished,
+            )
+        except Exception as e:
+            raise self._error(e, "output", ep) from e
+        return _SdHandle(stream, False, "output")
+
+    def play(self, ep: Endpoint | None, audio: np.ndarray, rate: int) -> None:
+        channels = ep.open_channels("output") if ep else 2
+        data = np.repeat(audio[:, None], channels, axis=1)
+        try:
+            self.sd.play(data, samplerate=rate, device=ep.index if ep else None, blocking=True)
+        except Exception as e:
+            raise self._error(e, "output", ep) from e
+
+
+# -- the session ----------------------------------------------------------------------------------------
+
+
+class LinearResampler:
+    """A stateful linear-interpolation resampler for an input device that cannot run at the engine rate.
+
+    The engine resamples to 16 kHz for features anyway, so linear interpolation here costs little.
+    """
+
+    def __init__(self, src: int, dst: int) -> None:
+        self.step = src / dst
+        self.pos = 0.0
+        """Position of the next output sample, in input samples from the start of ``buf``."""
+        self.buf = np.zeros(0, dtype=np.float32)
+
+    def __call__(self, x: np.ndarray) -> np.ndarray:
+        data = np.concatenate([self.buf, np.asarray(x, dtype=np.float32)])
+        n = int(np.floor((len(data) - 1 - self.pos) / self.step)) + 1 if len(data) >= 2 else 0
+        if n <= 0:
+            self.buf = data
+            return np.zeros(0, dtype=np.float32)
+        t = self.pos + self.step * np.arange(n)
+        out = np.interp(t, np.arange(len(data)), data).astype(np.float32)
+        following = t[-1] + self.step
+        keep = min(int(np.floor(following)), len(data) - 1)
+        self.buf = data[keep:]
+        self.pos = following - keep
+        return out
+
+
+@dataclass
+class _Levels:
+    peak_db: float = -120.0
+    rms_db: float = -120.0
+
+    def update(self, x: np.ndarray) -> None:
+        self.peak_db = peak_db(x)
+        self.rms_db = rms_db(x)
+
+
+Processor = Callable[[np.ndarray], np.ndarray]
+DeviceLostHandler = Callable[[str, "str | None", str, str], None]
+
+
+@dataclass
+class SessionConfig:
+    input: Endpoint
+    output: Endpoint | None = None
+    monitor: Endpoint | None = None
+    monitor_source: str = "converted"
+    monitor_gain_db: float = 0.0
+    output_gain_db: float = 0.0
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+class AudioSession:
+    """Open the devices, run the processing thread, count and measure.
+
+    Without an output the session only meters the input. ``processor`` may be swapped or set to
+    None (passthrough) between blocks.
+    """
+
+    def __init__(
+        self,
+        backend: Backend,
+        config: SessionConfig,
+        block: int,
+        sample_rate: int | None = None,
+        processor: Processor | None = None,
+        on_device_lost: DeviceLostHandler | None = None,
+        on_error: Callable[[BaseException], None] | None = None,
+        stall_seconds: float | None = None,
+    ) -> None:
+        self.backend = backend
+        self.config = config
+        self.block = int(block)
+        self.sample_rate = int(sample_rate or engine_rate(config.output, config.input))
+        self.processor = processor
+        self.passthrough = False
+        self.on_device_lost = on_device_lost
+        self.on_error = on_error
+        self.topology = choose_topology(config.input, config.output, self.sample_rate)
+        self.input_rate = self.sample_rate
+        if self.topology == "split" and not config.input.supports(self.sample_rate) and config.input.device is not None:
+            self.input_rate = int(config.input.device.get("default_sample_rate") or self.sample_rate)
+        self._resampler = LinearResampler(self.input_rate, self.sample_rate) if self.input_rate != self.sample_rate else None
+        self.in_block = self.block if self._resampler is None else max(1, int(round(self.block * self.input_rate / self.sample_rate)))
+        self.in_ring = Ring(self.in_block * 8)
+        self._pending = np.zeros(0, dtype=np.float32)
+        prefill = self.block * (2 if self.topology == "split" else 1)
+        self.out_ring = Ring(self.block * 12)
+        self.out_reader = DriftCorrector(self.out_ring, self.sample_rate, self.block, prefill, enabled=self.topology == "split")
+        self._prefill = prefill
+        self.mon_ring = Ring(self.block * 12)
+        self.mon_reader = DriftCorrector(self.mon_ring, self.sample_rate, self.block, self.block * 2)
+        self.input_levels = _Levels()
+        self.output_levels = _Levels()
+        self.infer_ms: collections.deque[float] = collections.deque(maxlen=50)
+        self.callback_underruns = 0
+        self.callback_overruns = 0
+        self.processed_blocks = 0
+        self._handles: list[tuple[str, StreamHandle]] = []
+        self._running = False
+        self._stopping = False
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+        self._last_cb: dict[str, float] = {}
+        self._lost = False
+        self._stall = stall_seconds if stall_seconds is not None else max(0.5, 3 * self.block / self.sample_rate)
+        in_sel = config.input.selected("input")
+        self._in_sel = in_sel
+        self._in_ch = config.input.open_channels("input")
+        self._out_ch = config.output.open_channels("output") if config.output else 0
+        self._out_sel = config.output.selected("output") if config.output else []
+        self._mon_ch = config.monitor.open_channels("output") if config.monitor else 0
+        self._mon_sel = config.monitor.selected("output") if config.monitor else []
+
+    # -- callbacks: copy and count only ----------------------------------------------------------
+
+    def _mix_in(self, indata: np.ndarray) -> np.ndarray:
+        if indata.ndim == 1:
+            return indata.astype(np.float32, copy=False)
+        if len(self._in_sel) == 1:
+            return np.ascontiguousarray(indata[:, self._in_sel[0]], dtype=np.float32)
+        return indata[:, self._in_sel].mean(axis=1).astype(np.float32)
+
+    @staticmethod
+    def _write_out(outdata: np.ndarray, mono: np.ndarray, selected: list[int]) -> None:
+        outdata.fill(0)
+        for c in selected:
+            outdata[: mono.shape[0], c] = mono
+
+    def _input_cb(self, indata: np.ndarray, frames: int, status: StatusFlags) -> None:
+        self._last_cb["input"] = time.monotonic()
+        if status.input_overflow:
+            self.callback_overruns += 1
+        self.in_ring.write(self._mix_in(indata))
+
+    def _output_cb(self, outdata: np.ndarray, frames: int, status: StatusFlags) -> None:
+        self._last_cb["output"] = time.monotonic()
+        if status.output_underflow:
+            self.callback_underruns += 1
+        self._write_out(outdata, self.out_reader.read(frames), self._out_sel)
+
+    def _duplex_cb(self, indata: np.ndarray, outdata: np.ndarray, frames: int, status: StatusFlags) -> None:
+        now = time.monotonic()
+        self._last_cb["input"] = now
+        self._last_cb["output"] = now
+        if status.input_overflow:
+            self.callback_overruns += 1
+        if status.output_underflow:
+            self.callback_underruns += 1
+        self.in_ring.write(self._mix_in(indata))
+        self._write_out(outdata, self.out_reader.read(frames), self._out_sel)
+
+    def _monitor_cb(self, outdata: np.ndarray, frames: int, status: StatusFlags) -> None:
+        self._last_cb["monitor"] = time.monotonic()
+        if status.output_underflow:
+            self.callback_underruns += 1
+        self._write_out(outdata, self.mon_reader.read(frames), self._mon_sel)
+
+    def _finished(self, role: str) -> FinishedCallback:
+        def done() -> None:
+            if self._running and not self._stopping:
+                self._report_lost(role, "missing", f"The {role} stream stopped")
+
+        return done
+
+    # -- lifecycle -------------------------------------------------------------------------------------
+
+    def start(self) -> None:
+        """Open the streams and start processing. Raises ``DeviceOpenError`` (with ``role``) when a device refuses."""
+        cfg = self.config
+        self.out_ring.clear()
+        self.out_ring.write(np.zeros(self._prefill, dtype=np.float32))
+        self._running = True
+        self._stopping = False
+        try:
+            if self.topology == "duplex":
+                assert cfg.output is not None
+                h = self.backend.open_duplex(cfg.input, cfg.output, self.sample_rate, self.block, self._in_ch, self._out_ch, self._duplex_cb, self._finished("output"))
+                self._handles.append(("duplex", h))
+            else:
+                h = self.backend.open_input(cfg.input, self.input_rate, self.in_block, self._in_ch, self._input_cb, self._finished("input"))
+                self._handles.append(("input", h))
+                if cfg.output is not None:
+                    h = self.backend.open_output(cfg.output, self.sample_rate, self.block, self._out_ch, self._output_cb, self._finished("output"))
+                    self._handles.append(("output", h))
+            if cfg.monitor is not None and cfg.output is not None:
+                h = self.backend.open_output(cfg.monitor, self.sample_rate, self.block, self._mon_ch, self._monitor_cb, self._finished("monitor"))
+                self._handles.append(("monitor", h))
+            now = time.monotonic()
+            for role, h in self._handles:
+                for r in ("input", "output") if role == "duplex" else (role,):
+                    self._last_cb[r] = now
+                h.start()
+        except DeviceOpenError:
+            self._running = False
+            self._close_streams()
+            raise
+        except Exception as e:
+            self._running = False
+            self._close_streams()
+            raise DeviceOpenError(str(e), classify_portaudio_error(str(e))) from e
+        self._thread = threading.Thread(target=self._loop, name="rvc-live-processing", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stopping = True
+        self._running = False
+        if self._thread is not None and self._thread is not threading.current_thread():
+            self._thread.join(timeout=5)
+        self._thread = None
+        self._close_streams()
+
+    def _close_streams(self) -> None:
+        handles, self._handles = self._handles, []
+        for _, h in handles:
+            h.stop()
+            h.close()
+
+    @property
+    def running(self) -> bool:
+        return self._running
+
+    @property
+    def latency_ms(self) -> tuple[float, float]:
+        lin = lout = 0.0
+        for role, h in self._handles:
+            a, b = h.latency
+            if role in ("duplex", "input"):
+                lin = max(lin, a * 1000)
+            if role in ("duplex", "output"):
+                lout = max(lout, b * 1000)
+        return lin, lout
+
+    # -- processing thread -----------------------------------------------------------------------------
+
+    def _report_lost(self, role: str, reason: str, message: str) -> None:
+        with self._lock:
+            if self._lost:
+                return
+            self._lost = True
+        self._running = False
+        ep = {"input": self.config.input, "output": self.config.output, "monitor": self.config.monitor}.get(role)
+        if self.on_device_lost is not None:
+            self.on_device_lost(role, ep.device_id if ep else None, reason, message)
+
+    def _watchdog(self) -> None:
+        now = time.monotonic()
+        for role, last in list(self._last_cb.items()):
+            if now - last > self._stall:
+                self._report_lost(role, "missing", f"The {role} device stopped delivering audio")
+                return
+
+    def _loop(self) -> None:
+        wait = max(0.02, self.in_block / self.input_rate)
+        try:
+            while self._running:
+                if not self.in_ring.wait_for(self.in_block, timeout=wait):
+                    self._watchdog()
+                    continue
+                x = self.in_ring.read(self.in_block)
+                if self._resampler is not None:
+                    self._pending = np.concatenate([self._pending, self._resampler(x)])
+                    if self._pending.shape[0] < self.block:
+                        continue
+                    x, self._pending = self._pending[: self.block], self._pending[self.block :]
+                self._process_block(x)
+                self._watchdog()
+        except Exception as e:  # the processor failed: report, never hang the audio
+            self._running = False
+            if self.on_error is not None and not self._stopping:
+                self.on_error(e)
+        finally:
+            if self._lost:
+                self._close_streams()
+
+    def _process_block(self, x: np.ndarray) -> None:
+        cfg = self.config
+        self.input_levels.update(x)
+        if cfg.output is None:
+            self.processed_blocks += 1
+            return
+        processor = self.processor
+        if processor is not None and not (self.passthrough and cfg.monitor is None):
+            t0 = time.perf_counter()
+            y = np.asarray(processor(x), dtype=np.float32).reshape(-1)
+            self.infer_ms.append((time.perf_counter() - t0) * 1000)
+        else:
+            y = x
+        if y.shape[0] != self.block:
+            y = np.resize(y, self.block) if y.shape[0] else np.zeros(self.block, dtype=np.float32)
+        out = y * db_to_gain(cfg.output_gain_db) if cfg.output_gain_db else y
+        self.output_levels.update(out)
+        self.out_ring.write(out)
+        if cfg.monitor is not None:
+            if self.passthrough or cfg.monitor_source == "input":
+                mon = x
+            elif cfg.monitor_source == "both":
+                mon = np.clip(x + y, -1.0, 1.0)
+            else:
+                mon = y
+            if cfg.monitor_gain_db:
+                mon = mon * db_to_gain(cfg.monitor_gain_db)
+            self.mon_ring.write(mon.astype(np.float32, copy=False))
+        self.processed_blocks += 1
+
+    # -- stats ---------------------------------------------------------------------------------------------
+
+    @property
+    def underruns(self) -> int:
+        return self.callback_underruns + self.out_reader.underruns + (self.mon_reader.underruns if self.config.monitor else 0)
+
+    @property
+    def overruns(self) -> int:
+        return self.callback_overruns + self.in_ring.overruns + self.out_ring.overruns
+
+    @property
+    def drift_ppm(self) -> float | None:
+        return self.out_reader.drift_ppm if self.topology == "split" else None
+
+    def infer_percentiles(self) -> tuple[float, float]:
+        if not self.infer_ms:
+            return 0.0, 0.0
+        data = np.array(self.infer_ms)
+        return float(np.percentile(data, 50)), float(np.percentile(data, 95))

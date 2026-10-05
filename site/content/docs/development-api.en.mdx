@@ -1,0 +1,216 @@
+---
+title: "API and events"
+icon: Plug
+---
+
+`rvc_next.api` is the FastAPI layer: it parses HTTP requests into core `Record` models, calls one core method, and returns the result unchanged; server-to-browser push uses socket.io. It does not import `rvc_next.engine` (the layer rules in [Architecture](/docs/development-architecture) are enforced by `tests/test_architecture.py`) or contain business logic—even the largest router file, `routers/models.py`, is just a series of routes that call the core in one line.
+
+This page is for maintainers adding or removing endpoints, changing security policies, or adding events: application assembly, REST conventions, uploads and media, access control, events and payloads, TypeScript generation from OpenAPI, and port selection at server startup.
+
+## Application assembly
+
+`create_app(services, bound_host, bound_port, extra_hosts, serve_ui, api_prefix)` in [`api/app.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/api/app.py) performs these steps (every path below sits under `api_prefix`, empty by default):
+
+1. Create `RvcNextAPI` (a `FastAPI` subclass; see “Events in OpenAPI” below), with `docs_url="/docs"`, `openapi_url="/openapi.json"`, ReDoc disabled, and `separate_input_output_schemas=False`; store `services` on `app.state.services`.
+2. `install_error_handlers(app)`: turn any `RvcNextError` into `{"code", "message", "detail"}`.
+3. Mount the 13 router modules in `ROUTERS`, in order, under `/api`; each router has its own `/v1/<resource>` prefix, so the full path is `/api/v1/...`.
+4. Mount socket.io at `/ws` (`SocketBridge.asgi_app()`).
+5. Middleware: add `CORSMiddleware` when `server.allowed_origins` is nonempty; always add `GZipMiddleware(minimum_size=4096)` and `SecurityMiddleware` (the last added is outermost, so security checks run first).
+6. **Finally**, mount `SPAStaticFiles` at `/`, only if `webui/dist/index.html` exists; without a build, log a warning and keep the API working (Vite serves the pages during development).
+
+The lifecycle (`lifespan`) only starts and stops the socket bridge. The caller creates and closes the services: `rvc-next webui` uses `build_services(start_background=True)` to start job scheduling and idle unloading, then passes them to `create_app`; tests pass their own `Services`. The same `create_app` can thus serve a real process or run inside `TestClient`.
+
+Embedded mode (`RvcNextServer` in [`embed.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/embed.py)) takes the same path: `build_services(data_dir, config_dir, settings_path, settings_overrides, start_background=True)`, bind the port, `create_app(..., api_prefix=...)`, run uvicorn on a background thread, and write `server.json` as `rvc-next webui` does. `normalize_prefix()` turns `voice` and `/voice/` into `/voice`; `SecurityMiddleware` matches its protected paths under the prefix. For usage, see [Embedding in another program](/docs/advanced-embed).
+
+There is one dependency: `ServicesDep = Annotated[Services, Depends(get_services)]` in [`api/deps.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/api/deps.py), which reads services from `request.app.state`. There is no global service locator (as used by InvokeAI), so a route declares its dependencies in its signature, and tests only need to replace `app.state.services`.
+
+## REST conventions
+
+| Convention | Implementation | Reason |
+| --- | --- | --- |
+| One router per resource | `api/routers/<resource>.py`, `APIRouter(prefix="/v1/<resource>", tags=[...], responses=ERROR_RESPONSES)` | The generated client groups endpoints by tag; each route declares its error shape |
+| Explicit `operation_id` | Set on every route, e.g. `list_models`, `run_experiment` | Names in generated types and logs stay stable when functions are renamed |
+| Requests and responses are `Record` | Route signatures use core models directly; a few small API-only models (`AppMeta`, `ImportSession`, `ClearedJobs`…) are defined in the router file | API JSON has the same shape as CLI `--json` (`tests/cli/test_cli.py::test_model_json_matches_api_shape`) |
+| Plain `def` | Routes that access disk or the database are synchronous | Starlette runs them in a thread pool without blocking the event loop |
+| Only uploads are `async` | Write the request body to a temporary file asynchronously, then pass it to the core via `run_in_threadpool` | See “Uploads and media” below |
+| Long operations return `Job` | Conversion, separation, training, downloads, merging, extraction, export, and index building immediately return a `Job` snapshot | Progress arrives via `job_updated`; the HTTP request does not wait |
+| Paginated lists | `GET /jobs` and `GET /outputs` use `cursor` + `limit` (clamped to 1–200 and 1–500 respectively), returning `next_cursor` in `JobPage`/`OutputPage` | History can be long |
+
+Errors are defined in `core/errors.py`; `api/errors.py` only maps them. HTTP status codes and CLI exit codes come from the same exception class (see [Architecture](/docs/development-architecture) for the full table). `ERROR_RESPONSES` declares the `ErrorResponse` model for 400/403/404/409, so the generated client knows the error body shape. A few API-specific conventions:
+
+- `NotLocalError` (`not_local`, 403, defined in `api/deps.py`) exists only in the API: revealing files, or browsing server paths from a remote client without a token.
+- Errors written directly by `SecurityMiddleware` (`bad_host` 400, `bad_origin` 403, `auth_required` 401) bypass exception handlers but have the same shape.
+- FastAPI request validation errors remain 422 + a `detail` array; the frontend's `toError()` maps them to `invalid_input`.
+- `POST /convert` and `POST /separate` reject `output_dir`/`overwrite`: writing to arbitrary directories and overwriting files are CLI-only capabilities for trusted local users.
+
+### Router overview
+
+| Module | Prefix | Main endpoints |
+| --- | --- | --- |
+| `app_info` | `/v1/app` | `GET version`, `GET health` (`status`, `auth_required`), `GET meta` (`local`, `host`, `compute`, `live_available`, `assets_ready`, `features`, `data_dir`, `trusted`) |
+| `settings` | `/v1` | `GET/PATCH /settings` (deep merge; `server.access_token`: `null` clears it, an empty string is an error; the core publishes `settings_changed`, and changes to `paths` rescan the voice library), `GET/PUT /client-state/{key}` (regex-constrained keys, values up to 256 KiB) |
+| `compute` | `/v1/compute` | `GET devices`, `GET usage`, `POST release` (free GPU memory; 409 when busy, `detail.busy`) |
+| `assets` | `/v1/assets` | `GET ""`, `GET repositories`, `POST download`, `POST verify` (the same download job with `verify_only=True`), `DELETE {asset_id}` |
+| `models` | `/v1/models` | Voice library CRUD, `/catalog` and `/catalog/download` (demo voices), import sessions `/imports…`, unassigned indexes `/indexes…`, base models `/base…`, separation models `/separation…`, one-step import `PUT /import` and `POST /import-path`, `POST inspect`, `POST merge`, `POST extract`, legacy installations `/legacy-roots…`, `/{voice_id}/index` (upload, pair, or detach), `/{voice_id}/index/build`, `/{voice_id}/reveal` |
+| `presets` | `/v1/presets` | List (`ensure_default` first when `voice_id` is given), create, update, delete |
+| `audio` | `/v1/audio` | `PUT uploads`, `GET files/{id}`, `files/{id}/content`, `files/{id}/peaks`, `GET browse`, `POST resolve-path`, `GET path-peaks` |
+| `outputs` | `/v1/outputs` | List, `POST zip` (streamed), individual output, `content`, `source` (original input for A/B), `peaks`, `source-peaks`, delete, `reveal` |
+| `convert` | `/v1/convert` | `POST ""` → `Job` |
+| `separate` | `/v1/separate` | `GET presets`, `POST ""` → `Job` |
+| `train` | `/v1/train` | Experiment CRUD, `dataset/scan`, `speakers`, `speakers/from-folders`, `run` → `Job`, `stop`, `metrics?since=`, `checkpoints`, `export` → `Job`, `try` (temporary voice), `POST /import` (legacy experiment) |
+| `jobs` | `/v1/jobs` | List (`state` can be a specific state or `active`/`finished`), `DELETE ""` (clear finished jobs, keep outputs), individual job, `log?offset=`, `cancel`, `retry`, `run-anyway`, delete |
+| `live` | `/v1/live` | `GET state`, `POST start/stop`, `PATCH voice`, `PATCH stream`, `PUT voice-model`, `PUT/GET devices`, `POST devices/check`, `POST devices/test-tone`, `POST meter`, `POST passthrough` |
+
+<Callout type="info" title="Route order">
+
+All fixed paths in `routers/models.py` (`/catalog`, `/imports`, `/indexes`, `/base`, `/separation`, `/legacy-roots`…) precede `/{voice_id}`. FastAPI matches in registration order: new fixed paths must go above wildcard routes, or they will be treated as voice IDs. The same applies to `POST /zip` in `outputs`.
+
+</Callout>
+**Live control also uses REST.** The socket only carries server push (`live_state`, `live_stats`, `devices_changed`); clients never send commands over it. This follows InvokeAI and SD Model Hub: every state-changing operation has an HTTP status code, an error shape, and an OpenAPI description, and can be reproduced with `curl` or the CLI; a disconnected socket does not lose commands.
+
+**One-step import endpoints.** `PUT /models/import` and `POST /models/import-path` wrap import sessions: a `confident` plan is committed directly and returns `ImportResult`; when user decisions are needed, they raise `ConflictError`, with the plan in the 409 response's `detail.plan`, so scripts can switch to the session API to submit decisions. The session API (`POST /imports` → `PUT /imports/{sid}/files` or `POST …/paths` → `GET /imports/{sid}` → `POST …/commit`) is synchronous: commit returns `ImportResult` directly, rather than a job (copying is local; even the slowest separation model load check takes only seconds; see AGENTS.md §8). See [Core services](/docs/development-core) for identification and pairing rules.
+
+## Uploads and media
+
+**Uploads use `PUT` with a raw request body, without multipart.** `spool()` in [`api/uploads.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/api/uploads.py) writes `request.stream()` in chunks to `<directory>/.incoming/<id>.part`, deleting it on error or disconnect; the route then uses `read_chunks()` to pass the file to the core in 1 MiB chunks (`services.audio.upload`, `imports.add_upload`, `models.set_index_upload`…), and always deletes the temporary file afterward, whether successful or not. The filename is a query parameter (`name` or `filename`, up to 255 characters).
+
+Reasons for this approach:
+
+- Audio and models can be hundreds of MB. Multipart parsing either loads the whole body into memory or relies on `python-multipart`'s temporary-file policy; raw bodies can be written as they arrive with constant memory use.
+- The frontend uses `XMLHttpRequest` to `send(file)` directly and receive upload progress (`fetch()` cannot provide it).
+- `RAW_BODY` is added to the schema as `openapi_extra`, declaring `application/octet-stream`, so generated types know these endpoints accept binary data.
+
+**Media uses `FileResponse`.** `audio_response()` in [`api/files.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/api/files.py) selects MIME by extension, sets `Cache-Control: private, no-cache`, and includes both an ASCII fallback filename and RFC 5987 `filename*` in `Content-Disposition` (so Chinese filenames download correctly); `?download=true` sets `attachment`. `FileResponse` supports `Range`, so seeking in long audio does not require downloading the entire file. Waveforms are not decoded in the browser: `peaks` endpoints return server-computed, cached peaks (1024 points by default).
+
+**ZIP downloads**: `POST /outputs/zip` uses `StreamingResponse` to compress and send data as it goes, without writing a ZIP file on the server.
+
+## Access control
+
+Access control has two layers: `SecurityMiddleware` handles who can connect, while `require_local`/`require_trusted` in routes handle which server paths a connected client can access.
+
+### `SecurityMiddleware`
+
+[`api/security.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/api/security.py) is pure ASGI middleware for both HTTP and WebSocket. It performs three checks in order:
+
+| Check | Rule | Protects against |
+| --- | --- | --- |
+| Host | When bound to loopback, the `Host` header must be `localhost`, `127.0.0.1`, `::1`, the bound hostname, or `extra_hosts`; otherwise 400 `bad_host` | DNS rebinding: a malicious page resolves its own domain to 127.0.0.1 and calls the local API |
+| Origin | Unsafe methods (anything except `GET`/`HEAD`/`OPTIONS`) and all WebSocket handshakes: if `Origin` is present, it must equal the page's own origin, be in `server.allowed_origins`, or share the host and port with `Host`; without `Origin`, `Sec-Fetch-Site` must be `same-origin`, `none`, or absent. Otherwise 403 `bad_origin` | Cross-site request forgery: another page sends `POST`/`DELETE` to the local service through the user's browser |
+| Access token | When `server.access_token` is set, requests under `/api/`, `/ws/`, `/openapi.json`, and `/docs` must carry a token; `/api/v1/app/health` is exempt. Otherwise 401 `auth_required` | Other people on the LAN or public internet |
+
+The token can be supplied in three places (`request_token()` checks in order): `Authorization: Bearer …`, the `rvc_next_token` cookie, or the `?token=` query parameter. Comparison uses `hmac.compare_digest`. Cookies support browser-initiated requests such as `<audio src>`, which cannot attach headers. `health` is public so the page shell can load without a token, read `auth_required: true`, and open `AuthDialog` to request one.
+
+Rejected WebSockets close with code 1008. Settings read by the middleware are functions (`lambda: services.settings.settings.server.access_token`), so changing the token or allowed origins in Settings takes effect immediately without a restart.
+
+When binding to a non-loopback address, `rvc-next webui` requires a token first, or refuses to start with exit code 4 (see “Startup, ports, and `SERVER_READY`” below).
+
+### Trusted clients and server paths
+
+| Check | Definition (`api/deps.py`) | Used for |
+| --- | --- | --- |
+| `is_local` | The client address is loopback (`testclient` in tests also counts) | `AppMeta.local`; `reveal`, protected by `LocalDep` (show a file in the server's file manager) |
+| `require_trusted` | A local client, or a token is set (already verified by the middleware) | Any operation taking a server path: browsing, resolving audio paths, importing models or indexes by path, inspecting models by path, creating experiments or updating datasets, speaker tables, importing legacy experiments, adding legacy RVC installations, extracting by absolute path |
+
+“Trusted” answers whether a client may name paths on the server. Remote clients without a token can only upload files and use existing uploads and outputs. `reveal` is stricter: even with a token, a remote browser has no reason to open the file manager on the server's desktop, so only local clients qualify.
+
+Even for trusted clients, **audio inputs** must be within `paths.browse_roots`: `GET /audio/browse`, `POST /audio/resolve-path`, and inputs with `kind == "path"` in `POST /convert` and `POST /separate` (routes call `services.audio.check_refs`). Paths outside these roots produce 400 `invalid_path`, with allowed roots in `detail.roots`. This check exists only in the API—the CLI is run directly by a trusted local user and can read any path. Model imports, dataset folders, and similar paths are not constrained by `browse_roots`; they only require trust.
+
+## socket.io and events
+
+### Bridging
+
+<Mermaid chart={"sequenceDiagram\n    participant W as Job thread / worker listener thread\n    participant B as LocalEventBus\n    participant Q as asyncio.Queue\n    participant P as _pump task (event loop)\n    participant C as Browser socket.io-client\n    W->>B: publish(JobUpdatedEvent(job=snapshot))\n    B->>Q: loop.call_soon_threadsafe(queue.put_nowait, event)\n    Note over B,Q: handler runs synchronously on the publisher thread,<br/>only enqueuing safely across threads\n    Q->>P: await queue.get()\n    P->>C: sio.emit(event.__event_name__, event.model_dump(mode=\"json\"))"} />
+
+`SocketBridge` in [`api/sockets.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/api/sockets.py) wraps `socketio.AsyncServer(async_mode="asgi")`:
+
+- `start()` subscribes to the event bus. `LocalEventBus` calls handlers synchronously on the publisher thread, usually a job thread or a thread reading worker output, so the handler only does one thing: `loop.call_soon_threadsafe(queue.put_nowait, event)`, handing the event to the event loop. A background task `_pump()` then calls `emit` for each event; serialization failures for individual events are only logged.
+- Traffic is server-to-client only, broadcast to all connections; there are no rooms or client event handlers (a single-user application).
+- On connection (`_on_connect`), if a token is set, verify it: check handshake `auth.token` first, then fall back to cookies, the `Authorization` header, or query parameters. The outer middleware has already checked Origin, so `cors_allowed_origins="*"`.
+- `asgi_app()` normalizes the mounted path with `route_path(scope)`, then lets engineio match `/socket.io`, accommodating differences in how old and new Starlette versions handle mount prefixes. Clients connect to `<deployment root>/ws/socket.io`.
+
+**Events carry snapshots.** Each event contains a complete `Record` value (for example, `job.model_copy(deep=True)` in `JobUpdatedEvent`), never a live object still being modified by a worker: serialization occurs later on the event loop, when the job thread may already have updated progress. Snapshots also let clients replace their state immediately, without reconstructing history.
+
+### Events and payloads
+
+Event classes are defined in [`core/events/models.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/core/events/models.py); all inherit `EventBase` and set `__event_name__`. `EventBase.get_events()` recursively collects all named subclasses.
+
+| Event | Payload | Publisher and frequency | Frontend handling (`api/socket.ts`) |
+| --- | --- | --- | --- |
+| `job_updated` | `job: Job` | Job service; state changes immediately, progress throttled to 4 updates per job per second (`PROGRESS_INTERVAL = 0.25`) | Write to the jobs store and `keys.job(id)`; invalidate related lists on completion |
+| `job_log` | `job_id`, `offset`, `lines` (up to 50 lines per batch) | Job service, one batch every 0.25 s | Send to the open log view; fetch more via REST using `offset` |
+| `jobs_cleared` | `ids` | Deleting or clearing history | Remove from the store |
+| `outputs_added` / `outputs_removed` | `job_id` + `outputs: Output[]` / `ids` | Audio service | Invalidate output lists |
+| `models_changed` | `added`, `updated`, `removed` (ID lists) | Voice library, imports, index inbox, base models, separation models | Invalidate voice lists, separation presets, and corresponding details |
+| `presets_changed` | `voice_id` | Preset service | Invalidate preset queries |
+| `assets_changed` | `assets: AssetStatus[]` (full list) | Asset service | Write directly to `keys.assets`; invalidate base models and demo voices |
+| `experiment_changed` | `name`, `stages`, `running_job`, `removed` | Training service | Invalidate experiment lists, details, and checkpoints |
+| `train_metrics` | `name`, `epoch`, `step`, `losses`, `lr` | Training service, at each logging interval | Append to the train store (outside the query cache) |
+| `live_state` | `state: LiveState` | Live service, on state changes | live store + `keys.liveState` |
+| `live_stats` | `stats: LiveStats` | Live worker every 0.1 s (`STATS_INTERVAL`), forwarded by the supervisor | live store only |
+| `devices_changed` | `devices: DeviceList` | When re-enumeration finds a change | Write to `keys.liveDevices` |
+| `compute_changed` | `usage: ComputeUsage` | Compute service: GPU memory release, job or Live state changes | Write to `keys.computeUsage` |
+| `settings_changed` | `keys` (changed dotted keys) | Any settings change (API, CLI, direct edits to `settings.toml`) | Invalidate settings and `meta` |
+
+Not all IDs in `models_changed` are voice IDs: the index inbox sends `index:<id>`, base models send `base:<slug>`, and imported separation models send `user-<slug>` (also their separation preset ID). The frontend currently invalidates details by ID without distinguishing types; use the prefix when a distinction is needed.
+
+<Callout type="info" title="Why high-frequency data stays out of the query cache">
+
+`live_stats` (10 Hz), `train_metrics`, and job progress live in Pinia stores rather than the TanStack Query cache: each `setQueryData` notifies all observers and compares data for structural sharing, so frequent writes would repeatedly recompute unrelated components. The cache holds only state that REST can fetch again; see [Web UI](/docs/development-webui).
+
+</Callout>
+### Events in OpenAPI
+
+After FastAPI generates its schema, `RvcNextAPI.openapi()` in [`api/openapi.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/api/openapi.py) adds each event class's JSON Schema (`mode="serialization"`) to `components.schemas`, promotes nested `$defs` to peer components, and adds a `ServerEvents` object: property names are event names, and values reference event schemas. Components are sorted by name for stable output.
+
+Socket payloads and REST thus share one type source: the frontend `ServerEvents` type (`api/types.ts`) derives directly from the generated schema, so `job` in `socket.on('job_updated', ({ job }) => …)` has type `Job`. `tests/api/test_api.py::test_openapi_lists_events` checks that events appear in the schema.
+
+## Generating TypeScript from the schema
+
+<Mermaid chart={"flowchart LR\n    A[\"create_app(serve_ui=False)<br/>scripts/generate_openapi.py\"] -->|\"stdout\"| B[\"webui/openapi.json<br/>(temporary, git-ignored)\"]\n    B --> C[\"param_specs()<br/>scripts/dev.py\"] --> D[\"src/api/paramSpecs.ts\"]\n    B --> E[\"bun x openapi-typescript<br/>--default-non-nullable false\"] --> F[\"src/api/schema.d.ts\"]"} />
+
+`python scripts/dev.py typegen` does three things:
+
+1. Run [`scripts/generate_openapi.py`](https://github.com/licyk/rvc-next/blob/main/scripts/generate_openapi.py): call `build_services()` in a temporary data directory with an empty `environ`, then `create_app(serve_ui=False)`, and print `app.openapi()`. It neither starts a server nor reads user settings, so the result is identical on any machine.
+2. Extract `VoiceParamsModel` and `StreamParamsModel` (`PARAM_MODELS`) from the schema, writing each field's `type`, `default`, `minimum`/`maximum`, `enum`, and `description` to `PARAM_SPECS` in `src/api/paramSpecs.ts`. openapi-typescript only generates types, while parameter panels need actual numbers; this step gives slider ranges, defaults, and help text one source: field constraints in `core/params.py`.
+3. Generate `src/api/schema.d.ts` with openapi-typescript. `--default-non-nullable false` keeps **request** fields with defaults optional (clients may omit them).
+
+Both generated files are committed. `typegen-check` (part of `dev.py check`, also run in CI) regenerates them and runs `git diff --exit-code`; an API change without regeneration fails.
+
+Three settings affect type shapes:
+
+- `Record` sets `json_schema_serialization_defaults_required=True`: fields with defaults always appear in **responses**, so the schema marks them required instead of generating `?` everywhere.
+- `separate_input_output_schemas=False`: most models produce one schema rather than separate `-Input`/`-Output` schemas. FastAPI still splits `Dataset`, `FitSettings`, and `SpeakerEntry`; `api/types.ts` reads the `-Output` shape and uses `-Input` for sending.
+- Event schemas use serialization mode, but event fields with defaults may still be optional in TypeScript; comments in `api/types.ts` record this (the server always sends them).
+
+## Static pages
+
+[`api/static.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/api/static.py):
+
+- `web_dist_dir()` locates `dist/` via `rvc_next.webui.__path__`, rather than the current directory or a hard-coded path, so both source checkouts and installed wheels can find it. `dist/` is git-ignored and bundled as package data (`"rvc_next.webui" = ["dist/**/*"]` in `pyproject.toml`) after `scripts/build_wheel.py` builds it.
+- `SPAStaticFiles` sends `Cache-Control: public, max-age=31536000, immutable` for files under `assets/` (Vite filenames contain content hashes and can be cached permanently); other files (mainly `index.html`) get `no-cache`, so browsers fetch the new entry point after upgrades.
+- Unknown paths fall back to `index.html` only when the request's `Accept` contains `text/html`. Misspelled asset or API paths still return 404 rather than HTML (fixing InvokeAI's fallback to index.html for every path). The frontend uses hash routing, so normal navigation does not need this fallback.
+
+## Startup, ports, and `SERVER_READY`
+
+`rvc-next webui` ([`cli/commands/webui.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/cli/commands/webui.py)) runs in this order:
+
+1. `build_services(start_background=True)`; take host, port, strict mode, and browser-opening behavior from CLI arguments, falling back to `server.*` settings (default `127.0.0.1:7868`).
+2. Warn before binding to a non-loopback address; exit (code 4) without `server.access_token`.
+3. `bind_first_free_port(host, port, strict=…)` **binds the listening socket itself**: start at the configured port and try the next on `EADDRINUSE`/`EACCES` (and Windows equivalents), up to 20 ports, never beyond 65535; `strict` tries just one; port 0 lets the OS choose. On Windows set `SO_EXCLUSIVEADDRUSE` (prevent another process binding the same address and port); elsewhere set `SO_REUSEADDR` (allow quick restarts during `TIME_WAIT`). Exit (code 3) if all attempts fail.
+4. `create_app(…, bound_host=host, bound_port=actual_port)`, `uvicorn.Server(config).run(sockets=[sock])`—pass **the same** socket to uvicorn.
+5. Before running, write `server.json` (`host`, `port`, `url`, `pid`, atomically replaced via a temporary file), print `SERVER_READY url=http://…` to stdout, and open the browser after 0.8 s if configured; on exit, delete only the `server.json` written by this process (compare `pid`).
+
+<Callout type="info" title="Why bind instead of probe">
+
+InvokeAI probes a port with `connect`, then lets uvicorn bind after services load. Probing only detects listening ports; Windows reserved port ranges, where nothing listens but binding is impossible, can appear free. The entire startup interval between probing and binding also lets another process take the port. Binding directly is the only reliable answer, and passing that exact socket to uvicorn removes the gap. The `SERVER_READY` line and `server.json` let launchers, scripts, and other programs discover port changes—log warnings are not machine-readable. `--strict-port` is for deployments with fixed port mappings (reverse proxies, containers), where silently changing ports would conceal the problem.
+
+</Callout>
+`read_runtime_file()` checks whether `pid` is alive and treats stale files as absent. The job service also uses it at startup to determine whether another live server owns the data directory (see [Core services](/docs/development-core)). In development, `scripts/dev.py dev` starts the API with `--no-open --strict-port` and has Vite proxy to it through `RVC_NEXT_BACKEND` (see [Web UI](/docs/development-webui)).
+
+## Adding an endpoint
+
+1. Write a core method with `Record` parameters and return values; use existing error classes in `core/errors.py`.
+2. Add a route in the appropriate `api/routers/<resource>.py`: set `operation_id`, use `ServicesDep` in the signature, call `require_trusted(request, services)` for server paths, and add `dependencies=[LocalDep]` for revealing files; use `spool` + `read_chunks` for uploads and declare `openapi_extra=RAW_BODY`. Put fixed paths before wildcard routes.
+3. Return `Job` for long operations, with progress via events; if new push events are needed, add an `EventBase` subclass to `core/events/models.py` (automatically included in OpenAPI and `ServerEvents`) and handle it in frontend `api/socket.ts`.
+4. If the CLI needs the same operation, call the same core method (see [CLI implementation](/docs/development-cli)).
+5. Run `python scripts/dev.py typegen` and commit `schema.d.ts` (plus `paramSpecs.ts` if parameter models changed); cover error mapping and permissions with `TestClient` in `tests/api/test_api.py`.

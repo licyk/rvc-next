@@ -1,0 +1,67 @@
+---
+title: "Development documentation"
+description: "This section is for anyone modifying, extending or reviewing the RVC Next code: maintainers, contributors and coding agents working in this repository."
+icon: Code
+---
+
+This section is for anyone modifying, extending or reviewing the RVC Next code: maintainers, contributors and coding agents working in this repository. It explains how the code is built **today**, why each rule exists, and where it must stay consistent with the original RVC. For usage, see [Quick start](/docs/quick-start) and the [User guide](/docs/guide); for individual commands, see [Command line](/docs/cli).
+
+## Relationship to AGENTS.md
+
+[`AGENTS.md`](https://github.com/licyk/rvc-next/blob/main/AGENTS.md) at the repository root (in English; `CLAUDE.md` only references it) is the **design record**: a concise account of what the code does, which rules it keeps, and where it departs from the original plan. It lives alongside the code and changes with it, and is the sole authoritative summary of how the code stands today.
+
+The responsibilities of these pages and that file are:
+
+| | `AGENTS.md` | Development documentation (this section) |
+| --- | --- | --- |
+| Language | English | Simplified Chinese |
+| Length | One or two lines per rule | Explains reasons, data flow, edge cases and procedures |
+| Readers | Must be read before editing code | Read to understand a subsystem or when first joining the project |
+| In a conflict | It and the code take precedence | Should be updated accordingly |
+
+<Callout type="info" title="Convention">
+
+Record new, durable findings briefly in `AGENTS.md` first; add explanations here when more detail is needed. If they disagree, the code takes precedence, followed by `AGENTS.md`.
+
+</Callout>
+## Page map
+
+| Page | Contents |
+| --- | --- |
+| [Development environment](/docs/development-setup) | Isolated virtual environment, dependency constraints and their reasons, every `scripts/dev.py` task, building the wheel and documentation site |
+| [Architecture](/docs/development-architecture) | Package structure and layer rules, `build_services()`, worker subprocesses, errors and exit codes, settings precedence, events, database and data directory |
+| [Engine](/docs/development-engine) | `rvc_next.engine`: runtime and GPU rules, HuBERT, F0, indexes, models and checkpoints, offline conversion, streaming engine, audio I/O, vocal separation and training stages |
+| [Core services](/docs/development-core) | `rvc_next.core`: jobs, GPU memory management, assets, voice library and imports, audio files, conversion, separation, training, live voice conversion, settings, events and database |
+| [API and events](/docs/development-api) | FastAPI routing conventions, uploads, security model, socket.io events and payloads, OpenAPI → TypeScript type generation and port selection |
+| [Web UI](/docs/development-webui) | Vue 3 frontend: directory structure, `ui/` components and MD3 motion, unified experience contract, data flow, layout rules, internationalisation, tests and adding a page |
+| [CLI implementation](/docs/development-cli) | Typer factory, command registration, errors to exit codes, `--json`, foreground jobs and adding a command |
+| [Assets and model repositories](/docs/development-assets) | `catalog.json` format, two download repositories, verification and resumable downloads, adding an asset, models found only in distribution packages |
+| [Parity with the original](/docs/development-parity) | Porting rules, golden tests, behaviour differences from the original and their reasons, torchaudio / torchfcpe ports |
+| [Tests and checks](/docs/development-testing) | `dev.py check`, pytest markers and environment variables, tiny models, test layout, CI and areas not yet verified on real hardware |
+
+If you are new to the code, read [Development environment](/docs/development-setup) → [Architecture](/docs/development-architecture) → the layer relevant to your work.
+
+## Project origins
+
+RVC Next is a rewrite of [Retrieval-based-Voice-Conversion-WebUI](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI) (called “the original” below, based on the local checkout at `81eed5e`, a heavily modified 2026 branch that replaces fairseq with `transformers` HuBERT, replaces UVR5 with PyMSS, and adds CUDA Graphs, multi-speaker training and a VST plugin). The original spreads its features across five entry points: the Gradio WebUI, a desktop live voice conversion GUI, a VST plugin, CLI scripts for each training stage, and the bundled PyMSS CLI. Each has its own settings, model selection and progress display. The rewrite combines them into one application: **Convert**, **Live**, **Separate**, **Train** and **Models**, behind one FastAPI server, one Vue 3 Web UI and one Typer CLI.
+
+The code has three sources, each handled differently:
+
+| Source | What was taken | How it was handled |
+| --- | --- | --- |
+| SD Model Hub (via Hanaikada) | Application skeleton: settings, event bus, SQLite database, security middleware, port binding, CLI factory, Web UI theme, `ui/` component library, motion system and rule tests | Renamed and reused; Hanaikada's `embed.py` (embedding in other applications) was left out because no host application needs to embed RVC Next |
+| Original RVC | Synthesizer and discriminator networks, RMVPE, TorchGate, CUDA Graph cache, numerical code for offline / streaming / training pipelines | **Ported rather than rewritten**, with golden tests comparing against the original bit for bit so existing voices sound exactly the same (see [Parity with the original](/docs/development-parity)) |
+| torchaudio, torchfcpe | The windowed sinc resampler in `transforms.Resample`; FCPE inference path (mel frontend, convolution-only `CFNaiveMelPE`, decoders and loader) | Ported step by step to `engine/audio/sinc_resample.py` and `engine/f0/fcpe_model.py`; tests verify bit-identical results when the original libraries are installed. RVC Next therefore no longer depends on torchaudio (whose final release is 2.11) or torchfcpe |
+
+Orchestration, storage, process control and all user interfaces were written from scratch.
+
+## Licence
+
+RVC Next is released under **GPL-3.0-only** ([`LICENSE`](https://github.com/licyk/rvc-next/blob/main/LICENSE), `license = "GPL-3.0-only"` in `pyproject.toml`), because its skeleton comes from the GPLv3 projects SD Model Hub and Hanaikada. Ported code retains its original licence notices, collected in [`NOTICE`](https://github.com/licyk/rvc-next/blob/main/NOTICE):
+
+- Original RVC: MIT;
+- torchaudio: BSD 2-Clause, with the full text also retained in `engine/audio/sinc_resample.py`;
+- FCPE / torchfcpe: MIT (its conformer comes from Diffusion-SVC, also MIT);
+- PyMSS is used as a dependency (MIT); sources for RMVPE, DDSP-SVC's SOLA crossfade and TorchGate are also credited there.
+
+Model weights downloaded at runtime (HuBERT, RMVPE, FCPE, base models, separation models and demo voices) have their own terms and are outside this repository's licence. When porting new code, record its source and licence both in the file header and in `NOTICE`.

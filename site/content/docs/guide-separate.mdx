@@ -1,0 +1,125 @@
+---
+title: "人声分离"
+description: "分离 页面用 RoFormer 系列模型拆分音频：把歌曲分成人声与伴奏、去除人声中的混响、把主唱与和声分开。几个步骤还可以串联成一个预设一次完成。分出的任何分轨都可以直接送到 转换 页。"
+icon: Split
+---
+
+页面从上到下是 **输入**、**预设**（含 **格式**）和 **结果** 三个分区，底部是固定的操作栏，其中有任务卡片和 **分离** 按钮。
+
+<Callout type="idea" title="只想给歌曲换声？">
+
+如果你的目的是“分离人声 → 转换 → 加回伴奏”，不必先来这里：在 **转换** 页打开 **先分离人声** 和 **加回伴奏** 就能一步完成，见[转换 › 可选步骤](/docs/guide-convert#optional-steps)。当你需要**保留**分离出的分轨，或要先检查、处理分轨时，再使用本页面。
+
+</Callout>
+## 使用步骤
+
+1. 在 **输入** 中添加音频：拖入文件、点 **服务器文件** 选择服务器上的文件或整个文件夹（处理该文件夹第一层的音频文件），或点 **之前的结果**。用法与[转换页的输入](/docs/guide-convert#inputs)完全相同。
+2. 在 **预设** 中点选一张卡片。每张卡片显示预设名称、说明和它输出的分轨，例如“分轨：vocals, instrumental”。
+3. 在 **格式** 中选择输出格式：WAV、FLAC、MP3 或 M4A。默认是 FLAC。
+4. 如果操作栏显示“**需要 Separation: ……**”，先点 **下载** 获取该预设所需的分离模型。
+5. 点 **分离**。
+
+页面会记住你上次选的预设。从未选过时，使用 **设置 › 训练默认值** 中的 **默认分离预设**（初始为 **Vocals**）。
+
+## 预设 [#presets]
+
+预设的名称和说明由服务器提供，目前以英文显示。内置预设如下：
+
+| 预设（界面显示） | ID | 作用 | 输出的分轨 | 需要的模型 |
+| --- | --- | --- | --- | --- |
+| **Vocals** | `vocals` | 把歌曲分成人声和伴奏（BS-RoFormer，SDR 12.96） | `vocals`、`instrumental` | Separation: Vocals |
+| **Vocals, aggressive** | `vocals-aggressive` | 更彻底地分离人声和伴奏（BS-RoFormer，SDR 12.98） | `vocals`、`instrumental` | Separation: Vocals, aggressive |
+| **Remove reverb** | `dereverb` | 去除人声中的混响和回声（Mel-RoFormer，SDR 18.81） | `noreverb`、`reverb` | Separation: Remove reverb |
+| **Remove reverb, aggressive** | `dereverb-aggressive` | 更强力地去除混响和回声（Mel-RoFormer，SDR 19.17） | `noreverb`、`reverb` | Separation: Remove reverb, aggressive |
+| **Lead vocal** | `karaoke` | 保留主唱、分出和声；应当用在**人声分轨**上（Mel-RoFormer karaoke，SDR 10.20） | `main_vocal`、`off_vocal` | Separation: Lead vocal |
+| **Vocals, clean** <br />（串联） | `vocals-clean` | 先分离人声，再去混响：得到干声和伴奏 | `vocals`、`instrumental`、`reverb` | Vocals + Remove reverb |
+| **Lead vocal, clean** <br />（串联） | `lead-clean` | 先分离人声，再提取主唱，最后去混响：得到干净的主唱、和声和伴奏 | `main_vocal`、`instrumental`、`off_vocal`、`reverb` | Vocals + Lead vocal + Remove reverb |
+
+分轨名称的含义：
+
+| 分轨 | 含义 |
+| --- | --- |
+| `vocals` | 人声（串联预设中为去混响后的干声） |
+| `instrumental` | 伴奏 |
+| `noreverb` / `reverb` | 去除混响后的声音 / 被分离出来的混响 |
+| `main_vocal` / `off_vocal` | 主唱 / 和声 |
+
+带 **串联** 标记的预设会依次运行多个模型：每一步处理上一步的主分轨（例如 **Vocals, clean** 先得到人声，再对人声去混响），每个分轨只输出一次。
+
+### 怎么选
+
+- **普通歌曲转换**：用 **Vocals**。分离后人声里还残留伴奏时，试试 **Vocals, aggressive**。
+- **人声混响很重**：用 **Vocals, clean**，直接得到干声，转换效果通常更好。
+- **有和声的歌曲**：用 **Lead vocal, clean** 只保留主唱再转换，避免和声被一起转换。
+- **已经是干净的人声，只是有混响**：直接用 **Remove reverb** 或 **Remove reverb, aggressive**。
+- **Lead vocal** 要用在人声上，而不是整首歌：先用 **Vocals** 分出人声，再在人声结果上选 **用作输入**，换成 **Lead vocal** 预设分离一次。或者直接用串联的 **Lead vocal, clean**。
+
+### 导入的分离模型
+
+你也可以在 **模型 › 分离模型** 中导入自己的分离模型（检查点及其 `.yaml` 配置）。每个导入的模型都会在这里成为一个单步预设，卡片上带 **已导入** 标记。导入方法见[模型管理](/docs/guide-models)。
+
+## 下载分离模型
+
+每个内置预设需要一个或多个分离模型，每个约 305 MB（两个 Vocals 模型）或约 436 MB（其余三个）。获取方式：
+
+<Tabs items={["在需要时下载", "在模型页面下载", "命令行"]}>
+<Tab value="在需要时下载">
+
+选好预设后，如果模型尚未下载，操作栏中的 **分离** 按钮会被替换为“**需要 Separation: Vocals**”之类的提示和 **下载** 按钮，点击即可下载。
+
+</Tab>
+<Tab value="在模型页面下载">
+
+- **模型 › 分离模型** 的 **内置** 分组列出全部五个内置模型，可以逐个 **下载** 或删除；
+- **模型 › 资源** 的 **分离** 分组中，点 **下载全部分离文件** 一次下载全部。
+
+</Tab>
+<Tab value="命令行">
+
+```bash
+rvc-next assets download --group separation          # 全部分离模型
+rvc-next assets download separation-vocals           # 只下载 Vocals 需要的模型
+rvc-next assets list                                 # 查看 ID 和状态
+```
+
+</Tab>
+</Tabs>
+分离模型保存在资源文件夹的 `pymss_weights/` 中，与原版 RVC 的布局相同。如果你在设置中把资源文件夹指向原版 RVC 的 `assets/`，已经下载过的同名模型可以直接使用，见[从原版 RVC 迁移](/docs/advanced-migrate)。
+
+## 任务
+
+每点一次 **分离**，就为当前全部输入创建**一个**任务，标题形如 `Separate song.flac · Vocals`（多个输入时为 `Separate song.flac and 2 more · Vocals`），每个输入是一步。分离在一个独立的工作进程中运行，可以随时 **取消**，失败后可以 **重试**，点 **日志** 查看过程。
+
+分离使用 **设置 › 计算** 中选择的设备。CPU 也能运行，但 RoFormer 模型在 CPU 上较慢，长歌曲需要耐心等待。
+
+<Callout type="info" title="未验证的部分">
+
+分离在 GPU 上的运行，以及真实模型下的串联预设，尚未在真实硬件上验证。在 DirectML 上，如果模型以半精度失败，RVC Next 会自动改用 fp32 重新运行（日志中记录 `Retrying in fp32`）。
+
+</Callout>
+## 结果
+
+分离出的分轨出现在 **结果** 分区，**按源文件分组**：每组以源文件名为标题，下面是它的各个分轨，每个分轨带 **分轨** 标签和分轨名称（如 `vocals`）。播放、对比、下载等通用操作见[界面总览 › 结果列表](/docs/guide-interface#results)。
+
+本页特有的两个操作，在每个分轨的 **更多操作**（⋮）菜单中：
+
+- **转换这个**：把该分轨加入 **转换** 页的输入，并跳转到 **转换** 页。选好音色就可以转换了。
+- **用作输入**：把该分轨加回本页的输入，用另一个预设再分离一次，例如对 `vocals` 运行 **Lead vocal**。
+
+结果保存在数据文件夹的 `outputs/<日期>/<任务 ID>/` 中，文件名为：
+
+```text
+<原文件名（不含扩展名）>.<分轨名>.<格式>
+```
+
+例如 `song.flac` 用 **Vocals** 分离并输出 FLAC，得到 `song.vocals.flac` 和 `song.instrumental.flac`。同名文件已存在时会加序号，如 `song.vocals-2.flac`，不会覆盖。
+
+## 命令行
+
+```bash
+rvc-next separate --list                                  # 列出全部预设
+rvc-next separate song.flac -p vocals-clean               # 用串联预设分离
+rvc-next separate ./songs --recursive -p vocals -o out/ --format wav
+```
+
+全部选项见[命令参考](/docs/cli-commands)。

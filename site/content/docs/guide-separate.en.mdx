@@ -1,0 +1,125 @@
+---
+title: "Vocal separation"
+description: "The Separate page uses RoFormer models to split audio: separate songs into vocals and accompaniment, remove reverb from vocals, and separate lead and backing vocals. Multiple steps can be chained into one preset, and any resulting stem can be sent directly to Convert."
+icon: Split
+---
+
+From top to bottom, the page has three sections: **Inputs**, **Preset** (including **Format**) and **Results**. The fixed bottom action bar contains job cards and the **Separate** button.
+
+<Callout type="idea" title="Just want to change the voice in a song?">
+
+If your goal is “separate vocals → convert → add accompaniment back”, you do not need to start here: enable **Separate first** and **Add accompaniment back** on **Convert** to do it in one operation; see [Convert › Optional steps](/docs/guide-convert#optional-steps). Use this page when you need to **keep** the separated stems, or inspect or process them first.
+
+</Callout>
+## Usage steps
+
+1. Add audio in **Inputs**: drop files, click **Server files** to choose server files or an entire folder (processing audio files at its top level), or click **Earlier results**. This works exactly as on [Convert's input section](/docs/guide-convert#inputs).
+2. Select a card in **Preset**. Each card shows the preset name, description and output stems, such as “Stems: vocals, instrumental”.
+3. Choose an output **Format**: WAV, FLAC, MP3 or M4A. The default is FLAC.
+4. If the action bar shows “**Needs Separation: …**”, click **Download** first to get the preset's required separation models.
+5. Click **Separate**.
+
+The page remembers your last selected preset. If you have never selected one, it uses **Default separation preset** under **Settings › Training defaults** (initially **Vocals**).
+
+## Presets [#presets]
+
+Preset names and descriptions come from the server and currently appear in English. The built-in presets are:
+
+| Preset (as shown in the interface) | ID | Purpose | Output stems | Required models |
+| --- | --- | --- | --- | --- |
+| **Vocals** | `vocals` | Split a song into vocals and accompaniment (BS-RoFormer, SDR 12.96) | `vocals`, `instrumental` | Separation: Vocals |
+| **Vocals, aggressive** | `vocals-aggressive` | Separate vocals and accompaniment more thoroughly (BS-RoFormer, SDR 12.98) | `vocals`, `instrumental` | Separation: Vocals, aggressive |
+| **Remove reverb** | `dereverb` | Remove reverb and echo from vocals (Mel-RoFormer, SDR 18.81) | `noreverb`, `reverb` | Separation: Remove reverb |
+| **Remove reverb, aggressive** | `dereverb-aggressive` | Remove reverb and echo more aggressively (Mel-RoFormer, SDR 19.17) | `noreverb`, `reverb` | Separation: Remove reverb, aggressive |
+| **Lead vocal** | `karaoke` | Keep lead vocals and separate backing vocals; use on a **vocal stem** (Mel-RoFormer karaoke, SDR 10.20) | `main_vocal`, `off_vocal` | Separation: Lead vocal |
+| **Vocals, clean** <br /> (chain) | `vocals-clean` | Separate vocals, then remove reverb: produce dry vocals and accompaniment | `vocals`, `instrumental`, `reverb` | Vocals + Remove reverb |
+| **Lead vocal, clean** <br /> (chain) | `lead-clean` | Separate vocals, extract lead vocals, then remove reverb: produce clean lead vocals, backing vocals and accompaniment | `main_vocal`, `instrumental`, `off_vocal`, `reverb` | Vocals + Lead vocal + Remove reverb |
+
+Stem names mean:
+
+| Stem | Meaning |
+| --- | --- |
+| `vocals` | Vocals (dry, dereverberated vocals in chain presets) |
+| `instrumental` | Accompaniment |
+| `noreverb` / `reverb` | Audio with reverb removed / separated reverb |
+| `main_vocal` / `off_vocal` | Lead vocals / backing vocals |
+
+Presets labeled **chain** run multiple models sequentially: each step processes the previous step's primary stem (for example, **Vocals, clean** extracts vocals, then removes reverb from them). Each stem is output only once.
+
+### How to choose
+
+- **Ordinary song conversion**: use **Vocals**. If accompaniment remains in the separated vocals, try **Vocals, aggressive**.
+- **Vocals with heavy reverb**: use **Vocals, clean** to get dry vocals directly, which usually convert better.
+- **Songs with backing vocals**: use **Lead vocal, clean** to keep only the lead for conversion, avoiding conversion of the backing vocals along with it.
+- **Otherwise clean vocals with reverb**: use **Remove reverb** or **Remove reverb, aggressive** directly.
+- Use **Lead vocal** on vocals rather than a full song: extract vocals with **Vocals** first, choose **Use as input** on the vocal result, then separate again with **Lead vocal**. Or use the **Lead vocal, clean** chain directly.
+
+### Imported separation models
+
+You can also import your own separation models (checkpoint and `.yaml` configuration) in **Models › Separation models**. Each imported model becomes a single-step preset here, with an **imported** label on its card. See [Model management](/docs/guide-models) for import instructions.
+
+## Download separation models
+
+Each built-in preset needs one or more separation models, about 305 MB each (the two Vocals models) or about 436 MB each (the other three). To get them:
+
+<Tabs items={["Download when needed", "Download on the Models page", "Command line"]}>
+<Tab value="Download when needed">
+
+After choosing a preset, if its models are not downloaded, the **Separate** button in the action bar is replaced by a notice such as “**Needs Separation: Vocals**” and a **Download** button. Click to download.
+
+</Tab>
+<Tab value="Download on the Models page">
+
+- **Built-in** in **Models › Separation models** lists all five built-in models, which you can **Download** or delete individually;
+- In the **Separation** group under **Models › Assets**, click **Download everything for Separation** to download them all at once.
+
+</Tab>
+<Tab value="Command line">
+
+```bash
+rvc-next assets download --group separation          # All separation models
+rvc-next assets download separation-vocals           # Only the model needed by Vocals
+rvc-next assets list                                 # View IDs and status
+```
+
+</Tab>
+</Tabs>
+Separation models are stored in `pymss_weights/` within the assets folder, matching the original RVC's layout. If you point the assets folder to the original RVC's `assets/` in settings, already downloaded models with matching names can be used directly; see [Migrating from the original RVC](/docs/advanced-migrate).
+
+## Jobs
+
+Each click on **Separate** creates **one** job for all current inputs, with a title such as `Separate song.flac · Vocals` (or `Separate song.flac and 2 more · Vocals` for multiple inputs). Each input is one step. Separation runs in a separate worker process; you can **Cancel** at any time, **Retry** after failure and click **Log** to view the process.
+
+Separation uses the device selected in **Settings › Compute**. CPU also works, but RoFormer models are slower on CPU, so long songs require patience.
+
+<Callout type="info" title="Unverified behavior">
+
+Separation on GPU and chain presets with real models have not yet been validated on physical hardware. On DirectML, if a model fails in half precision, RVC Next automatically reruns it in fp32 (logging `Retrying in fp32`).
+
+</Callout>
+## Results
+
+Separated stems appear in **Results**, **grouped by source file**. Each group has the source filename as its title, followed by its stems, each labeled **stem** with a stem name (such as `vocals`). See [Interface overview › Results list](/docs/guide-interface#results) for shared actions such as playback, comparison and downloads.
+
+Two actions specific to this page appear in each stem's **More actions** (⋮) menu:
+
+- **Convert this**: add the stem to **Convert**'s inputs and switch to **Convert**. Choose a voice and you are ready to convert.
+- **Use as input**: add the stem back to this page's inputs for another separation preset, such as running **Lead vocal** on `vocals`.
+
+Results are saved in `outputs/<date>/<job id>/` in the data folder, with filenames:
+
+```text
+<original name>.<stem>.<format>
+```
+
+For example, separating `song.flac` with **Vocals** to FLAC produces `song.vocals.flac` and `song.instrumental.flac`. If a matching filename exists, a number is added, such as `song.vocals-2.flac`, without overwriting.
+
+## Command line
+
+```bash
+rvc-next separate --list                                  # List all presets
+rvc-next separate song.flac -p vocals-clean               # Separate with a chain preset
+rvc-next separate ./songs --recursive -p vocals -o out/ --format wav
+```
+
+See [Command reference](/docs/cli-commands) for all options.

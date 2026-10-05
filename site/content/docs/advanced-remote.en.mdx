@@ -1,0 +1,146 @@
+---
+title: "Remote access and security"
+description: "The RVC Next server listens only on the local machine by default (127.0.0.1:7868), so only browsers on that computer can open it. This page explains how to allow other devices on the local network to connect and the protections the server applies."
+icon: Globe
+---
+
+The server can delete and move files, read audio on the server, and open audio devices, so always set an access token before opening it to other computers.
+
+## Address and port
+
+| Setting | Command-line option | Default | Description |
+| --- | --- | --- | --- |
+| `server.host` | `--host` | `127.0.0.1` | Address to bind. `0.0.0.0` listens on all IPv4 interfaces; `::` listens on all IPv6 interfaces. You can also specify the address of one interface |
+| `server.port` | `--port` | `7868` | First port to try; `--port 0` lets the system choose a free port |
+| `server.strict_port` | `--strict-port` | Off | Fail when the port is in use |
+| `server.open_browser` | `--open / --no-open` | On | Open the browser after starting |
+
+If a port is in use (or reserved by the system), the server tries subsequent ports in order, up to 20, and reports "Port 7868 is unavailable. Using port 7869." in the log. With `strict_port` enabled, it exits immediately with code 3. In the Web UI, these settings are **Server address** and **Port** under **Settings** › **General**. After changing them: **Takes effect the next time the server starts.**
+
+## Allow other computers to connect
+
+1. Set an access token (any sufficiently long random string):
+
+<Tabs items={["Command line", "Web UI"]}>
+<Tab value="Command line">
+
+```bash
+rvc-next config set server.access_token "a long random string"
+```
+
+</Tab>
+<Tab value="Web UI">
+
+Under **Settings** › **General**, enter an **Access token** and click **Set token**. The adjacent indicator shows **An access token is set** or **No access token**. **Clear token** removes it.
+
+</Tab>
+</Tabs>
+2. Bind to all interfaces and start:
+
+    ```bash
+    rvc-next webui --host 0.0.0.0 --no-open
+    ```
+
+    Without an access token, the server refuses to start on a non-local address:
+
+    ```text
+    Binding to 0.0.0.0 makes the server reachable from other machines.
+    Set server.access_token first (rvc-next config set server.access_token <secret>).
+    ```
+
+3. Open `http://<server IP>:7868` in a browser on another device. After the page loads, an **Access token** dialog appears ("This server asks for its access token."). Enter the token and click **Save**.
+
+The browser saves the token in local storage and writes a Cookie named `rvc_next_token` (for audio playback and WebSocket connections), so you do not need to enter it again next time. If the token is incorrect or changes, the dialog reappears.
+
+The token applies to all browsers, **including browsers on the server machine**: after setting a token, opening the Web UI locally also asks for it once. The command line does not use the API and needs no token.
+
+<Callout type="warn" title="Firewall and unencrypted traffic">
+
+The server provides only HTTP. Tokens and audio travel over the network in plaintext, so it is suitable only for a trusted local network. You may need to allow the port through the operating system's firewall.
+
+</Callout>
+### How to send the token
+
+Once a token is set, every request under `/api/`, `/ws/`, `/openapi.json`, and `/docs` must carry it, using any of these three methods:
+
+- Request header `Authorization: Bearer <token>`;
+- Cookie `rvc_next_token=<token>`;
+- Query parameter `?token=<token>`.
+
+Only the health check `/api/v1/app/health` (which tells the page whether a token is required) and the Web UI's static pages do not require a token. Tokens are compared in constant time. Example API call from a script:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" http://192.168.1.10:7868/api/v1/models
+```
+
+Token changes take effect immediately, without restarting the server.
+
+## What remote browsers can do
+
+When a token is set, all requests must pass the token check first. The server then determines which operations to allow based on whether the request comes from the local machine:
+
+| Operation | Local browser | Other computer (token set and supplied) |
+| --- | --- | --- |
+| Upload audio, convert, separate, train, live voice conversion, manage models, change settings | Allowed | Allowed |
+| Browse server files (**Server files**), import models by server path, or specify a dataset | Allowed | Allowed, but only within the browsing scope |
+| **Show in folder** (open in the server's file manager) | Allowed | Not allowed ("This works only in a browser on the server machine") |
+
+The "other computer, no token set" case does not normally occur: binding to a non-local address requires a token. If the server sees a non-local request without a token, browsing server files is refused, and the interface reports **Server files can be browsed only from the server machine, or with an access token set.**
+
+<Callout type="warn" title="A token grants full control">
+
+Anyone holding the token can change all settings (including browsing scope and folder locations) and delete voices and experiments. Share it only with people you trust.
+
+</Callout>
+### Browsing scope
+
+When browsing or using server files, the Web UI (including local browsers) can access only folders in `paths.browse_roots`. Paths outside this scope are rejected (`invalid_path`). By default (an empty list), the scope includes:
+
+- The user's home directory;
+- Added original RVC installations;
+- The data directory;
+- All drives (`C:\`, `D:\`, etc. on Windows), or mounted volumes (`/Volumes/*` on macOS; `/media/<user>/*`, `/run/media/<user>/*`, `/mnt/*` on Linux). The system root `/` is excluded by default.
+
+When allowing other computers to connect, narrow the scope to the folders you need:
+
+```bash
+rvc-next config set paths.browse_roots '["D:/music", "D:/datasets"]'
+```
+
+Or enter one folder per line in **Folders the browser may open** under **Settings** › **Storage**. Once set, only these folders can be browsed.
+
+The command line is not restricted by the browsing scope: someone running commands on the server already has access to these files.
+
+## Origin checks
+
+To prevent other websites from using your browser to operate the server, the server applies two checks to each request:
+
+- **Host check**: when listening only locally, the request's `Host` must be `localhost`, `127.0.0.1`, `::1`, or the bound address; otherwise the server returns 400 (`bad_host`). This prevents DNS rebinding attacks. The check is skipped when bound to a non-local address (where the token provides protection).
+- **Origin check**: for requests that modify data (non-GET/HEAD/OPTIONS) and WebSocket connections, an `Origin`, if present, must match the page's own address or appear in `server.allowed_origins`; otherwise the server returns 403 (`bad_origin`). Cross-site requests without an `Origin` are also rejected.
+
+If you call the API from another page or tool (such as your own frontend), add its origin to `server.allowed_origins`. The server also enables CORS for these origins (CORS is configured at startup, so changes require a restart):
+
+```bash
+rvc-next config set server.allowed_origins '["http://localhost:5173"]'
+```
+
+## Live voice conversion uses the server's devices [#live-devices]
+
+Live voice conversion runs on **the server computer**: microphone input, converted output, and monitoring all use that computer's audio devices, rather than the device on which you opened the page. The device panel title names the host (**Audio devices on &lt;host>**); remote sessions also show **These devices belong to the server machine, not this browser.**
+
+Opening the Web UI on a phone or another computer lets you remotely control live voice conversion on the server (start, stop, adjust parameters), but does not send in the phone's microphone. The command `rvc-next live devices` likewise lists devices on the server machine.
+
+## Reverse proxies
+
+The code has no specific support for running behind a reverse proxy and no configurable path prefix. If you do use one, account for the checks above:
+
+- When the server listens only locally, the forwarded `Host` must be `localhost` or `127.0.0.1` (otherwise 400 `bad_host`);
+- The browser sends the proxy's address as its `Origin`, which differs from the forwarded `Host`; add it to `server.allowed_origins`;
+- Forward WebSocket connections under `/ws/`;
+- The server identifies "local" by the connection source. If the proxy and server are on the same computer and the proxy does not pass on client addresses, all visitors are treated as local and can browse server files. Always set an access token.
+
+## Related pages
+
+- [Configuration and environment variables](/docs/cli-config): full descriptions of `server` and `paths` settings.
+- [Settings](/docs/guide-settings): the Web UI settings page.
+- [Live](/docs/guide-live)

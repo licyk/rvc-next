@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+/dist/
+.pytest_cache/
+.ruff_cache/
+.venv/
+node_modules/
+rvc_next/webui/dist/
+rvc_next/webui/openapi.json
+

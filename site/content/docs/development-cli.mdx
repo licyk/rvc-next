@@ -1,0 +1,143 @@
+---
+title: "命令行实现"
+icon: SquareTerminal
+---
+
+`rvc-next` 命令行是核心层上的一层薄壳：每个命令解析参数、调用一个核心方法、把结果打印成表格或 JSON。本页讲它是怎样组织的，以及新增命令时要遵守的规则。每个命令的选项说明见[命令参考](/docs/cli-commands)，设置与环境变量见[配置与环境变量](/docs/cli-config)。
+
+## 结构
+
+| 文件 | 职责 |
+| --- | --- |
+| [`cli/app.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/cli/app.py) | `get_app()` 注册全部命令和命令组；`main()` 运行它并统一处理错误 |
+| [`cli/factory.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/cli/factory.py) | `typer_factory()` 与自定义的 Typer 类；对 Typer 私有模块 `typer._click` 的导入只出现在这里 |
+| `cli/commands/*.py` | 命令函数，都是普通函数，不带装饰器 |
+| `cli/output.py` | `open_services()`、`print_json()`、`print_table()`、`human_size()` 等 |
+| `cli/params.py` | `convert`、`live run`、`preset save` 共用的音色参数选项（`ParamOptions`）与 `build_params()` |
+| `cli/progress.py` | 前台任务的 Rich 进度条（`job_progress()`）与结束处理（`finish()`） |
+
+入口有两个：`pyproject.toml` 的 `[project.scripts]` 把 `rvc-next` 指向 `rvc_next.cli.app:main`，`rvc_next/__main__.py` 让 `python -m rvc_next` 调用同一个 `main()`（`dev.py dev` 就是这样启动 API 的）。
+
+这套结构来自 ani2xcur-cli，经 SD Model Hub 沿用下来。
+
+### 集中注册
+
+`get_app()` 是整个命令行的目录：每个命令都在这里用 `app.command(help=..., name=...)(函数)` 注册，命令名和帮助文字在注册时给出，而不是取自函数名或文档字符串（`live_test_tone` 注册为 `test-tone`，`model_list` 注册为 `list`）。命令组是另一个 `typer_factory()` 创建的应用，用 `add_typer(..., name=...)` 挂上去，最深三层（`model index assign`）。应用在函数里构建，导入模块时不创建任何东西。
+
+当前的命令树：
+
+```
+rvc-next
+├── webui | version | env | doctor | convert | separate
+├── config    show | get | set | path
+├── assets    list | download | verify
+├── model     list | info | import | catalog | download | edit | remove | merge | extract
+│   └── index attach | assign | build
+├── preset    list | save | remove
+├── train     list | new | run | status | export | import
+│   └── dataset scan | speakers
+├── live      devices | check | test-tone | run
+└── jobs      list | show
+```
+
+[`tests/cli/test_cli.py`](https://github.com/licyk/rvc-next/blob/main/tests/cli/test_cli.py) 的 `EXPECTED_TREE` 是这棵树的快照，`test_command_tree` 逐层比较。增删命令而不更新快照，测试就会失败，这是有意的：命令行是对外接口，改动它应当是显式的决定。
+
+### 工厂与自定义类
+
+`typer_factory(help)` 让每个应用和命令组拥有相同的设置：
+
+| 设置 | 效果 |
+| --- | --- |
+| `add_completion=True` | 支持 shell 补全 |
+| `no_args_is_help=True` | 不带参数运行应用或命令组时显示帮助 |
+| `cls=AlphabeticalMixedGroup` | 命令组带 `--debug`，并按字母顺序列出子命令和子组 |
+| `rich_markup_mode=None`、`rich_help_panel=None` | 帮助文字是纯文本 |
+| `pretty_exceptions_enable=False` | 异常交给 `main()` 处理 |
+
+`--debug` 在任何层级都可用（`rvc-next --debug version`、`rvc-next model --debug list`、`rvc-next model index --debug --help`），而没有任何命令函数声明 `debug` 参数。它由三部分实现：
+
+1. `_make_debug_option()` 构造一个 `is_eager=True`、`expose_value=False` 的标志选项，回调把 `rvc_next` 日志器设为 `DEBUG`。急切求值保证它在命令体之前生效；不暴露值保证它不会传给命令函数；`ctx.resilient_parsing`（shell 补全时）为真时回调什么也不做。
+2. `DebugTyperCommand` 和 `AlphabeticalMixedGroup` 在 `__init__` 里把这个选项插到参数表最前面（已有则不重复）。
+3. `DebugOptionTyper.command()` 默认使用 `DebugTyperCommand`；命令组的类则由工厂的 `cls=` 指定。
+
+`test_debug_everywhere` 覆盖这三种位置。
+
+## 错误与退出码
+
+领域错误（[`core/errors.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/core/errors.py)）各自带有 `exit_code`，完整对照表见[整体架构](/docs/development-architecture)。命令行在两个地方把它们变成退出码：
+
+- **`DebugTyperCommand.invoke()`** 捕获 `RvcNextError`，记录 `e.message`，若 `detail.assets` 非空再提示 `Install with: rvc-next assets download <ids>`，然后 `raise typer.Exit(e.exit_code)`。放在命令类里而不只放在 `main()` 里，是因为测试用 `typer.testing.CliRunner` 直接调用 Click 命令、不经过 `main()`；这样测试看到的退出码与用户看到的一致（`test_missing_asset_exit_code` 断言缺少资源时退出码为 7，`model info nope` 为 2）。
+- **`main()`** 兜底：`typer.Exit` 原样退出，`Abort` 为 1，`ClickException` 显示后用其退出码（参数错误为 2），`RvcNextError` 用其退出码，`KeyboardInterrupt` 为 130，其他异常打印堆栈后为 1。
+
+前台任务失败时，错误不是以异常形式出现的，而是记录在 `Job.error` 里。`cli/progress.py` 的 `finish(job)` 负责收尾：`completed` 直接返回；`cancelled` 以 130 退出；失败时打印消息，按 `job.error.code` 找到对应错误类的退出码退出（`busy` 为 3，`invalid_model` 为 4）。所以 `rvc-next convert` 缺少 RMVPE 时，无论错误出在提交前的校验还是任务执行中，退出码都是 7。
+
+少数命令自行决定退出码，都与领域错误的约定一致：`webui` 在非回环地址上没有访问令牌时退出 4、端口不可用时退出 3；`model import` 的导入计划有歧义时打印计划并退出 3；`live check` / `live run` 遇到设备问题时退出 8。只属于命令行的参数校验用 `typer.BadParameter`（退出码 2）。
+
+## 输出：`--json` 等于 API 的 JSON
+
+每个列出或展示数据的命令都有 `--json`。`print_json()` 用 `model_dump(mode="json")` 序列化 `Record`（列表和字典递归处理，`Path` 转字符串），所以输出与 API 返回的 JSON 完全相同。这不是靠约定维持的：命令和路由调用的是同一个核心方法，返回同一个 `Record`。`test_model_json_matches_api_shape` 用 `rvc-next model list --json` 与 `GET /api/v1/models` 的结果直接比较。
+
+没有 `--json` 时用 `print_table()` 画 Rich 表格。日志（包括错误消息）经 `rvc_next/logger.py` 的 `RichHandler` 写到 **stderr**，数据写到 **stdout**，所以 `rvc-next model list --json | jq` 不会被日志打断。日志级别默认 `INFO`，可用 `RVC_NEXT_LOG_LEVEL` 或 `--debug` 调整。
+
+## 服务与前台任务
+
+命令通过 `with open_services() as services:` 取得服务。它调用 `build_services()` 时**不启动后台线程**：没有调度器、没有空闲卸载、不监管 Live worker。命令结束时服务被关闭。
+
+长操作（转换、分离、训练、下载、合并、提取、建索引）在核心层都是任务。命令行用 `foreground=True` 调用核心方法，后者改走 `JobService.run_now()`：任务照样写入数据库、照样发布事件，但在**调用线程上**执行，Ctrl+C 会设置取消标志、取消引擎令牌并杀掉 worker 子进程，任务以 `cancelled` 结束。
+
+`job_progress(services)` 订阅与 Web UI 相同的 `job_updated` / `job_log` 事件，在 stderr 上画一个临时的 Rich 进度条（"标题 · 当前步骤"），并把以 `error` 或 `Traceback` 开头的日志行标红打印。stderr 不是终端或使用了 `--json` 时不画进度条。
+
+几个命令的特别之处：
+
+- **`jobs list` / `jobs show`** 读的是数据目录里共享的数据库，所以能看到一个正在运行的服务器的任务；SQLite 的 WAL 与 `busy_timeout` 让这种并发读安全。`jobs show --log` 按字节偏移分段读取任务日志。取消任务只能在 Web UI 中，或对前台命令按 Ctrl+C。
+- **`live run`** 在前台启动同一个 Live worker，每秒刷新四次一行状态（状态、负载 `infer_ms_p95 / block_ms`、延迟、电平），直到 Ctrl+C、`--seconds` 到时或出错。设备参数 `--input`、`--output`、`--monitor` 接受设备 id、名称或 `default`，先从新枚举的设备列表中解析。
+- **`webui`** 启动服务器，步骤见下文。
+
+### 音色参数
+
+音色参数可以写成音色 id、名称，或者 `.pth` 文件路径。给路径时，`convert` 用 `services.models.temporary()` 把它注册为一个**临时音色**（`tmp-…`，不出现在列表里），可以用 `--index` 附上索引；参数则从 `convert.default_params` 起步，而不是从音色的默认预设起步。`live run` 只接受库中的音色（`resolve(..., allow_path=False)`）：`LiveConfig` 以音色 id 指定音色，启动后这个 id 会作为 `live.last_voice` 存进设置，供下一次不带 `--voice` 的 `live run` 和 Web UI 恢复会话。
+
+`cli/params.py` 的 `ParamOptions` 定义了 `--speaker`、`--pitch`、`--formant`、`--f0`、`--index-rate`、`--protect`、`--rms-mix`，范围与 `VoiceParamsModel` 一致。`build_params(base, **overrides)` 只把用户给出的选项盖在 `base`（音色的默认预设、`--preset` 指定的预设，或 Live 上次的参数）上，再交给 `VoiceParamsModel` 校验。这与 Web UI 的行为相同：选中一个音色就加载它的默认预设，所以同一个音色在转换和实时变声里听起来一样。
+
+### `webui` 命令
+
+`cli/commands/webui.py` 是命令行唯一导入 API 层的地方（在函数内导入）：
+
+1. `--data-dir` 设置 `RVC_NEXT_DATA_DIR`，以便之后启动的 worker 子进程使用同一个数据目录；然后 `build_services(start_background=True)`。
+2. 主机不是回环地址时发出警告；没有 `server.access_token` 则拒绝启动，退出码 4。
+3. `bind_first_free_port(host, port, strict=...)` **先绑定套接字**，端口被占用时向上尝试（`--strict-port` 时直接失败，退出码 3）；实际端口与请求的不同时给出警告。绑定而不是试连接，是为了消除"检查"与"真正绑定"之间的空隙，也能识别 Windows 上被系统保留的端口。
+4. 用 `create_app(services, bound_host=..., bound_port=...)` 建应用，写 `server.json`，在 stdout 打印一行 `SERVER_READY url=http://…`（供启动器等程序读取），需要时 0.8 秒后打开浏览器。
+5. `uvicorn.Server(...).run(sockets=[sock])` 在刚才绑定的套接字上服务；退出时删除 `server.json` 并关闭服务。
+
+详见 [API 与事件](/docs/development-api)。
+
+## 新增一个命令
+
+1. **先有核心方法。** 命令要做的事如果核心层还没有对应的方法，先在相应服务里加一个，接收和返回 `Record` 模型。命令里不放业务逻辑，否则 API 和 Web UI 就得各写一遍。
+2. **在 `cli/commands/` 里写一个普通函数**，参数用 `Annotated[..., typer.Option(...)]` / `typer.Argument(...)` 声明，不加装饰器：
+
+    ```python
+    def thing_do(
+        target: Annotated[str, typer.Argument(help="Voice id or name")],
+        experiment: Annotated[str, typer.Option(help="The experiment to use")],   # 必填选项：没有默认值
+        json_output: Annotated[bool, typer.Option("--json", help="Print JSON")] = False,
+    ) -> None:
+        """一句话说明。"""
+        from rvc_next.core.things.models import ThingRequest   # 重量级或非必需的导入放在函数内
+
+        with open_services() as services:
+            result = services.things.do(ThingRequest(target=target, experiment=experiment))
+            if json_output:
+                print_json(result)
+                return
+            print_table(None, ["Field", "Value"], [...])
+    ```
+
+    - **必填选项不写默认值**，并把这类参数排在有默认值的参数前面（Python 要求如此）。不要写 `= ...`：Typer 把没有默认值的参数视为必填，`...` 只是旧写法，而且它的类型与标注不符，ty 会报错。
+    - 列出或展示数据的命令提供 `--json`，并直接打印核心方法返回的 `Record`。
+    - 长操作调用核心方法时传 `foreground=True`，用 `with job_progress(services, enabled=not json_output):` 包住，结束后调用 `finish(job)`。
+    - 领域错误直接抛出即可，`DebugTyperCommand` 会把它们变成退出码；只有命令行才有的参数问题用 `typer.BadParameter`。
+3. **在 `cli/app.py` 的 `get_app()` 中注册**，给出 `name` 和 `help`；需要新命令组时用 `typer_factory(help=...)` 创建并 `add_typer`。
+4. **更新 `tests/cli/test_cli.py` 的 `EXPECTED_TREE`**，并为命令写测试（用 `runner` fixture，它把数据目录、tiny 资源目录和 CPU 设备设在环境变量里）。
+5. 确认导入 `rvc_next.cli.app` 仍然不会加载 torch 或 FastAPI（`tests/test_architecture.py` 会检查）。
+6. 在用户文档的[命令参考](/docs/cli-commands)中补上这个命令。

@@ -1,0 +1,208 @@
+---
+title: "Web UI"
+description: "Web UI 是 rvcnext/webui/ 下的一个 Vue 3 项目，同时也是一个 Python 包：构建产物 dist/ 被 git 忽略，作为包数据打进 wheel，由 API 的 SPAStaticFiles` 提供（见 API 与事件）。"
+icon: Monitor
+---
+
+Web UI 是 `rvc_next/webui/` 下的一个 Vue 3 项目，同时也是一个 Python 包：构建产物 `dist/` 被 git 忽略，作为包数据打进 wheel，由 API 的 `SPAStaticFiles` 提供（见 [API 与事件](/docs/development-api)）。它没有自己的业务逻辑——REST 是唯一的数据来源，socket 事件只负责让缓存保持新鲜。
+
+骨架（主题、`ui/` 组件、动效、规则测试、API 客户端与 socket 封装）来自 Hanaikada，Hanaikada 又承自 SD Model Hub；RVC Next 在其上加了音频相关的组件（波形、电平表、设备菜单、参数滑块）和五个功能界面。本页说明技术栈、目录、共享组件与“统一体验”约定、数据流、布局与动效规则、国际化、测试，以及新增一个界面的步骤。
+
+## 技术栈
+
+| 部分 | 选型 | 备注 |
+| --- | --- | --- |
+| 框架 | Vue 3.5、`<script setup lang="ts">` | |
+| 构建 | Vite 8，`base: './'` | 相对资源路径：同一份构建可以部署在根路径，也可以在反向代理的子路径下 |
+| 语言 | TypeScript 6（固定在 6） | `vue-tsc` 与 `openapi-typescript` 依赖 TypeScript 7 移除的编译器 API |
+| 路由 | Vue Router 5，**hash 历史** | 任何子路径都能用，服务器无需重写规则 |
+| 状态 | Pinia 4（高频数据、会话状态）、TanStack Vue Query 5（REST 缓存） | |
+| API 客户端 | `openapi-fetch` + 生成的 `src/api/schema.d.ts` | 路径、参数、响应都有类型 |
+| 推送 | `socket.io-client` 4 | |
+| 组件 | `@material/web` 2.5、`@lucide/vue` 图标，**只在 `src/ui/` 中使用** | `@material/web` 已进入维护模式，包一层便于逐个替换 |
+| 配色 | `@material/material-color-utilities` 0.4 | 从一个源颜色生成全部 MD3 色彩角色 |
+| 字体 | `@fontsource-variable/roboto-flex` | 打包在产物里，离线可用 |
+| 测试 | vitest 5 + happy-dom、`@vue/test-utils` | |
+| 包管理 | bun（`bun.lock`） | `scripts/dev.py` 先在 `PATH` 上找，再去 `~/.bun/bin` 找 |
+
+图表和波形不引入第三方库：波形用服务器算好的峰值在 canvas 上绘制（`ui/Waveform.vue`），损失曲线是 `ui/LineChart.vue`，电平表与进度条是普通元素加 CSS 变换。
+
+`package.json` 的脚本：`dev`（Vite）、`build`（先 `vue-tsc --noEmit` 再 `vite build`）、`build:only`、`typecheck`、`test`（`vitest run`）。日常通过 `scripts/dev.py` 调用：`web-install`、`web`、`web-dev`、`test-web`（测试 + 类型检查）、`dev`（API 与 Vite 一起运行，Vite 带热模块替换），见[开发环境](/docs/development-setup)。
+
+### 开发代理
+
+[`vite.config.ts`](https://github.com/licyk/rvc-next/blob/main/rvc_next/webui/vite.config.ts) 把 `/api`、`/openapi.json` 和 `/ws`（WebSocket）代理到 `RVC_NEXT_BACKEND`（默认 `http://127.0.0.1:7868`），浏览器只面对 Vite 一个源，不需要 CORS。开发时 API 进程随 Python 改动频繁重启（它不会自动重载，需要手动重启），socket 每隔几秒重连一次；代理对 `ECONNREFUSED`、`ECONNRESET` 等“后端没起来”的错误只打印一行节流过的提示（最多每 5 秒一次），并给 HTTP 请求回一个 502 JSON（`code: "api_unreachable"`），而不是让浏览器一直等。其他错误照常完整打印。`isExpectedProxyError` 由 `devProxy.test.ts` 测试。
+
+`vite.config.ts` 还把以 `md-` 开头的标签声明为自定义元素，设置 `@` 别名指向 `src/`，并在测试中内联 `@material/material-color-utilities`（它的 0.4.0 版有一处不带扩展名的导入，纯 Node 无法解析）。
+
+## 目录结构
+
+```
+rvc_next/webui/
+  index.html        在包加载前按 localStorage 设置 data-theme，避免主题闪烁
+  vite.config.ts  package.json  tsconfig.json  bun.lock  public/favicon.svg
+  src/
+    main.ts         创建应用：Pinia、路由、Vue Query（4xx 不重试，失焦不重取）
+    App.vue         外壳、导航、顶栏动作、KeepAlive 与滚动位置、socket 连接
+    router.ts       hash 路由；meta.screen；每个目的地上次的地址
+    format.ts       大小、时长、速率的格式化
+    api/            baseUrl.ts client.ts socket.ts types.ts
+                    schema.d.ts paramSpecs.ts（均由 typegen 生成）
+                    queries/  keys.ts + 每个路由一个文件
+    audio/          player.ts（全页唯一的播放器，可脱离浏览器测试）
+    stores/         jobs live train player preferences auth handoff
+    theme/          scheme.ts applyTheme.ts breakpoints.ts tokens.css
+    ui/             共享基础组件、icons.ts、motion/、useLayer reveal useSnackbar …
+    components/     由 ui/ 组合出的业务组件
+    views/          每个界面一个 View
+    i18n/           index.ts en.ts zh-CN.ts
+    test/           setup.ts motion-zero.css
+    *.test.ts       规则测试与单元测试
+```
+
+| 路由 | 视图 | `meta.screen` |
+| --- | --- | --- |
+| `/convert` | `ConvertView` | `convert` |
+| `/live` | `LiveView` | `live` |
+| `/separate` | `SeparateView` | `separate` |
+| `/train`、`/train/:name` | `TrainView`、`ExperimentView` | `train` |
+| `/models`、`/models/:id` | `ModelsView`（音色、底模、分离模型、资源、工具五个标签）、`ModelDetailView` | `models` |
+| `/jobs` | `JobsView` | `jobs` |
+| `/settings` | `SettingsView`（常规、计算、音频、存储、下载、训练、外观、关于） | `settings` |
+| `/dev` | `DevComponentsView`（所有共享组件的陈列，用来检查主题与动效） | `dev` |
+
+`/` 重定向到上次停留的目的地（`Preferences.lastScreen`，直接从 localStorage 读取，因为此时 Pinia 尚未就绪），未知路径重定向到 `/convert`。`router.ts` 还记录每个目的地最后的完整地址（`addressOf`），导航栏据此回到离开时的实验或音色，而不是它的列表；这份记录只在内存里。
+
+## `ui/`：设计系统层
+
+`src/ui/` 是唯一导入 `@material/web` 与 `@lucide/vue` 的地方（另有 `test/setup.ts` 为测试打补丁），视图和业务组件只从 `@/ui` 导入（[`ui/index.ts`](https://github.com/licyk/rvc-next/blob/main/rvc_next/webui/src/ui/index.ts)）。这一层的意义在于隔离风险：`@material/web` 已不再新增组件，若它在某个浏览器上出问题，可以在 `ui/` 里逐个替换，而应用代码不变。图标经 `ui/icons.ts` 重新导出，用 `<AppIcon :icon="icons.X" />` 渲染。
+
+组件分两类：
+
+- **包装 `md-*` 元素的**：`AppButton`、`IconButton`、`Fab`、`Checkbox`、`Switch`、`Slider`、`TextField`、`Tabs`、`SegmentedButton`（另以 `SegmentedControl` 名导出）、`FilterChip`、`Divider`、`ProgressCircle`、`ProgressBar`（只用其不定进度形态）、`ParamSlider`。它们拥有 props、事件名与类型，不在 `md-*` 自带动画上叠加第二层动画。
+- **自建的**（`@material/web` 没有或不合用）：`AppShell`、`NavigationRail`、`NavigationBar`、`TopAppBar`、`AppCard`、`Surface`、`AppDialog`、`ConfirmDialog`、`SideSheet`、`Snackbar`、`Tooltip`、`AppMenu`、`ContextMenu`、`SelectField`、`DeviceMenu`、`SearchField`、`TokenField`、`PathField`、`DataList`、`Breadcrumbs`、`Stepper`、`ExpansionPanel`、`EmptyState`、`Skeleton`、`Badge`、`Chip`、`KeyHint`、`DropZone`、`Waveform`、`LineChart`、`LevelMeter`、`PageFooter`。
+
+几个跨组件的机制：
+
+- `useLayer`：对话框、侧边面板、菜单按打开顺序入栈，`Escape` 只关闭最上层。
+- `reveal.ts`（`revealDropdown`、`useRevealWhileOpen`）：在原地展开的列表（音色选择器、设备菜单）若被粘性的 `PageFooter` 遮住，就把滚动容器往上滚到露出为止，但不越过列表顶端。`PageFooter` 用 `data-page-footer` 标记自己。
+- `useSnackbar`：全局队列，一次显示一条。
+
+### 主题与令牌
+
+- [`theme/scheme.ts`](https://github.com/licyk/rvc-next/blob/main/rvc_next/webui/src/theme/scheme.ts)：`DEFAULT_SOURCE_COLOR = '#3f5f90'` 是项目里唯一手选的颜色（标志的蓝色），`SOURCE_COLORS` 是设置页提供的备选；`generateScheme()` 用 `SchemeTonalSpot` 生成 `ROLES` 中的全部角色，支持亮/暗与对比度 0、0.5、1。
+- `theme/applyTheme.ts` 把角色写成 `:root` 上的 `--md-sys-color-*`，`watchSystemTheme` 在“跟随系统”时响应系统切换。`index.html` 的内联脚本在包加载前设置 `data-theme`，避免首屏闪烁。
+- `theme/tokens.css`：字体、形状、高度、动效、状态层（hover 8%、focus 12%、pressed 12%、dragged 16%）等 MD3 令牌，以及项目令牌 `--app-*`：间距 `--app-space-*`、宽度 `--app-width-*`（都是 `clamp()`，宽屏时随之变宽）、层级 `--app-z-*`、禁用透明度等。部分令牌（如 `--app-z-viewer`）是从 Hanaikada 继承而目前未用的。
+- `theme/breakpoints.ts`：MD3 窗口尺寸类（600、840、1200、1600 px）。`AppShell` 在 compact（&lt; 600 px）时用底部导航栏，否则用侧边导航栏。
+
+规则：组件和视图里没有字面颜色、圆角、字号或时长，只用令牌（颜色由 `tokens.test.ts` 强制）；颜色角色成对使用（`primary` 上用 `on-primary`）；层次先靠表面色调，再靠阴影。
+
+### 动效
+
+动效遵循 MD3 的四种模式，命名过渡集中在 [`ui/motion/motion.css`](https://github.com/licyk/rvc-next/blob/main/rvc_next/webui/src/ui/motion/motion.css) 与 `ui/motion/transitions.ts` 的 `TRANSITIONS`，视图用 `<Transition :name="TRANSITIONS.x">`，不自写过渡。原则是“每个可见变化都有动画”，并且退出比进入快、用加速曲线。
+
+| 名称 | 用途 | 实际用处 |
+| --- | --- | --- |
+| `fade-through` | 无关联的两个状态互换 | 目的地切换的回退方案（无 View Transitions 时） |
+| `shared-axis-x` | 同级的标签或步骤，方向由 `--axis-dir` 决定 | Models 的标签、Settings 的分节、实验的四个步骤；`useAxisDirection()` 在值变化时同步算出方向 |
+| `container` | 卡片长成对话框 | `AppDialog` 与 `ModelDetailView` 用 `containerFrom(from, to)` 算出起始变换；没有源矩形时退化为淡入缩放 |
+| `sheet` / `scrim` | 侧边面板从边缘滑入 | `SideSheet`（任务面板） |
+| `list` | 列表项增删、重排（`TransitionGroup`） | 结果、任务卡、音色网格；`staggerStyle(i)` 每项错开 20 ms，最多 12 项 |
+| `collapse` | 展开/收起，高度由 `collapseHooks` 设定 | `ExpansionPanel`、`JobCard` |
+| `snackbar` | 底部提示 | `Snackbar` |
+
+**目的地切换用 View Transitions API。** [`ui/motion/viewTransition.ts`](https://github.com/licyk/rvc-next/blob/main/rvc_next/webui/src/ui/motion/viewTransition.ts) 的 `installViewTransitions(router)` 在浏览器支持 `document.startViewTransition` 时，把跨目的地的导航（`to.name !== from.name`）包进一次视图过渡；同一目的地内的导航不包。要点：
+
+- 浏览器在更新回调运行期间暂停渲染，`requestAnimationFrame` 也随之暂停，所以回调必须在 Vue 的 `nextTick`（新视图已在 DOM 中）完成，绝不能等一帧——早期按帧等待导致导航卡死。
+- 新的导航打断未完成的过渡时，先让旧过渡结束；被跳过的过渡会 reject 的 Promise 都被吞掉。
+- 支持时 `App.vue` 直接渲染视图，不再套 `<Transition>`；不支持时用 `fade-through` 的 `<Transition mode="out-in">` 作为回退。
+
+**外壳保持静止。** 只有滚动容器 `main.content` 有 `view-transition-name: app-content`，`motion.css` 关闭了 root 快照的动画，所以导航栏、指示器和顶栏原地切换，只有页面内容淡出淡入；带圆角背景的 `.frame` 属于外壳、在快照之外。早先整个文档根参与过渡，淡入的 `scale(0.92)` 会让侧栏和顶栏一起缩放。
+
+**降低动效。** 系统的 `prefers-reduced-motion: reduce` 或设置里选“减少”（`<html data-motion="reduced">`）时：所有过渡变成 100 ms 线性淡入淡出、去掉位移和缩放；视图过渡变成 100 ms 无缩放的交叉淡化；不显示涟漪；CSS 动画缩到一瞬。目的地切换在降低动效下仍然包进视图过渡——变成短促的交叉淡化，而不是硬切，因为无障碍关心的是运动，突然的跳变同样令人不适。`prefersReducedMotion()` 同时检查两种来源。
+
+**高频值。** `ProgressBar` 的确定进度条是自绘的：`md-linear-progress` 每次更新都以 250 ms 缓入缓出重新开始，一秒变化几次的值（实时变声负载、上传、任务）会一顿一顿；自绘条用缓出曲线追赶新值。`LevelMeter` 用 `transform` 移动（每次更新不触发布局），按音频表的习惯“上升立即、下降缓慢”，峰值标记下降得最慢；`useFalling()` 记录上一次变化方向。`LiveStatsBar` 的条在 10 Hz 统计之间平滑滑动。
+
+## 统一体验约定
+
+每个功能看起来属于同一个应用，靠的是一组共享组件；评审每个界面时以它们为清单（AGENTS.md §7）。
+
+| 组件 | 约定 | 用在 |
+| --- | --- | --- |
+| `VoicePicker` | 选择音色的唯一入口：按名搜索，显示采样率、版本、说话人，标出没有索引的音色；多说话人音色附带说话人菜单（`v-model:speaker`） | 转换、实时变声 |
+| `VoiceParamsPanel` | 唯一的参数面板：标签、范围、默认值、帮助和顺序处处相同。范围来自 `paramSpecs.ts`（服务器 schema），顺序来自 `paramFields.ts` 的 `VOICE_FIELDS`；选中音色时加载它的默认预设（保留说话人）；控件不可用时说明原因（无索引时的索引强度、无音高引导时的辅音保护）；`live` 模式拖动即生效 | 转换、实时变声 |
+| `StreamParamsPanel` | 实时变声的缓冲与降噪参数，每项显示它在估计延迟中所占的份额（`latencyShare`） | 实时变声 |
+| `AudioSourceInput` | 提供音频的唯一方式：拖入文件、选服务器文件（`ServerPathDialog`，仅受信任客户端）、选之前的结果（`OutputsPickerDialog`）；`folders` 允许整个服务器文件夹作为一个输入 | 转换、人声分离、模型详情的试听 |
+| `JobCard` + `JobsSheet` | 每个长操作一张卡：标题、步骤、进度、取消、重试、“仍然运行”、日志（`JobLogView`）；下载显示“88 MB / 210 MB · 8.4 MB/s · 剩余 14 秒”。卡片出现在启动它的界面的 `PageFooter` 里，也出现在任务面板中；面板先列本会话的任务，再合并 REST 的近期历史 | 所有界面 |
+| `ResultsList` + `ABCompare` | 统一的结果列表：波形（服务器峰值）、播放、与源音频 A/B、下载、在文件管理器中显示（仅本机）、“作为输入”“用这些设置重跑”“转换这个”；`groupBySource` 把分离出的分轨归到各自输入下。全页只有一个播放器（`stores/player.ts` 包装 `audio/player.ts`），A/B 在同一位置切换源 | 转换、人声分离、模型详情的试听 |
+| `AssetGate` | 缺资源时不报错，而是在动作的位置显示“需要 RMVPE — 下载（大小）”；装好后恢复原动作并发出 `ready` | 转换、实时变声、人声分离、训练、模型详情 |
+| `ErrorNotice` | 按错误码显示翻译后的标题、服务器原文，以及可展开的“详情”（`errors.ts` 的 `errorView`）；回溯只在任务日志里 | 所有界面 |
+| `DevicePanel` | 设备选择器：物理设备的完整名称、标题中的服务器主机名、输入电平、测试音、可选监听输出、“高级”里的驱动，问题显示在对应设备旁；选项构造在可单测的 `devices.ts` 中 | 实时变声、设置 › 音频 |
+| `LiveStatsBar` | 输入输出电平、负载条（推理时间 / 块长，超过 0.8 变警告色并提议增大块长）、延迟、欠载与溢出计数 | 实时变声 |
+| `ResourceRow` | 一切可下载或已安装的模型共用一种行：名称与细节、状态、带速度和剩余时间的下载进度，以及下载、校验、打开、删除 | 模型 › 资源、底模、分离模型、演示音色 |
+
+另有几个约定：
+
+- **界面间的交接**（“作为输入”“转换这个”“试用”“用这些设置重跑”）经 `stores/handoff.ts`：发送方 `sendInputs(screen, items)` / `sendVoice(id, params)`，接收界面打开时 `take…()` 取走。不经 URL 传递，避免把路径或参数暴露在地址栏。
+- **导入**：模型页的每个拖放区（音色、底模、分离模型）都调用 `components/useModelImport.ts`：建会话、逐个上传（带进度）、读计划；`plan.confident` 时立即提交，否则把计划交给 `ImportReviewDialog`，其中每个索引只列出兼容的候选音色，外加“保持未分配”。未分配的索引显示在音色页的 `IndexInbox`。
+- **统一用词**：`i18n.test.ts` 检查固定词汇（Voice/音色、Index strength、Consonant protection、Loudness match），并确保原版不一致的叫法（检索特征占比、响度因子、`rms_mix_rate`）不出现在任何文案里。
+
+## 数据流
+
+<Mermaid chart={"flowchart LR\n    REST[\"REST /api/v1\"] -->|\"useQuery / useMutation\"| QC[\"TanStack Query 缓存<br/>（keys.ts）\"]\n    SOCK[\"socket.io 事件\"] -->|\"setQueryData / 合并失效\"| QC\n    SOCK -->|\"job_updated · live_stats · train_metrics\"| ST[\"Pinia stores<br/>jobs · live · train\"]\n    QC --> V[\"视图与组件\"]\n    ST --> V\n    V -->|\"变更\"| REST"} />
+
+- **REST 是唯一的事实来源。** `api/client.ts` 的 `api = createClient<paths>({ baseUrl: BASE_URL })` 附带一个中间件：有令牌就加 `Authorization: Bearer`，遇到 401 置 `useAuthStore().needed`，`AuthDialog` 随即弹出。`unwrap()` 把 `openapi-fetch` 的结果变成数据或 `ApiError(status, code, message, detail)`；`ApiError.missingAssets` 读出 `asset_missing` 的 `detail.assets`。上传用 `uploadRaw()`（`XMLHttpRequest`，有进度）；媒体 URL 由 `urls` 构造，`<audio>` 靠 `rvc_next_token` Cookie 认证。
+- **查询**：`api/queries/<资源>.ts` 包装 `useQuery`/`useMutation`，键都在 `keys.ts`，socket 处理器与查询共用。变更成功后使受影响的键失效；启动任务的变更把返回的 `Job` 写进 jobs store 并记下来源界面（`jobs.upsert(job, 'convert')`）。
+- **socket**（[`api/socket.ts`](https://github.com/licyk/rvc-next/blob/main/rvc_next/webui/src/api/socket.ts)）：连接一次，路径 `${BASE_PATH}/ws/socket.io`，握手 `auth` 回调里带令牌。事件要么直接写入缓存（`assets_changed`、`live_state`、`devices_changed`、`compute_changed` 都携带完整快照），要么通过 `createInvalidator()` 合并失效——300 ms 内同一个键只失效一次，一阵事件只引起一次重新获取。每个事件的处理见 [API 与事件](/docs/development-api)的事件表。
+- **高频数据进 store**：`stores/jobs.ts`（任务及进度）、`stores/live.ts`（实时状态与 10 Hz 统计，`load` = p95 推理时间 / 块长）、`stores/train.ts`（每个实验最多保留 20000 个指标点，REST 填充、事件追加、按 epoch/step 去重）。
+- **乱序保护**：socket 事件可能与 REST 快照赛跑。`jobs.ts` 的 `isNewer()` 按生命周期阶段排序（排队/等待 &lt; 运行 &lt; 取消中 &lt; 结束），绝不让任务“倒退”，结束后按 `finished_at` 取新，运行中同一步骤的进度只增不减。`onFinished` 监听者因此对每个任务只触发一次。
+- **重连**：`connect` 时 `resync()` 重新获取活动任务和实时状态；`reconnect` 时再使音色、输出、任务、资源、实验、显存、设备列表失效。断线期间错过的事件由此补齐。
+- **跨界面通知**：在别的界面启动的任务完成或失败时，`App.vue` 弹出提示；失败提示带“打开日志”。
+- **偏好**（`stores/preferences.ts`）：主题、源颜色、对比度、语言（`auto` 跟随系统）、动效、上次的界面、转换的上次音色、分离的上次预设。存 localStorage（`rvc-next:preferences`，供 `index.html` 与路由在 Pinia 之前读取），并在加载服务器副本后以 500 ms 防抖写到 `client-state/preferences`，跟随用户跨浏览器。带 `version` 字段，`merge()` 迁移旧数据（版本 2 把旧版卡住的“减少动效”恢复为跟随系统）。
+- **部署根**：`api/baseUrl.ts` 的 `deriveBaseUrl(import.meta.url, origin)` 取运行中脚本 URL 里最后一个 `/assets/` 之前的部分作为根，所以没有任何 API 地址被编译进产物；开发服务器上没有 `/assets/`，根就是页面源，由 Vite 代理转发。来自其他源的脚本回落到页面源。
+
+## 外壳、视图状态与布局
+
+- **视图常驻。** `App.vue` 用 `<KeepAlive :max="12">` 缓存视图，键是目的地名，实验和音色详情则是完整路径（每个实验、每个音色各一份）。切走再回来，标签、筛选、表单都还在。
+- **滚动位置。** 所有页面共享外壳的同一个滚动容器，所以 `App.vue` 在 `beforeEach` 时记下离开页面的 `scrollTop`，在新视图显示前恢复——有视图过渡时在其更新回调完成前（`nextTick`），回退路径在 `<Transition @enter>` 时，因此没有跳动。只存在内存里：刷新后所有视图重置，真正持久的只有偏好。
+- **一列分节。** 转换、人声分离、实时变声以及模型详情和模型 › 工具，都是一列纵向排列的分节（`Surface`），分节随页面加宽，内部控件用 `repeat(auto-fill, minmax(min(280px, 100%), 1fr))` 这样的网格换行，而不是把分节并排。运行按钮、本界面启动的任务卡和错误放在粘性的 `PageFooter` 里，无论页面多长都在视野中。页面不设 `max-width`，填满内容区。
+- **容器查询。** `main.content` 是尺寸容器 `app-content`（`container: app-content / inline-size`）。页面按自己实际得到的宽度调整（目前是 `@container app-content (max-width: 599px)` 时收紧内边距），而不是按窗口宽度——侧栏、侧边面板都会改变可用宽度。
+- **字段行**：输入框旁带按钮（添加、浏览、构建）的行用 `align-items: center`，按钮与输入框居中对齐。
+- **可收缩的名称**：音频文件名、音色名常是一个很长的不可断词；flex 子项默认 `min-width: auto`，会把行内按钮挤出视野，所以承载文字的元素必须声明 `min-width: 0` 才能显示省略号。
+
+这些规则都由 `src/layout.test.ts` 读取源文件的样式来检查（列出了具体文件与选择器）。新增一个含名称的行或一个分节页时，把它加到对应列表里。
+
+## 国际化
+
+`src/i18n/index.ts` 是一个很小的实现：嵌套的消息对象、`t(key, params)`（`{name}` 占位）、缺失时回落英文、再回落键名；`tOr(key, fallback)` 用于由服务器值拼出的键（错误码、阶段 id），没有对应消息时显示可读的回退。语言有 `en` 与 `zh-CN` 两种，偏好为 `auto` 时由 `detectLocale()` 按浏览器语言决定（任何 `zh`/`zh-*` 都映射到 `zh-CN`），并响应 `languagechange`。
+
+`i18n.test.ts` 要求 `zh-CN` 与 `en` 键完全相同、占位符一致，并检查固定词汇。服务器发来的设备问题消息是英文的：界面翻译原因码，原样显示服务器消息（AGENTS.md §7）。
+
+## 测试
+
+`bun run test`（vitest，happy-dom）与 `bun run typecheck`（`vue-tsc`）由 `python scripts/dev.py test-web` 运行，也是 `check` 的一部分。
+
+| 类型 | 文件 | 守护什么 |
+| --- | --- | --- |
+| 规则 | `imports.test.ts` | `src/` 内的模块只经 `@/` 别名互相导入，没有相对路径 |
+| 规则 | `tokens.test.ts` | `src/theme/` 之外的样式与模板中没有十六进制颜色 |
+| 规则 | `layout.test.ts` | 名称可收缩、一列分节 + `PageFooter`、字段行居中、没有把分节并排的网格 |
+| 规则 | `i18n/i18n.test.ts` | 两种语言键与占位符一致；固定词汇 |
+| 动效 | `ui/motion/motion.test.ts` | 在零时长测试样式表（`test/motion-zero.css`）下，完整动效和降低动效两种情况的退出都能结束（时长为 0 时不会等不到 `transitionend` 而卡住）；两种降低动效来源都有规则；目的地切换包进视图过渡；降低动效下是短交叉淡化 |
+| 组件 | `ui/ui.test.ts`、`ui/bars.test.ts`、`ui/reveal.test.ts` | 基础组件行为、图层栈、动效辅助函数、配色生成、窗口尺寸类、格式化；进度条与电平表；下拉列表避开页脚 |
+| 业务 | `VoiceParamsPanel.test.ts`、`ImportReviewDialog.test.ts`、`ResourceRow.test.ts`、`GpuIndicator.test.ts`、`devices.test.ts` | 参数范围来自 schema、默认预设与禁用原因；只提供兼容音色；下载行；释放显存的可用性；设备菜单排序与解析状态 |
+| 状态 | `stores/jobs.test.ts`、`stores/preferences.test.ts`、`audio/player.test.ts`、`api/baseUrl.test.ts`、`devProxy.test.ts` | 任务不倒退、完成只通知一次；偏好迁移；A/B 播放器；部署根推导；代理错误分类 |
+
+`test/setup.ts` 为 `HTMLElement` 补上 `attachInternals`：happy-dom 没有 `ElementInternals`，而 `@material/web` 的表单关联元素（按钮、输入框）在创建时就会调用它。组件测试用 `@vue/test-utils` 挂载，查询与 store 按需模拟。
+
+Live、训练和人声分离界面尚未在真实负载下驱动过；转换与模型界面曾在无头 Chromium 中走通（见[测试与检查](/docs/development-testing)）。
+
+## 新增一个界面
+
+1. **API 先行。** 若需要新接口，先在核心层和 `api/routers/` 加好，运行 `python scripts/dev.py typegen`，在 `api/types.ts` 为常用 schema 起别名（见 [API 与事件](/docs/development-api)）。
+2. **查询。** 在 `api/queries/keys.ts` 加键，在 `api/queries/<资源>.ts` 写 `useQuery`/`useMutation`；启动任务的变更把 `Job` 写进 `useJobsStore().upsert(job, '<screen>')`。
+3. **事件。** 新事件或已有事件影响新数据时，在 `api/socket.ts` 中写入或失效对应的键；高频数据放进 store，不进缓存。
+4. **视图。** 在 `views/` 新建 `XxxView.vue`，在 `router.ts` 加路由并设 `meta.screen`。若是导航目的地：在 `App.vue` 的 `nav` 加一项（用 `addressOf()`），并同步 `router.ts` 的 `SCREENS` 与 `App.vue` 中记录 `lastScreen` 的列表。
+5. **组成。** 只从 `@/ui` 导入基础组件，优先复用统一体验组件；页面是 `.sections` 一列 `Surface` 分节，动作放 `PageFooter`，含名称的行给文字元素 `min-width: 0`，并把新文件加入 `layout.test.ts` 的相应列表。过渡用 `TRANSITIONS` 中的名称，不写字面时长与颜色。缺的基础组件加到 `ui/` 并从 `ui/index.ts` 导出，不在调用处打补丁。
+6. **文案。** 在 `i18n/en.ts` 与 `i18n/zh-CN.ts` 同时加键。
+7. **检查。** `python scripts/dev.py test-web`，然后在浏览器里用 `python scripts/dev.py dev` 实际走一遍，包括窄屏（&lt; 600 px）和降低动效；新组件可放进 `DevComponentsView` 检查主题与动效。

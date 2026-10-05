@@ -1,0 +1,185 @@
+---
+title: "概览"
+icon: Terminal
+---
+
+`rvc-next` 命令行与 Web UI 做的是同一套事情：转换、人声分离、训练、实时变声、模型与资源管理、预设、任务查询和设置。两者调用的是同一个核心服务（每个操作对应一个核心方法），所以命令行能做的事与界面一致，`--json` 的输出也与 API 返回的 JSON 完全相同。
+
+本页介绍命令行的共同约定和几个常用流程；每条命令的全部选项见 [命令参考](/docs/cli-commands)，设置项与环境变量见 [配置与环境变量](/docs/cli-config)。
+
+## 命令一览
+
+```text
+rvc-next
+├── webui                 启动服务器并打开 Web UI
+├── version | env | doctor
+├── convert               用音色转换音频文件或文件夹
+├── separate              分离人声、伴奏和混响
+├── config   show | get | set | path
+├── assets   list | download | verify
+├── model    list | info | import | catalog | download | edit | remove | merge | extract
+│   └── index  attach | assign | build
+├── preset   list | save | remove
+├── train    list | new | run | status | export | import
+│   └── dataset  scan | speakers
+├── live     devices | check | test-tone | run
+└── jobs     list | show
+```
+
+任何一级都可以加 `--help` 查看说明，只输入组名（如 `rvc-next model`）也会显示该组的帮助。
+
+## 与 Web UI 的区别
+
+- **任务在前台运行。** `convert`、`separate`、`train run`、`assets download`、`model merge` 等会创建一个任务并在当前终端里执行，直到完成；终端（stderr）上显示进度条。按 <kbd>ctrl</kbd>+<kbd>c</kbd> 取消任务，退出码为 130。
+- **不需要启动服务器。** 每条命令自己打开数据目录（设置、数据库、模型），执行完就关闭。命令行创建的任务同样记录在数据库里，所以 `rvc-next jobs list` 能看到本机所有任务，包括正在运行的服务器的任务，反之 Web UI 的 **任务** 面板也能看到命令行跑过的任务。
+- **命令行被视为可信。** Web UI 只能打开 **浏览器可打开的文件夹**（`paths.browse_roots`）里的服务器文件，命令行则可以使用任何路径（见 [远程访问与安全](/docs/advanced-remote)）。
+- **音色可以直接给 `.pth` 路径。** `convert --voice` 接受音色 id、名称或一个 `.pth` 文件路径；用路径时可以再用 `--index` 指定索引，这样的临时音色不会出现在音色库列表里。
+
+<Callout type="idea" title="服务器运行时修改设置">
+
+`rvc-next config set` 直接写 `settings.toml`。正在运行的服务器会在约 1 秒内读到改动，打开的 Web UI 也会随之刷新；之后在 Web UI 保存设置时，会在文件当前内容的基础上合并，不会冲掉命令行的改动。少数设置（如端口、监听地址）仍需重启服务器才会生效。
+
+</Callout>
+## 输出格式与 `--json`
+
+列表和查询类命令默认打印表格；加 `--json` 打印 JSON，其结构与对应 API 的返回值一致，适合脚本处理：
+
+```bash
+rvc-next model list --json | jq -r '.[].name'
+rvc-next convert song.wav -v "我的音色" --json > job.json   # 打印完成后的任务
+```
+
+进度条只在 stderr 是终端时显示，并且在 `--json` 模式下关闭，所以重定向 stdout 不会混入进度信息。
+
+## 退出码
+
+命令出错时，日志里打印错误信息，退出码表示错误类别（定义在 `rvc_next/core/errors.py`）：
+
+| 退出码 | 含义 | 典型情况 |
+| --- | --- | --- |
+| 0 | 成功 | |
+| 1 | 一般错误 | 未分类的内部错误；`model remove` 时回答了"否" |
+| 2 | 未找到（`not_found`） | 音色、任务、实验或文件不存在。注意：命令行参数写错（未知选项、取值超出范围）时 Click 也用 2 退出 |
+| 3 | 冲突或忙碌（`conflict`、`busy`） | 名称已存在、同一实验的阶段正在运行；`webui` 找不到可用端口；`model import` 有无法确定配对的索引 |
+| 4 | 输入无效（`invalid_input`、`invalid_path`、`invalid_model`） | 参数超出范围、路径不允许、`.pth` 不是 RVC 模型；`webui` 绑定到非本机地址却没有设置访问令牌 |
+| 7 | 缺少资源（`asset_missing`） | HuBERT、RMVPE、FCPE 或底模没有安装，会同时提示 `rvc-next assets download <id>` |
+| 8 | 音频设备不可用（`device_unavailable`） | `live check` 检查不通过，`live run` 因设备错误停止 |
+| 9 | 计算设备不可用（`compute_unavailable`） | 选定的 GPU 不可用，或显存不足 |
+| 130 | 已取消 | <kbd>ctrl</kbd>+<kbd>c</kbd> 中断，或任务被取消 |
+
+缺少资源时的输出类似：
+
+```text
+RMVPE is not installed (...)
+Install with: rvc-next assets download rmvpe
+```
+
+## 调试日志
+
+每一级命令都接受 `--debug`，打开调试日志：
+
+```bash
+rvc-next --debug convert song.wav -v "我的音色"
+rvc-next convert song.wav -v "我的音色" --debug   # 放在子命令后面也可以
+```
+
+也可以用环境变量 `RVC_NEXT_LOG_LEVEL` 设置日志级别（`DEBUG`、`INFO`、`WARNING`、`ERROR`，默认 `INFO`）。任务的完整日志保存在数据目录的 `jobs/<任务 id>.log`，用 `rvc-next jobs show <任务 id> --log` 查看。
+
+## Shell 补全
+
+根命令提供 Typer 的补全选项：
+
+```bash
+rvc-next --install-completion   # 为当前 shell 安装补全
+rvc-next --show-completion      # 只打印补全脚本，自行安装或修改
+```
+
+安装后重新打开终端即可补全命令、子命令和选项。
+
+## 常用流程
+
+### 首次准备
+
+```bash
+rvc-next doctor                    # 检查 torch、CUDA、音频设备和资源
+rvc-next assets download           # 不带参数：下载 HuBERT 和全部音高模型（RMVPE、FCPE）
+rvc-next model catalog             # 查看可下载的示例音色
+rvc-next model download --all      # 下载全部示例音色（含索引）
+```
+
+国内网络可以在下载时切换端点，该选择会保存到设置里：
+
+```bash
+rvc-next assets download --source hf-mirror
+```
+
+### 转换一个文件夹
+
+```bash
+rvc-next convert ./songs --recursive -v "我的音色" \
+    --pitch 12 --f0 rmvpe --index-rate 0.6 \
+    --format flac -o ./converted
+```
+
+- 参数从音色的默认预设开始，命令行上给出的选项覆盖对应的值；`--preset` 改用另一个预设作为起点。
+- 不带 `-o` 时，结果写到数据目录的 `outputs/<日期>/<任务 id>/`；文件名为 `<原文件名>.<音色>.<格式>`，同名时不会覆盖（用 `-o` 并加 `--overwrite` 才会覆盖）。
+- 只想试听效果时加 `--preview 15`，只转换前 15 秒。
+
+转换整首歌的人声并加回伴奏：
+
+```bash
+rvc-next convert song.mp3 -v "我的音色" --separate vocals --remix --remix-gain -2
+```
+
+### 人声分离
+
+```bash
+rvc-next separate --list                       # 列出预设
+rvc-next separate track.flac -p vocals-clean   # 人声 + 去混响
+rvc-next separate ./album -p karaoke -o ./stems --format wav
+```
+
+不指定 `-p` 时使用设置中的默认分离预设（`separation.default_preset`，默认 `vocals`）。分离模型在第一次使用前需要下载，例如 `rvc-next assets download --group separation`。
+
+### 从头训练一个音色
+
+```bash
+rvc-next assets download pretrained-v2-40k          # 对应采样率和版本的底模
+rvc-next train new alice --dataset ~/datasets/alice --sr 40k --version v2
+rvc-next train dataset scan alice                   # 检查片段数量、时长和问题片段
+rvc-next train run alice --epochs 200 --save-every 10
+rvc-next train status alice                         # 阶段、检查点和最近的损失
+rvc-next train export alice --voice-name "Alice"    # 导出到音色库（含索引）
+```
+
+- `train run` 不带 `--stage` 时运行所有未完成或输入已改变的阶段（清理、切片、音高、特征、训练、索引）；用 `--stage fit --stage index` 只运行指定阶段，`--force` 强制重跑。
+- 多说话人数据集：`train new --dataset <根目录> --multi-speaker`，根目录下是 `名称_ID_重复次数` 形式的子文件夹。
+- 数据集需要先去伴奏和混响时，用 `--clean vocals-clean` 在切片前先分离。
+
+### 导入模型
+
+```bash
+rvc-next model import voice.pth voice.index --name "我的音色"
+rvc-next model import ./downloads/voices.zip
+rvc-next model import a.pth b.pth x.index y.index \
+    --pair a.pth=x.index --pair b.pth=y.index   # 两个同版本的音色，按文件名指定配对
+rvc-next model import D:/RVC                 # 把一个原版 RVC 安装里的音色和索引复制进音色库
+```
+
+文件按内容识别（不看扩展名或文件名），索引按版本和名称与音色配对。无法确定配对时，命令会打印导入计划并以退出码 3 结束，这时用 `--pair 音色.pth=索引.index`（多说话人加 `:spkN`）指定，或用 `--keep-unassigned` 把索引放进未分配列表，之后再用 `rvc-next model index assign` 分配。训练检查点（G）默认作为底模导入，加 `--extract` 则提取为音色。
+
+### 实时变声
+
+```bash
+rvc-next live devices                     # 列出服务器上的音频设备和 id
+rvc-next live test-tone "Speakers"        # 在输出设备上播放测试音
+rvc-next live run -v "我的音色" --input default --output "Speakers" --block-ms 300
+```
+
+`live run` 一直运行到 <kbd>ctrl</kbd>+<kbd>c</kbd>（或 `--seconds` 指定的时长），终端上显示一行状态：延迟、负载、输入输出电平和欠载/溢出次数。
+
+## 下一步
+
+- [命令参考](/docs/cli-commands)：所有命令的参数和选项。
+- [配置与环境变量](/docs/cli-config)：设置项、环境变量和数据目录结构。
+- [常见问题](/docs/advanced-faq)

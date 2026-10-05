@@ -1,0 +1,72 @@
+[
+  {
+    "id": "vocals",
+    "title": "Vocals",
+    "description": "Split vocals from the accompaniment (BS-RoFormer, SDR 12.96).",
+    "kind": "model",
+    "steps": ["vocals"],
+    "stems": ["vocals", "instrumental"],
+    "primary_stem": "vocals",
+    "assets": ["separation-vocals"]
+  },
+  {
+    "id": "vocals-aggressive",
+    "title": "Vocals, aggressive",
+    "description": "Split vocals from the accompaniment more strongly (BS-RoFormer, SDR 12.98).",
+    "kind": "model",
+    "steps": ["vocals-aggressive"],
+    "stems": ["vocals", "instrumental"],
+    "primary_stem": "vocals",
+    "assets": ["separation-vocals-aggressive"]
+  },
+  {
+    "id": "dereverb",
+    "title": "Remove reverb",
+    "description": "Remove reverb and echo from a vocal (Mel-RoFormer, SDR 18.81).",
+    "kind": "model",
+    "steps": ["dereverb"],
+    "stems": ["noreverb", "reverb"],
+    "primary_stem": "noreverb",
+    "assets": ["separation-dereverb"]
+  },
+  {
+    "id": "dereverb-aggressive",
+    "title": "Remove reverb, aggressive",
+    "description": "Remove reverb and echo more strongly (Mel-RoFormer, SDR 19.17).",
+    "kind": "model",
+    "steps": ["dereverb-aggressive"],
+    "stems": ["noreverb", "reverb"],
+    "primary_stem": "noreverb",
+    "assets": ["separation-dereverb-aggressive"]
+  },
+  {
+    "id": "karaoke",
+    "title": "Lead vocal",
+    "description": "Keep the lead vocal and split off backing vocals; run it on a vocal stem (Mel-RoFormer karaoke, SDR 10.20).",
+    "kind": "model",
+    "steps": ["karaoke"],
+    "stems": ["main_vocal", "off_vocal"],
+    "primary_stem": "main_vocal",
+    "assets": ["separation-karaoke"]
+  },
+  {
+    "id": "vocals-clean",
+    "title": "Vocals, clean",
+    "description": "Vocals, then reverb removal: a dry vocal and the accompaniment.",
+    "kind": "chain",
+    "steps": ["vocals", "dereverb"],
+    "stems": ["vocals", "instrumental", "reverb"],
+    "primary_stem": "vocals",
+    "assets": ["separation-vocals", "separation-dereverb"]
+  },
+  {
+    "id": "lead-clean",
+    "title": "Lead vocal, clean",
+    "description": "Vocals, then lead vocal, then reverb removal: a dry lead vocal, the backing vocals and the accompaniment.",
+    "kind": "chain",
+    "steps": ["vocals", "karaoke", "dereverb"],
+    "stems": ["main_vocal", "instrumental", "off_vocal", "reverb"],
+    "primary_stem": "main_vocal",
+    "assets": ["separation-vocals", "separation-karaoke", "separation-dereverb"]
+  }
+]

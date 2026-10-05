@@ -1,0 +1,277 @@
+---
+title: "Model management"
+description: "The Models page manages all model files used by rvc-next: your voices, base models for training, vocal separation models, and required assets such as HuBERT and RMVPE. There are five tabs at the top:"
+icon: Library
+---
+
+| Tab | Contents |
+| --- | --- |
+| **Voices** | Voice library: import, browse and edit voices; unassigned indexes; original RVC installs |
+| **Base models** | Base models for training: official models and your imported G/D models |
+| **Separation models** | Built-in and imported separation models |
+| **Assets** | All downloadable files: HuBERT, RMVPE, FCPE, base models, separation models and demo voices |
+| **Tools** | Merge two voices; extract a voice from a training checkpoint |
+
+## Voice library
+
+### Browse and filter
+
+The **Voices** tab lists all voices in the library as cards. Each card shows the name, sample rate · version · **pitch guidance**/**no pitch guidance**, and labels:
+
+- **no index**: no index is attached, so **Index strength** has no effect;
+- **N speakers**: a voice with several speakers;
+- **legacy**: a voice read in place from an original RVC install (see “Original RVC installs” below).
+
+Tools above the cards:
+
+- **Filter voices**: search by name or tag;
+- **Without index**: show only voices without indexes, to help attach missing ones;
+- **Show hidden**: show hidden legacy voices.
+
+Click a card to open the voice's detail page.
+
+<Callout type="idea" title="Voice library still empty?">
+
+An empty library shows **No voices yet** and a **Get the demo voices** button. Click it to jump to **Assets**, where you can download a few official RVC demo voices to try.
+
+</Callout>
+### Voice details
+
+The top of the detail page has **Back**, **Show in folder** (shown only when you open the page on the server machine) and **Delete** buttons. The page has four sections:
+
+**About**
+
+- Edit **Name**, **Description** and **Tags** (separated by commas). For voices with several speakers, you can also name each **Speaker N**. Click **Save** when finished.
+- Below are **Sample rate**, **Version**, **Pitch guidance**, **Speakers**, **File**, **Size** and **Stored info**. Voices with one speaker show **Single speaker · N embedding slots**. Trained voices usually have 109 embedding slots; this does not mean they have several speakers. A voice counts as having several speakers only if speaker information is recorded in the model.
+
+**Index**
+
+- Lists attached indexes: `default` is the index for the whole voice; `spk<N>` is dedicated to one speaker. Click **Detach** to remove one.
+- Voices with several speakers show an **Index** dropdown to select whether the next attached index is `default` or a speaker-specific index.
+- **Attach index**: drop an `.index` file here or click to select one.
+- **Server path to an .index**: enter a server path directly, then click **Add** (shown only on the server machine or when an access token is set).
+- **Build from experiment**: select a training experiment and build an index for this voice from its extracted features (the experiment must have completed **Features**).
+
+Every attachment checks that the index fits the voice. Empty indexes with no vectors (the original's `trained_*.index`) and indexes with a mismatched version (256 dimensions for v1, 768 for v2) are rejected.
+
+**Default parameters**
+
+Each voice has a default preset, created on import from the default parameters in settings. Selecting the voice on another page automatically loads these parameters. Adjust them here and click **Save**. See [Voice parameters](/docs/guide-parameters) for their meanings.
+
+**Test**
+
+**Convert a short clip with the default parameters.** Select audio and click **Preview 15 s**. Results appear below, ready to play or compare with the source audio.
+
+### Delete and hide
+
+- Library voices: **Delete** asks **Move \{name\} to the trash?** The voice folder is moved to `trash/` in the data folder.
+- Legacy voices: the button becomes **Hide**, asking **Hide \{name\}? The file in the RVC install is not touched.** Use **Show hidden** to see them again.
+- Downloaded demo voices: after deletion, you can download them again in **Assets**.
+
+### The voice library on disk
+
+By default, the voice library is in `models/` in the data folder (change this in **Settings › Storage › Voices**):
+
+```text
+models/
+  voices/<voice>/model.pth        Voice model
+  voices/<voice>/model.index      Default index
+  voices/<voice>/spk<N>.index     Index for one speaker
+  voices/<voice>/voice.json       Name, description, tags, speaker names, etc.
+  base/                          Imported base models
+  separation/                    Imported separation models
+  indexes/                       Unassigned indexes
+  attached-indexes/<voice>/       Copies of indexes attached to legacy voices
+```
+
+## Import models
+
+The **Voices**, **Base models** and **Separation models** tabs each have a drop zone at the top. All three use the same import workflow, so **any drop zone works**: rvc-next identifies each file by its **contents** (rather than its name or extension), then decides where it belongs.
+
+### Recognized files
+
+| File | Identification | After import |
+| --- | --- | --- |
+| Voice model `.pth` (small model) | Model structure | Added to the voice library |
+| Index `.index` | Vector dimensions: 256 for v1, 768 for v2; no vectors means a `trained_` index | Attached to a paired voice or placed in **Unassigned indexes** |
+| Training generator G (`G_*.pth`) | Version, sample rate and pitch guidance read from weights | Imported as a base model by default; you can also choose **Extract a voice** |
+| Training discriminator D (`D_*.pth`) | Number of sub-discriminators | Paired with G as a base model |
+| Separation model configuration `.yaml` and checkpoint (`.ckpt`, `.pth`, `.bin`, `.safetensors`) | Model type in the configuration | Becomes a separation model and preset |
+| `.zip` | Extracted files are identified individually | As above |
+
+Unrecognized files are skipped, with **Skipped: …** shown after import.
+
+### Import steps
+
+1. Drop files into a drop zone (or click to select). You can drop several files at once, such as a `.pth` with its `.index`, or a `.zip` containing both.
+2. A progress bar appears during upload.
+3. If every file's destination is clear, import finishes immediately with a notification such as **Imported \{names\} with 1 index(es)**.
+4. If anything is uncertain, **Review the import** opens for you to confirm before importing.
+
+Possible notifications after import:
+
+| Message | Meaning |
+| --- | --- |
+| **Imported \{names\}** / **Imported \{names\} with N index(es)** | New voices were added to the library |
+| **Attached \{names\} to voices in your library** | Indexes were attached to existing library voices |
+| **Kept \{names\} as unassigned indexes; assign them under Voices.** | Indexes went to **Unassigned indexes** |
+| **Imported N base model(s); choose them in an experiment’s settings.** | Base models were imported |
+| **Imported N separation model(s); they appear in Separate.** | Separation models were imported |
+
+### How indexes are paired automatically
+
+Rules for pairing indexes with voices:
+
+1. **Versions must match**: v1 indexes can pair only with v1 voices, v2 only with v2. This is a hard requirement.
+2. Compatible voices are scored by name: an exact experiment-name match scores highest, followed by a name containing the voice's name, then similar names. Sharing a folder adds to the score.
+3. Automatic pairing happens only when a voice is the index's **only compatible match** in this import, or clearly outscores the other candidates. Otherwise, you choose.
+4. Existing library voices are considered only when no suitable voice is in this import.
+
+### Review the import dialog
+
+The dialog begins with: **Some files could not be paired with certainty. Check the choices below; only compatible voices are offered for each index.** Files are grouped by type:
+
+- **Voices**: edit each voice's **Name** and use its **Import** switch to decide whether to import it.
+- **Indexes**: each index shows its vector count, pairing state and reasons. Choose a voice in **Voice**—**\{name\} (this import)** or **\{name\} (library)**—or select **Keep unassigned** to put it in unassigned indexes. If the target has several speakers, you can also choose a **Speaker** (default **All speakers**).
+- **Base models and checkpoints**: for each G, select **Use as** **Base model**, **Extract a voice** or **Skip**, and optionally rename it. For a base model, select its paired **Discriminator (D)** (or **None**).
+- **Separation models**: choose a **Checkpoint** for each YAML, enter a name, select **Primary stem** and **Secondary stem** and name them (**Primary name**, **Secondary name**). Use the **Import** switch to decide whether to import it.
+- **Not imported**: unusable files and their reasons, such as **not a model file** or **discriminator without its generator**.
+
+Index pairing states:
+
+| State | Meaning |
+| --- | --- |
+| **Only match** | Only one compatible voice |
+| **Matched** | A match was found by name or folder |
+| **Choose** | Several candidates; you must choose |
+| **No fit** | No voice with a matching version |
+| **Empty** | No vectors (a `trained_` index); cannot be used |
+| **Duplicate** | Another index fits the same voice better |
+| **Chosen** | You selected a match manually |
+
+Click **Import** to confirm. **Cancel** abandons this import and discards the uploaded files.
+
+### Unassigned indexes
+
+Indexes without a paired voice appear in **Unassigned indexes** at the top of **Voices**: **Indexes imported without a voice. Only voices of the matching version are offered.**
+
+1. Select a voice in **Voice** (only matching versions are listed). For voices with several speakers, you can also select a **Speaker**.
+2. Click **Assign**.
+3. Click Delete for indexes you do not need.
+
+If the library has no voice of the same version, a message such as **No v1 voice in the library yet** appears.
+
+## Original RVC installs
+
+If you still have the original RVC, you can use its voices directly without copying models. The **Original RVC installs** section at the bottom of **Voices** says: **Voices in an RVC install are used in place; Import all copies them into the library.**
+
+1. Click **Add an RVC install**.
+2. Enter the original's root directory in **RVC folder** (it should contain an `assets` folder), or click **Browse…** to select it.
+3. Click **Add**.
+
+rvc-next reads voices in `assets/weights` and recommends an index for each from `assets/indices` and `logs`, following the original's rules. These voices are marked **legacy**. Files stay in place; rvc-next never writes to the original's folders (indexes attached to legacy voices are copied to `models/attached-indexes/`).
+
+Each added install has two buttons:
+
+- **Scan**: rereads models after additions or deletions in the original and recommends indexes for new voices (voices whose indexes you selected manually are unaffected);
+- **Import all**: copies all voices and their indexes from this install into the library, where they can be edited like ordinary voices.
+
+See [Migrate from the original RVC](/docs/advanced-migrate) for more details.
+
+## Base models
+
+The **Base models** tab says: **Training starts from a base model. Download the official ones below, or import your own G (and D); their rate, version and pitch guidance are read from the weights.**
+
+- **Import base models**: drop G and D `.pth` files, or a `.zip`. G and D are paired automatically by name; G alone can also be imported (shown as **no D**).
+- **Your base models**: imported models show version · sample rate · pitch guidance · **G + D** or **no D** · size. You can **Rename** or Delete them (moving them to the trash).
+- **Official**: official base models for v1/v2 × 32k/40k/48k × with/without pitch guidance. **Download** fetches the full set for that version and sample rate (4 files: G and D with and without pitch guidance). Deleting removes only that entry's own G and D; you can download them again later.
+
+A training experiment's **Settings › Base model** lists only models matching its sample rate, version and pitch guidance. See [Train](/docs/guide-train).
+
+## Separation models
+
+The **Separation models** tab says: **The built-in models are downloaded here or in Assets; import your own as a checkpoint with its YAML config. Each becomes a preset in Separate.**
+
+- **Import separation models**: drop a checkpoint (`.ckpt`, `.pth`, `.safetensors`) with its `.yaml`, or a `.zip`. Before importing, rvc-next actually loads the model once to check it works (this may take a few seconds).
+- **Your separation models**: shows model type, primary/secondary stem names and size; models can be deleted. Each imported model becomes a preset marked **imported** on **Separate**.
+- **Built-in**: built-in separation models, each marked **presets: …** to show which separation presets use it. You can download or delete them.
+
+With no imported models, the page shows **No separation models imported**. Built-in presets are always available on **Separate**.
+
+## Assets
+
+**Assets** lists every file rvc-next can download, grouped by purpose:
+
+| Group | Files | Approximate size |
+| --- | --- | --- |
+| **Conversion** | HuBERT (required for all conversion, Live and training), RMVPE, RMVPE (ONNX, for DirectML devices), FCPE | 180 MB, 173 MB, 345 MB, 41 MB |
+| **Training** | Official base models v1/v2 × 32k/40k/48k | About 350–420 MB per group |
+| **Separation** | Vocals, Vocals (aggressive), Dereverb, Dereverb (aggressive), Lead vocals | About 305–436 MB each |
+
+File names and descriptions come from the server in English, for example `HuBERT`, `Base models v2 40k`, `Separation: Vocals`.
+
+Each row shows name, description, size (checked files are marked **verified**) and state: **Installed**, **Not installed**, **Partly downloaded**, **Checksum mismatch**, **Downloading**. Available actions:
+
+- **Download**: starts a download. While downloading, a progress bar and “downloaded / total size · speed · time remaining” appear.
+- **Download everything for Conversion** (also **Download everything for Training**, **Download everything for Separation**): buttons beside group headings download all missing files in that group at once.
+- **Verify**: recalculates SHA-256 checksums for installed files.
+- Delete: removes files; you can download them again later. Files cannot be deleted during a download.
+
+Downloads resume after interruption (unfinished files end in `.part`), retry automatically on failure and verify checksums on completion. You do not need to download everything in advance: whenever a page needs a file, the relevant button is replaced by **Needs …** and **Download (size)**.
+
+<Callout type="idea" title="Downloads too slow?">
+
+Configure downloads in **Settings › Downloads**: switch **Model repository** between rvc-model and the official RVC repository, or change **Download endpoint** to hf-mirror.com or a custom mirror. See “Downloads” in [Settings](/docs/guide-settings).
+
+</Callout>
+### Demo voices
+
+At the bottom of **Assets** is **Demo voices**: **The official RVC example voices, downloaded from the model repository with their indexes.** Each row shows sample rate · version · **with index** · size.
+
+- Click **Download** for one voice, or **Download all**. It then says **Download started; the voice appears in the library when it is ready.**
+- Downloaded voices show an **In library** button; click it to open their detail page.
+
+Demo voices are stored only in rvc-model, so they always download from rvc-model regardless of the selected **Model repository**.
+
+## Tools
+
+### Merge two voices
+
+Combine two voices into a new one using weights:
+
+1. Select **First voice** and **Second voice**. Their sample rate, version and pitch guidance must match.
+2. Adjust **Weight of the first voice** (0–1, default 0.5): result = weight × first + (1 − weight) × second.
+3. Enter a **New voice name** and click **Merge**.
+
+Merging runs as a background job. The new voice appears in the library when finished.
+
+### Extract a voice from a checkpoint
+
+Training checkpoints (`G_*.pth`) cannot be used directly for conversion; extract a small model first:
+
+1. In **Checkpoint (G_*.pth path or &lt;experiment>/&lt;file>)**, enter the checkpoint's full server path, or use `experiment-name/G_xxx.pth` to refer to a checkpoint in an experiment.
+2. Enter a **New voice name**.
+3. **Sample rate** and **Model version** default to **From the experiment**. If the checkpoint is outside an experiment and these cannot be read, select them manually.
+4. Click **Extract**. The new voice appears in the library when finished.
+
+<Callout type="idea">
+
+For trained voices, **Export as voice** in **Train › Results** is usually easier: it extracts the voice automatically and includes the index.
+
+</Callout>
+## Command line
+
+```bash
+rvc-next model list                          # List voices
+rvc-next model import a.pth a.index          # Import using the same rules as the web UI
+rvc-next model import D:/RVC                 # Import an entire original install
+rvc-next model import x.zip --pair voice.pth=added.index   # Specify a pairing manually
+rvc-next model catalog                       # List demo voices
+rvc-next model download --all                # Download all demo voices
+rvc-next model merge A B --name AB --alpha 0.5
+rvc-next model extract my-experiment/G_2333333.pth --name "New voice"
+rvc-next assets list                         # Asset status
+rvc-next assets download --group inference   # Download HuBERT and RMVPE
+```
+
+When a command-line import encounters uncertain pairings, it prints the plan and exits with code 3. Use `--pair`, `--keep-unassigned` and `--extract` to decide. See [Command reference](/docs/cli-commands) for full details.

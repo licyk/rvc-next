@@ -1,0 +1,171 @@
+---
+title: "资源与模型仓库"
+description: "「资源」（asset）指 RVC Next 运行时需要、但不随 Python 包分发的模型文件：HuBERT、RMVPE（及其 ONNX 版）、FCPE、训练底模和人声分离权重。"
+icon: Package
+---
+
+「资源」（asset）指 RVC Next 运行时需要、但不随 Python 包分发的模型文件：HuBERT、RMVPE（及其 ONNX 版）、FCPE、训练底模和人声分离权重。另有一组可下载的示例音色。本页说明资源目录 `catalog.json` 的格式、两个下载仓库、下载与校验的实现，以及增改资源的流程。核心层里 `AssetService` 如何被其他服务调用见 [核心服务](/docs/development-core)。
+
+## 资源目录 `catalog.json`
+
+[`rvc_next/core/assets/catalog.json`](https://github.com/licyk/rvc-next/blob/main/rvc_next/core/assets/catalog.json) 作为包数据随包分发（`pyproject.toml` 的 `package-data`），由 `core/assets/service.py:load_catalog()` 读入并校验成 `core/assets/models.py` 里的记录。顶层有三个键：
+
+```json
+{
+  "repositories": {
+    "rvc-model": {"repo": "licyk/rvc-model", "revision": "main", "title": "…"},
+    "official":  {"repo": "lj1995/VoiceConversionWebUI", "revision": "main", "title": "…"}
+  },
+  "assets": [
+    {
+      "id": "rmvpe", "title": "RMVPE", "description": "…", "group": "inference",
+      "files": [
+        {
+          "path": "rmvpe/rmvpe.pt",
+          "size": 181184272,
+          "sha256": "6d62215f…c193",
+          "sources": {"rvc-model": "rmvpe/rmvpe.pt", "official": "rmvpe.pt"}
+        }
+      ]
+    }
+  ],
+  "voices": [
+    {
+      "id": "kikiv1", "name": "kikiV1", "description": "…",
+      "sample_rate": 40000, "version": "v1", "pitch_guidance": true,
+      "files": [
+        {"role": "model", "size": 55025320, "sha256": "fb48c0a9…b5b5", "sources": {"rvc-model": "voices/kikiV1/kikiV1.pth"}},
+        {"role": "index", "size": 58956235, "sha256": "5f20e83f…c647", "sources": {"rvc-model": "voices/kikiV1/kikiV1.index"}}
+      ]
+    }
+  ]
+}
+```
+
+| 记录 | 字段 | 说明 |
+| --- | --- | --- |
+| `Repository` | `id`（`rvc-model` 或 `official`）、`repo`、`revision`、`title` | Hugging Face 仓库。`selected` 由设置计算，不写在目录里 |
+| `AssetSpec` | `id`、`title`、`description`、`group`（`inference`/`training`/`separation`）、`files` | 一个可单独下载、单独判定状态的单位 |
+| `AssetFile` | `path`、`size`、`sha256`、`sources` | `path` 相对于资源目录（`paths.assets_dir`），采用**原版的 `assets/` 布局**；`sources` 是「仓库 id → 该文件在那个仓库里的路径」 |
+| `CatalogVoice` | `id`、`name`、`description`、`sample_rate`、`version`、`pitch_guidance`、`files` | 示例音色；`size`、`has_index`、`repositories`（托管了全部文件的仓库）在加载时算出 |
+| `CatalogVoiceFile` | `role`（`model`/`index`）、`size`、`sha256`、`sources` | 下载后不放进资源目录，而是导入音色库 |
+
+### 现有资源
+
+| id | 组 | 资源目录中的文件 | 用途 |
+| --- | --- | --- | --- |
+| `hubert` | inference | `hubert_base/config.json`、`preprocessor_config.json`、`pytorch_model.bin` | 所有转换与特征提取（transformers 格式） |
+| `rmvpe` | inference | `rmvpe/rmvpe.pt` | RMVPE 音高（默认方法） |
+| `rmvpe-onnx` | inference | `rmvpe/rmvpe.onnx` | DirectML 上的 RMVPE |
+| `fcpe` | inference | `fcpe/fcpe_c_v001.pt` | FCPE 音高；只在 rvc-model 仓库中 |
+| `pretrained-{v1,v2}-{32k,40k,48k}` | training | `pretrained[_v2]/[f0]{G,D}<rate>.pth` | 训练底模，每个资源 4 个文件（有无音高各一对 G/D） |
+| `separation-<model>` | separation | `pymss_weights/<checkpoint>.ckpt` | `dereverb`、`dereverb-aggressive`、`vocals`、`vocals-aggressive`、`karaoke` 五个分离模型；YAML 随包分发（`engine/separate/configs/`） |
+
+共 15 个资源、35 个文件，约 4.8 GiB。底模按「版本 × 采样率」拆分而不是计划里的 `pretrained-v1`/`pretrained-v2` 两个：训练某一采样率只需下载 4 个文件，而不是 12 个（AGENTS.md §8）。分离权重放在 `pymss_weights/` 而非计划中的 `separation/`，同样是为了与原版布局一致。
+
+`ids_for_group()` 决定 `rvc-next assets download --group` 的内容：按目录中的 `group` 取资源，`all` 取全部，都不含只给 DirectML 用的 `rmvpe-onnx`（按需下载）。`inference`（不带参数时的默认）因此是 `hubert`、`rmvpe` 和 `fcpe`。
+
+<Callout type="info" title="为什么沿用原版的 assets/ 布局">
+
+`paths.assets_dir` 可以直接指向已有的原版 RVC 安装里的 `assets/` 文件夹，HuBERT、RMVPE、底模和 `pymss_weights` 都在同样的相对路径上，什么都不必再下载一遍。
+
+</Callout>
+## 两个下载仓库
+
+| 仓库 id | Hugging Face 仓库 | 内容 |
+| --- | --- | --- |
+| `rvc-model`（默认） | [licyk/rvc-model](https://huggingface.co/licyk/rvc-model) | RVC Next 用到的每个文件，按类别整理，外加示例音色和 `manifest.json` |
+| `official` | [lj1995/VoiceConversionWebUI](https://huggingface.co/lj1995/VoiceConversionWebUI) | 官方 RVC 仓库；没有示例音色，也没有 FCPE 权重 |
+
+两个设置共同决定下载地址（`AssetService.url()`）：
+
+- `downloads.repository`（`rvc-model` 或 `official`）选**仓库**。某个文件在所选仓库里没有（`sources` 里没有这个键）时，自动改用列出的另一个仓库——示例音色和 FCPE 因此总是从 rvc-model 下载，即使选的是官方仓库。
+- `downloads.source` 选**端点**：`huggingface`（`https://huggingface.co`）、`hf-mirror`（`https://hf-mirror.com`）或 `custom`（`downloads.endpoint`）。两个仓库都经由同一个端点访问。
+
+最终 URL 为 `<端点>/<repo>/resolve/<revision>/<sources[仓库]>`。两个仓库的 `revision` 目前都是 `main`。
+
+设立 rvc-model 的理由：官方仓库是早期版本留下的平铺结构，混杂着代码、Windows 可执行文件和几十 GB 的发行包；有些模型（示例音色）只存在于 `.7z` 发行包内部，无法单独下载（见下文）。rvc-model 把需要的文件原样复制出来按类别放好，任何一个文件都能单独取。
+
+### rvc-model 的布局
+
+| 目录 | 内容 | 来源 |
+| --- | --- | --- |
+| `hubert/hubert_base/` | HuBERT（transformers 格式） | 官方仓库 `hubert_base/` |
+| `rmvpe/` | `rmvpe.pt`、`rmvpe.onnx` | 官方仓库根目录 |
+| `fcpe/` | `fcpe_c_v001.pt` | torchfcpe 0.0.4 包内自带的权重（RVC 通过 `spawn_bundled_infer_model` 使用的那一个） |
+| `pretrained/v1/`、`pretrained/v2/` | 各采样率的 `[f0]G`、`[f0]D` | 官方仓库 `pretrained/`、`pretrained_v2/` |
+| `separation/` | 五个分离检查点 | 官方仓库 `pymss_weights/` |
+| `voices/<name>/` | 示例音色 `.pth` 与 `.index` | 从官方 `RVC*.7z` 发行包中提取 |
+
+仓库根目录另有官方的许可文件和 `manifest.json`。`manifest.json` 为每个文件记录大小、SHA-256 和上游路径（它来自官方仓库的哪个路径、哪个发行包，或 torchfcpe），是 rvc-model 自身的清单。约定：向 rvc-model 上传文件时同步更新 `manifest.json`，`catalog.json` 中的大小、哈希和 `rvc-model` 路径从 manifest 生成。本仓库里没有提交执行这一步的脚本；改动 `catalog.json` 时必须保证它与 manifest 一致。
+
+所有从官方仓库复制的文件都未改动；目录中的哈希曾对照完整下载的官方仓库（修订 `e6d0c1a`）重新计算并全部吻合。
+
+FCPE 曾通过 torchfcpe 包使用，而 torchfcpe 依赖 torchaudio 并内置了 43 MB 的模型。现在推理路径已移植到 `engine/f0/fcpe_model.py`（见 [与原版的一致性](/docs/development-parity)），权重则作为 `fcpe` 资源下载，所以 RVC Next 不再依赖 torchfcpe 或 torchaudio。
+
+## 下载、断点续传与校验
+
+下载是 `download` 任务（资源 `io`，并发容量 4），由 `AssetService.download(ids, group, verify_only, foreground)` 提交；命令行以 `foreground=True` 在前台执行。每个资源是任务的一个步骤。
+
+- **跳过已有文件**：大小与目录一致的文件不重新下载。
+- **断点续传**（`_fetch()`）：下载写入 `<文件名>.part`；已有部分时发 `Range: bytes=<已有>-`。服务器回 200 而不是 206 时从头写；回 416 且 `.part` 已完整时视为完成；`.part` 比目标大时删除重下。最多重试 4 次（`RETRIES`），退避 1、2、4…秒（上限 10 秒）。完成后检查大小，再把 `.part` 改名为正式文件。
+- **校验**：`downloads.verify_checksums`（默认开）或 `verify_only` 时计算 SHA-256 并与目录比较。
+- **校验缓存**：结果按 `<path>|<size>|<mtime_ns>` 为键存入数据目录的 `assets-verified.json`。文件大小或修改时间变化后缓存自然失效。这样列出资源状态时不必每次重算几 GB 的哈希，又能在文件被替换时重新显示为「未校验」。
+- **进度**：进度按字节计算；`ctx.transfer(done, total)` 让任务卡片显示速度与剩余时间（见 [核心服务](/docs/development-core)）。
+- 失败的资源记为 `failed`，任务以 `RvcNextError` 结束，`detail.assets` 列出失败的 id。
+
+### 状态
+
+`AssetService.status(id)` 只看磁盘和校验缓存，不发网络请求：
+
+| 状态 | 条件 |
+| --- | --- |
+| `downloading` | 有下载任务正在处理它 |
+| `installed` | 每个文件都在且大小正确，且没有校验失败记录 |
+| `corrupt` | 文件齐全，但某个文件的校验失败 |
+| `partial` | 部分文件在（或有部分字节） |
+| `missing` | 一个字节都没有 |
+
+`verified` 为 `True`（全部校验通过）、`False`（有失败）或 `None`（有文件尚未校验）。`is_installed()` 把 `corrupt` 也算作已安装——文件可能只是被用户换成了别的版本，由界面提示而不是阻止使用。
+
+`delete(id)` 删除资源的全部文件和 `.part`（下载中拒绝，409）并清理校验缓存；官方底模的删除只调用 `delete_files()` 删它自己的一对 G/D，该资源随之显示为 `partial`。状态变化时发布 `assets_changed`（载荷为全部资源状态）。
+
+## 示例音色
+
+`voice_catalog()`（`GET /models/catalog`，`rvc-next model catalog`）列出示例音色，并标出已经下载进音色库的那个（`installed_voice_id`，按音色 `voice.json` 里的 `catalog_id` 匹配，DB 迁移 2 为此添加了 `voice_models.catalog_id` 列）。`download_voices(ids, all_missing)`（`POST /models/catalog/download`，`rvc-next model download`）提交一个请求为 `{"voices": [...]}` 的 `download` 任务：把 `.pth` 和 `.index` 下载到 `uploads/` 下的临时目录，检查 SHA-256（这里总是检查，不受 `verify_checksums` 影响），再以 `catalog_id` 为来源加入音色库。示例音色就是普通的库音色，删除后目录里会重新显示为可下载。
+
+| id | 版本 | 采样率 | 索引 |
+| --- | --- | --- | --- |
+| `kikiv1` | v1 | 40k | 有 |
+| `keruanv1` | v1 | 40k | 有 |
+| `guanguanv1` | v1 | 40k | 有 |
+| `zhanzhanv2-xi` | v2 | 40k | 有 |
+| `youzhanv2-xi` | v2 | 48k | 无（任何发行包里都没有它的索引；使用时索引强度为 0） |
+
+这些音色都没有命名说话人，虽然有常规的 109 行说话人嵌入，仍按单说话人对待。它们与官方仓库同样遵循 MIT 许可及作者附加的条款（仅供研究使用，使用者对生成和传播的声音负全责）。
+
+## 只存在于官方发行包中的模型
+
+官方仓库有两类文件：权重本身，以及 21 个 Windows 发行包（`RVC*.7z`，2023-03 至 2026-07，每个都是完整安装）。对修订 `e6d0c1a` 的完整仓库（155 个文件，约 103 GB）做过一次清点：索引每个 `.7z`，把其中 50 KB 以上的模型类文件（`.pth .pt .ckpt .onnx .bin .safetensors .index`，排除内置的 `runtime/` 和遗留的 `TEMP/`）先按大小、再按内容与仓库文件比较，对只在包内存在的文件按 CRC-32 解出、计算 SHA-256 并实际加载。结论：
+
+| 类别 | 文件 | 处理 |
+| --- | --- | --- |
+| 示例音色 | `kikiV1`、`keruanV1`、`guanguanV1`（带索引）、`youzhanv2-xi`、`zhanzhanv2-xi`（带索引） | 原样上传到 rvc-model 的 `voices/<name>/`，进入 `catalog.json` 的 `voices` |
+| 没有对应音色的索引 | `anchun`、`keqing`、`mi-test`、`mi-test-v1`、`test` | 不用：它们的音色从未发布 |
+| 被取代或重复的权重 | 旧版 `rmvpe.pt`（2023-07 之前的权重）；`model_bs_roformer_ep_317` 的另一份存档 | 不用：仓库自身的文件取代了它们 |
+| 不是模型 | `Synthesizer_inputs.pth`、`hubert_inputs.pth`（导出 ONNX 用的样例输入）、`logs/mute/*.spec.pt`（训练加载器生成的频谱缓存） | 不用 |
+
+包内其余所有模型文件都与仓库里的某个文件逐字节相同。
+
+为什么不直接从发行包下载：这些 `.7z` 是固实压缩，音色与其他资源共享 1.3–1.9 GB 的压缩块，取一个文件至少要下载并解压它所在的整个块。这正是 rvc-model 存在的主要理由之一。
+
+仓库中其余未进入目录的文件及原因：`mute.zip`（内容相同的静音样本已作为包数据随包分发，见 `engine/train/data/mute/`）；`hubert_base.pt`（fairseq 检查点，RVC Next 用 transformers 格式）；`pretrained_v0/`（早期 v1 生成器，没有任何地方选择它们）；`uvr5_weights/` 等（UVR5 分离，所移植的分支已换成 PyMSS）；`weights/白菜357k.pt`（RVC 之前的模型格式，无法加载）；`ffmpeg.exe`/`ffprobe.exe`（RVC Next 用 PyAV 解码）；`RVCRealtime-Win64VST.zip`（实时 VST 插件，与将来的 VST 适配相关）；以及早期版本的代码。
+
+## 新增或更新资源
+
+1. 把文件上传到 rvc-model 的对应类别目录，并更新它的 `manifest.json`（大小、SHA-256、上游路径）。若官方仓库也有该文件，记下它在官方仓库里的路径。
+2. 在 `catalog.json` 的 `assets` 中新增或修改条目：`path` 用原版 `assets/` 布局下的相对路径；`sources` 至少列出一个仓库；`size` 与 `sha256` 必须与 manifest 一致——下载以大小判断完成、以哈希判断损坏。
+3. 人声分离权重还要同步 `engine/separate/presets.py` 的 `MODELS`（检查点名、YAML 名、大小、SHA-256、主副音轨）、`core/separation/presets.json` 中预设的 `assets`，并把 YAML 放进 `engine/separate/configs/`。`tests/engine/test_separate_presets.py` 检查预设与 `MODELS` 的一致性，但不检查 `MODELS` 与 `catalog.json` 的大小和哈希是否相同，需要人工核对。
+4. 新资源若是某个功能的前提，在相应服务的 `require()` 调用里加上它的 id（例如 `ConversionService.required_assets()`、`LiveService._require_assets()`、`TrainingService._preflight()`），界面会自动通过 `AssetGate` 提供下载。
+5. 示例音色加在 `voices` 中，`id` 一经发布不要再改：已下载音色靠它与目录条目对应。
+6. 运行 `python scripts/dev.py check`。`tests/core/test_assets.py` 用模拟传输覆盖续传、校验、仓库回退、删除与示例音色导入。

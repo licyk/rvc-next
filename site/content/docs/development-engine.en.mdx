@@ -1,0 +1,408 @@
+---
+title: "Engine"
+icon: Cog
+---
+
+`rvc_next/engine/` contains all machine learning and digital signal processing code: device selection, model caches, HuBERT features, F0 extraction, retrieval indexes, synthesizer networks, offline conversion, streaming conversion, audio codecs, real-time audio devices, vocal separation and every training stage. It knows nothing about the application—it imports neither `rvc_next.core/api/cli/workers`, pydantic nor any Web/CLI framework (enforced by `tests/test_architecture.py`; see [Architecture](/docs/development-architecture)). Core, worker subprocesses and tests are simply its callers.
+
+This page explains what each engine module does and why. For rules on line-by-line comparison with the original, golden tests and behaviour changes, see [Parity with the original](/docs/development-parity).
+
+## Conventions
+
+- **Parameters are frozen dataclasses**: `VoiceParams` (`engine/convert/params.py`), `StreamParams` (`engine/stream/params.py`), and the training stages' `SliceRequest`, `F0Request`, `FeatureRequest`, `TrainRequest`, `IndexRequest`. Core mirrors the first two with `VoiceParamsModel`/`StreamParamsModel` (`core/params.py`) and adds ranges; the engine itself does not validate ranges.
+- **Heavy dependencies are imported inside functions**: torch, transformers, faiss, av, pymss, sounddevice and parselmouth use `import` inside the functions needing them, so `import rvc_next.engine.xxx` is cheap and `rvc-next --help` does not load torch. Exceptions are ported files (`engine/graph.py`, `engine/f0/rmvpe.py`, `engine/f0/fcpe_model.py`, `engine/audio/sinc_resample.py`, `engine/audio/denoise.py`, `engine/models/*.py`): they import torch at module scope and must themselves be imported lazily from other functions.
+- **Exceptions** are limited to those in `engine/errors.py`: base `EngineError`, `MissingAssetError` (with `assets`, a list of asset catalog ids), `ModelFormatError`, `AudioError`, `Cancelled`. Core maps them to domain errors in `core/engine_errors.py:map_engine_error()`; worker subprocesses turn them into `error` events in `workers/base.py:run_worker()`, which core reconstructs with `worker_error()`.
+- **Cancellation** is cooperative: `engine/cancel.py:CancelToken`; the engine calls `cancel.check()` between chunks, raising `Cancelled`. Subprocess work does not rely on it: cancellation kills the process tree.
+- **`sounddevice` appears only under `engine/audio_io/`, `pymss` only under `engine/separate/`** (checked by architecture tests), so the rest of the engine can be imported without PortAudio or pymss.
+
+## Module map
+
+| Module | Purpose | Source in the original |
+| --- | --- | --- |
+| `runtime.py` | GPU rules, `ChunkConfig`, asset paths, model caches, GPU memory release and OOM detection | GPU rules in `configs/config.py` |
+| `graph.py` | CUDA Graph capture and replay cache | `tools/cuda_graph.py` (copied) |
+| `features/hubert.py` | transformers HuBERT, v1 layer 9 + `final_proj`, v2 final layer | `infer/hubert.py` |
+| `f0/` | `F0Provider` interface and shared postprocessing; `pm`, `rmvpe` (including ONNX), `fcpe` | `infer/rmvpe.py`, `infer/fcpe.py`, three pm implementations; FCPE network from torchfcpe |
+| `index/` | `retrieval.py` (load once, top-8 blending), `inspect.py` (read only dimensions and vector count), `build.py` (index stage) | Retrieval in `infer/vc/pipeline.py`, `train/train_index.py` |
+| `models/` | Synthesizer and discriminator networks (copied), `.pth` reading/writing and identification, loading, merging, extraction | `infer/module/*.py`, `train/process_ckpt.py` |
+| `convert/` | `VoiceParams`, `OfflineConverter` | `infer/vc/pipeline.py` |
+| `stream/` | `StreamParams`, `StreamEngine`, latency estimation | `infer/rtrvc.py` + `realtime_gui.py` callback |
+| `audio/` | PyAV codecs and probing, resampling, ported sinc resampler, DSP utilities, waveform peaks, SOLA, TorchGate | `infer/audio.py`, `tools/torchgate/`, DDSP-SVC's SOLA |
+| `audio_io/` | Device enumeration/grouping/resolution, streams and sessions, ring buffers, clock drift correction, test tone, fake backend | None (device code in the original's `realtime_gui.py` was rewritten) |
+| `separate/` | Separation model table, preset chain planning, pymss adapter and runner | `tools/pymss_webui.py` |
+| `train/` | Slicing, F0, features, file lists, multiple speakers, training loop, hyperparameters, dataset scanning, fingerprints | `train/*.py`, `train/dataset/*.py`, `tools/multispeaker.py` |
+
+## Runtime
+
+`Runtime` in [`engine/runtime.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/runtime.py) holds the device, dtype, CUDA Graph switches, chunk configuration and loaded model caches. The server process has one (built by core's `ComputeService`); the Live worker and each training or separation subprocess build their own, so their GPU memory is independent.
+
+### GPU rules and device selection
+
+The original executes GPU rules and parses `argparse` arguments when `configs/config.py` is imported (the CLI and VST worker must therefore clear `sys.argv` first). Here it is a pure function, `choose_device(requested, precision) -> DeviceChoice`:
+
+| Condition (`cuda_profile`) | Result |
+| --- | --- |
+| GPU memory &lt; 4 GiB or compute capability &lt; 5.3 | Ineligible (`eligible=False`) |
+| Compute capability 6.1 (Pascal), or name contains `16xx` with compute capability 7.5 (GTX 16 series) | fp32 |
+| Compute capability > 6.1 | fp16 |
+| Otherwise | Ineligible |
+
+GPU memory is calculated as `total_memory / 1024³ + 0.4`, matching the original. With `requested="auto"`, it selects the eligible CUDA card with the greatest `(sm, memory_gb)`; if none, it tries DirectML (`directml_device()` actually runs a tensor operation to confirm it works), then falls back to CPU. An explicit `cuda:N` is used even if the rules would skip it, but only in fp32; unavailable `dml` or `mps` falls back to CPU with an explanation in `reason`. `precision` set to `fp32`/`fp16` overrides the rules (fp16 applies only to CUDA). MPS is used only when explicitly requested; `auto` never selects it.
+
+`list_devices()` lists all devices (CPU last), letting `GET /compute/devices` and `rvc-next doctor` show the rule verdict for each card.
+
+### Chunk configuration
+
+`ChunkConfig.for_device()` gives the original's `x_pad/x_query/x_center/x_max` (seconds):
+
+| Device | `x_pad` | `x_query` | `x_center` | `x_max` |
+| --- | --- | --- | --- | --- |
+| CUDA with GPU memory ≤ 4 GiB | 1 | 5 | 30 | 32 |
+| fp16 | 3 | 10 | 60 | 65 |
+| Otherwise (fp32, CPU) | 1 | 6 | 38 | 41 |
+
+Golden tests run on CPU fp32, and the original's side uses the last row (`_OriginalConfig` in `scripts/golden.py`).
+
+### Model caches
+
+| Method | Cache key | Policy |
+| --- | --- | --- |
+| `hubert()` | Single entry | Load once |
+| `f0(method)` | `pm`/`rmvpe`/`fcpe` | Load each once (`engine/f0/__init__.py:create_provider`) |
+| `voice(path)` | Resolved path + `st_mtime_ns` | LRU, retains the last `max_voices` (default 3); eviction clears the network's CUDA Graph cache |
+| `index(path)` | Path + `st_mtime_ns` | Load each file once |
+
+Including modification time in the key makes overwriting a file (re-exporting, rebuilding an index) take effect automatically, without notifying the runtime. All methods share an `RLock` and can be called from multiple threads.
+
+`cached()` returns names such as `hubert`, `f0:<method>`, `voice:<filename>`, `index:<filename>` for the compute panel; `release()` unloads everything and calls `soft_empty_cache()`; `release_idle(seconds)` unloads everything when all entries have been idle longer than the given duration (called by core according to `compute.unload_after_minutes`); on CUDA, `vram()` uses `torch.cuda.mem_get_info` to return `(used, total)` MiB.
+
+### GPU memory release and OOM
+
+These two functions follow ComfyUI's `comfy/model_management.py`:
+
+- `soft_empty_cache()`: `gc.collect()` first, then on CUDA `synchronize` → `empty_cache` → `ipc_collect` (`torch.mps.empty_cache()` on MPS). Synchronising first ensures no kernel is still using the blocks being returned. Does nothing if torch is not loaded.
+- `is_oom(error)`: identifies `torch.OutOfMemoryError`, CUDA `AcceleratorError` with code 2, and `RuntimeError`/`MemoryError` messages containing "out of memory"/"not enough gpu video memory" (MPS, DirectML). When it detects an asynchronous CUDA error, it triggers a small operation and synchronises to consume the pending error so the next operation does not inherit it. It gets torch from `sys.modules`, without importing torch just to classify an error.
+
+Who unloads what after OOM is a core policy (`release_after_oom`); see [Core services](/docs/development-core).
+
+## CUDA Graph
+
+[`engine/graph.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/graph.py) copies the original's `tools/cuda_graph.py`: each “owner” object (`net_g`, HuBERT, RMVPE, resampler…) carries a `_GraphCache`, keyed by call-site namespace plus each input tensor's shape, strides, dtype, device and `requires_grad`. A new signature is warmed up three times on a side stream, then captured; replay copies inputs into static tensors, calls `replay()` and clones outputs. Signatures that fail capture are recorded in `failures` and use eager execution thereafter. The cache evicts by LRU, with capacity from `RVC_NEXT_CUDA_GRAPH_MAX_CACHE` (default 8). `get_cuda_graph_stats()` returns capture, replay, fallback and eviction counts.
+
+The only difference from the original is the switch: the original reads `RVC_CUDA_GRAPH`; here `Runtime` calls `configure_cuda_graph(device, wanted)` at construction to set a process-wide switch, enabled only after the device passes a capture–replay probe (`detect_cuda_graph_support`). `wanted` comes from settings: the server uses `compute.cuda_graph_offline` (off by default, matching the original's offline default), and the Live worker uses `compute.cuda_graph_live` (on by default). Training never enables it.
+
+Callers uniformly use `run_cuda_graph(owner, namespace, fn, *inputs)`; when disabled or inputs are not on CUDA, it calls `fn` directly. Since shape is part of the key, namespaces must include parameters affecting shape (such as streaming's `rvc-realtime-f0-{skip}-{ret}-{ret2}` and offline formant's `rvc-synth-f0-formant-{n_res}`), or the same graph could be reused incorrectly.
+
+<Callout type="info" title="Do not call emptycache` with CUDA Graph enabled">
+
+The offline converter's `_empty_cache()` calls `torch.cuda.empty_cache()` only when CUDA Graph is disabled: captured graphs' memory pools must be retained, or replay fails. This matches the original's `Pipeline`.
+
+</Callout>
+## HuBERT features
+
+[`features/hubert.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/features/hubert.py) uses transformers' `HubertModel` plus a `final_proj` layer (`HubertModelWithFinalProj`), loaded with `local_files_only=True` from the asset directory `hubert_base/` (`config.json`, `preprocessor_config.json`, `pytorch_model.bin` or `model.safetensors`); missing files raise `MissingAssetError(["hubert"])`. DirectML (device string contains `privateuseone`) forces `attn_implementation="eager"`, because DirectML does not implement all SDPA kernels used by transformers.
+
+`extract_features(model, source, version, padding_mask)`:
+
+- v1: `hidden_states[9]` through `final_proj`, 256 dimensions;
+- v2: `last_hidden_state`, 768 dimensions;
+- A separate CUDA Graph namespace for each of the four combinations (version × mask present/absent).
+
+**Normalisation has one implementation**: `normalize_input()` reads `do_normalize` from `preprocessor_config.json` (`requires_normalization()`, `lru_cache`) and applies `F.layer_norm` if true. The original follows this flag in training feature extraction but never normalises in inference, potentially making training and inference inconsistent; the real asset's `do_normalize` is `false`, so neither side normalises and results match the original. Training (`train/feature_extract.py`) and inference share this function, preventing divergence if the asset changes later.
+
+## F0 extraction
+
+[`f0/base.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/f0/base.py) defines the `F0Provider` protocol: `compute(x, p_len)` returns a Hz value every 10 ms (160 samples) for 16 kHz audio, with 0 for unvoiced frames. The original implements pitch shift, unvoiced interpolation and 256-level quantisation separately in the offline pipeline, live engine and training extraction; here each has one implementation:
+
+- `interpolate_unvoiced()`: fills unvoiced frames by linear interpolation between adjacent voiced frames (offline rule);
+- `shift(f0, semitones)`: multiplies by `2^(semitones/12)`;
+- `to_coarse()`: quantises on the mel scale to 1..255 for the synthesizer's pitch embeddings;
+- `offline_f0()`: compute → interpolate → shift → quantise, returning `(coarse, hz)`, equivalent to the original's `Pipeline.get_f0`.
+
+The streaming engine has its own `_get_f0`/`_f0_post` to handle tensors on the device, with the same maths (see below). Training F0 is not pitch-shifted.
+
+| Method | Implementation | Device | Asset |
+| --- | --- | --- | --- |
+| `pm` | `PmProvider`: parselmouth `to_pitch_ac`, 10 ms time step, voicing threshold 0.6, 50–1100 Hz, zero-pad both ends to `p_len` | CPU | None |
+| `rmvpe` | `RmvpeProvider` → `f0/rmvpe.py:RMVPE` (copied), `infer_from_audio(x, thred=0.03)` | PyTorch on CUDA/CPU; onnxruntime's `DmlExecutionProvider` on DirectML | `rmvpe` (`rmvpe/rmvpe.pt`); `rmvpe-onnx` (`rmvpe/rmvpe.onnx`) on DirectML |
+| `fcpe` | `FcpeProvider` → `f0/fcpe.py:FCPEInfer` → `f0/fcpe_model.py`, `local_argmax` decoding, threshold 0.006 | All; mel and decoding on CPU for DirectML | `fcpe` (`fcpe/fcpe_c_v001.pt`) |
+
+`RmvpeProvider` checks the appropriate file for the device and raises `MissingAssetError` with the correct asset id if missing, so the UI offers ONNX or PyTorch weights as appropriate. `RMVPE` uses half precision only on CUDA (already decided by the runtime's GPU rules).
+
+### The FCPE port
+
+The original uses FCPE through `torchfcpe.spawn_bundled_infer_model`. [`f0/fcpe_model.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/f0/fcpe_model.py) ports only the path this model actually executes: `Wav2Mel` (128-bin log-mel, 16 kHz, hop 160), convolution-only `CFNaiveMelPE` (`ConvOnlyEncoder` stacking `ConformerConvModule`), two decoders and `load_fcpe()`. The attention branch (depending on `einops`, `local_attention`) never runs for `fcpe_c_v001.pt` with `conv_only: true`, so it was not ported; non-16 kHz input is resampled by the ported `sinc_resample.Resample`, matching torchfcpe's use of torchaudio. Arithmetic is unchanged; output is bit-identical to torchfcpe (`tests/engine/test_fcpe_model.py`). This removes rvc-next's dependency on torchfcpe (which pulls in torchaudio), with weights downloaded as the `fcpe` asset (see [Assets and model repositories](/docs/development-assets) for sources).
+
+`f0/fcpe.py:FCPEInfer` handles device differences on top of this: on CUDA with CUDA Graph enabled, mel is computed outside the graph, with the network and decoding inside (decoder offset tensors are placed on the device in advance because graph capture forbids host-to-device copies); DirectML lacks the complex STFT used in the mel stage, and `gather` returns incorrect bins, so mel and decoding run on CPU and only the network runs on GPU.
+
+## Retrieval indexes
+
+- **Retrieval** ([`index/retrieval.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/index/retrieval.py)): `load_index()` reads the faiss index and reconstructs all vectors once with `reconstruct_n`, producing `LoadedIndex(path, index, vectors)`; if the name contains `trained` and a corresponding `added` file exists beside it, it uses the latter (original behaviour). `blend(feats, index, k=8)` averages the top-8 neighbours weighted by inverse squared distance. The original repeats `read_index` + `reconstruct_n` for every converted file, slowing batch conversion; here `Runtime.index()` caches by path and modification time.
+- **Identification** (`index/inspect.py`): `inspect_index()` opens with mmap and reads only `d` and `ntotal`. `IndexInfo.version` follows the dimension (256 → v1, 768 → v2); `empty` means `ntotal == 0`, a `trained_*` index without added vectors. Import sessions and the index inbox use this to check voice compatibility by content rather than filename.
+- **Building** (`index/build.py`, training's `index` stage, ported from `train/train_index.py`): concatenate features, shuffle, save `total_fea*.npy`; above `KMEANS_THRESHOLD` (200,000) vectors, reduce to `KMEANS_CENTRES` (10,000) centres with faiss k-means (the original uses scikit-learn's MiniBatchKMeans; switching to faiss removes a dependency); `IVF{n},Flat`, `n = min(16·√N, N/39)`, `nprobe = 1`; write `trained_IVF…index`, then add vectors in batches of 8192 and write `added_IVF…index`. Multi-speaker experiments (with `multispeaker_manifest.json`) have one index per speaker, with `_spkid<N>` in the filename.
+
+<Callout type="info" title="When indexes are rebuilt">
+
+The original skips building whenever any `added_*.index` exists, leaving an old index after training on new data. Here the fingerprint of each feature file group (`train/fingerprint.py:of_paths`, including version and name) is stored in `index_fingerprint.json`; old files are removed and rebuilt only if the fingerprint changes or `force=True`, otherwise it returns `reused: true`.
+
+</Callout>
+## Models and checkpoints
+
+### Networks
+
+`models/{synthesizer,modules,attentions,commons,transforms}.py` is copied from the original's `infer/module/`, changing only import paths and retaining the original formatting (excluded from `ruff format` and ty; see [Parity with the original](/docs/development-parity)). Four synthesizer classes are selected by `(version, pitch_guidance)` (`models/loader.py:synthesizer_class`):
+
+| | With pitch guidance | Without pitch guidance |
+| --- | --- | --- |
+| v1 (256 dimensions) | `SynthesizerTrnMs256NSFsid` | `SynthesizerTrnMs256NSFsid_nono` |
+| v2 (768 dimensions) | `SynthesizerTrnMs768NSFsid` | `SynthesizerTrnMs768NSFsid_nono` |
+
+Discriminators are `MultiPeriodDiscriminator` (v1) and `MultiPeriodDiscriminatorV2` (v2).
+
+### `.pth` format
+
+[`models/checkpoint.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/models/checkpoint.py) determines whether users' existing models remain usable, so it reads and writes the original format:
+
+- **Small model** (voice): `{weight: fp16 state_dict without enc_q, config: 18 positional hyperparameters, info, sr, f0, version, speaker_info?}`. `read_small_model()` parses it into `SmallModel`, retaining unknown keys in `extra` and preserving them when writing back; `target_sample_rate` comes from `config[-1]`, `speaker_slots` from the row count of `emb_g.weight`. `normalize_speaker_info()` normalises `speaker_info` into a list of `{id, name}` with unique ids below 110.
+- **Full checkpoint**: `G_<step>.pth`/`D_<step>.pth`, `{model, optimizer, learning_rate, iteration}`; “Keep only the latest checkpoint” fixes the step at `2333333`.
+- All writes use `torch_save()`, writing `.tmp` then `os.replace`, so a crash cannot leave a partial model.
+
+`summarize()` describes a small model or G checkpoint without constructing a network; `inspect_checkpoint()` identifies any `.pth` by content for import sessions, never raising for a readable file:
+
+| Kind | Identification |
+| --- | --- |
+| `small` | Has `weight` and `config` |
+| `D` | State dict has `discriminators.*`; 7 sub-discriminators means v1, 9 means v2; D cannot identify the sample rate |
+| `G` | Has `dec.*`; `enc_p.emb_phone.weight` width 768 means v2, otherwise v1; presence of `dec.m_source*` means pitch guidance; sample rate is looked up in `_G_RATES` from the input width of `enc_q.pre.weight` (513 → 32k, 1025 → 40k/48k) and upsampling kernel sizes |
+| `unknown` | Anything else, with an explanation |
+
+| `enc_q.pre` width | Upsampling kernels | Result |
+| --- | --- | --- |
+| 513 | `(16, 16, 4, 4, 4)` | 32k v1 |
+| 513 | `(20, 16, 4, 4)` | 32k v2 |
+| 1025 | `(16, 16, 4, 4)` | 40k (same architecture for v1 and v2) |
+| 1025 | `(16, 16, 4, 4, 4)` | 48k v1 |
+| 1025 | `(24, 20, 4, 4)` | 48k v2 |
+
+### Loading, merging, extraction and metadata edits
+
+- `loader.py:load_voice()`: reads the small model, changes `config[-3]` (speaker count) to the actual row count of `emb_g`, constructs the appropriate synthesizer, deletes `enc_q`, calls `load_state_dict(strict=False)`, then converts to half or single precision as selected. Equivalent to the original's `VC.get_vc`, without returning Gradio update dictionaries.
+- `merge.py:merge_models(a, b, dst, alpha=…)`: `alpha·a + (1−alpha)·b`, with fp16 results. Both must have the same version, pitch guidance, sample rate and structure; differing `emb_g` row counts keep the shorter one (original rule); sample rate and version come from `a`; `speaker_info` is retained only if identical in both.
+- `extract.py:extract_small_model()`: extracts a small model from a G checkpoint. `config_for(sample_rate, version)` generates the 18 configuration entries written by the original—v2 40k uses the v1 40k layout, matching the original's `configs/v1/40k.json`.
+- `checkpoint.py:change_info()`: copies a small model and rewrites `info` or speaker names (the original's “change information”). The voice library stores user-edited speaker names in `voice.json`, without modifying `.pth`.
+
+## Offline conversion
+
+`OfflineConverter.convert(audio_16k, voice, params, index=…, resample_to=…, progress=…, cancel=…)` in [`convert/offline.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/convert/offline.py) ports the original's `infer/vc/pipeline.py` line by line and returns `(int16 samples, sample rate)`. Input is float32 already decoded to 16 kHz mono (core handles decoding through `audio/io.py:decode`).
+
+<Mermaid chart={"flowchart TD\n    A[16 kHz mono] --> B[\"prepare_input: scale if peak exceeds 0.95\"]\n    B --> C[\"highpass_16k: 48 Hz 5th-order Butterworth, filtfilt\"]\n    C --> D{\"Length exceeds x_max?\"}\n    D -- Yes --> E[\"Every x_center seconds, find the lowest-energy point within ±x_query as cut point opt_ts\"]\n    D -- No --> F[Whole clip]\n    E --> G[\"Reflect-pad by x_pad seconds\"]\n    F --> G\n    G --> H[\"Compute F0 once for the whole clip: offline_f0, shift by pitch − formant\"]\n    H --> I[\"_vc per chunk: HuBERT → index blending → 2× interpolation → protect blending → net_g.infer\"]\n    I --> J[\"Remove x_pad output from both ends of each chunk\"]\n    J --> K[\"Concatenate → change_rms (rms_mix_rate ≠ 1) → optional resampling\"]\n    K --> L[\"to_int16: normalise if peak exceeds 0.99\"]"} />
+
+Key points:
+
+- **F0 is computed once** for the entire padded audio, then sliced per chunk to avoid pitch discontinuities at chunk boundaries.
+- **Index**: retrieval is skipped entirely when `index_rate == 0` or there is no index. Blending is in fp32 (convert half precision to fp32, then back), matching the original.
+- **protect**: when `protect < 0.5` and pitch guidance is present, original features are mixed back according to `pitchf`—weight 1 for voiced frames, `protect` for unvoiced frames—to protect consonants and breaths. `0.5` disables protection.
+- **Speaker** `params.speaker_id` is passed directly to the synthesizer as `sid`.
+- **Cancellation and progress**: `cancel.check()` before each chunk, `progress(n/total)` after each chunk.
+
+### Offline formant shift
+
+The original supports formant shift only in the live engine; here its live method is ported to offline conversion:
+
+1. Shift F0 by `pitch − formant` (same as live);
+2. `factor = 2^(formant/12)`: request `n_res = ceil(frames · factor)` frames from the synthesizer and multiply NSF's continuous pitch `pitchf` by `n_res / frames`, preserving pitch while generating longer audio;
+3. `_formant_resample()` takes `upp_res = floor(factor · tgt_sr / 100)` samples per frame, then compresses back to the original length with `sinc_resample.Resample(upp_res → tgt_sr/100)`—restoring duration while shifting the spectral envelope upward by `factor`.
+
+When `formant == 0`, `n_res` is `None` and the call is exactly the same as the original, so output with default parameters is bit-identical.
+
+<Callout type="info" title="Output is slightly shorter than input">
+
+Output may be up to two 10 ms frames shorter than input, due to the original's per-chunk flooring in `p_len = len // 160`, deliberately preserved for bit-identical results.
+
+</Callout>
+## Streaming engine
+
+`StreamEngine` in [`stream/engine.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/stream/engine.py) is a live converter with “one block in, one block out, no I/O”. Its maths comes from the original's `infer/rtrvc.py` (`RVC.infer`) and `start_vc`, `audio_callback` in `realtime_gui.py`; the original has three copies of this DSP chain in the GUI callback, `rtrvc` and VST worker, now combined in one class. `process()` is synchronous and accepts only plain arrays, so it can be driven by a PortAudio session, tests using WAV files, or a future VST adapter or browser transport.
+
+### Buffers (`_build`)
+
+All lengths use the device sample rate `sample_rate`, with `zc = sample_rate // 100` (10 ms); millisecond parameters are rounded to whole 10 ms units (`_frames`, the original's rounding):
+
+| Quantity | Value |
+| --- | --- |
+| `block_frame` | `block_ms` |
+| `crossfade_frame` | `crossfade_ms` |
+| `sola_buffer_frame` | `min(crossfade_frame, 4·zc)` (at most 40 ms) |
+| `sola_search_frame` | `zc` (10 ms) |
+| `extra_frame` | `context_ms` (the original's `extra_time`) |
+| `input_wav` | `extra + crossfade + sola_search + block`, rolling buffer at the device sample rate |
+| `input_wav_res` | 16 kHz version of the same buffer |
+| `skip_head` / `return_length` | `extra_frame // zc` / `(block + sola_buffer + sola_search) // zc` |
+
+### Per-block processing (`_process` and `_infer`)
+
+<Mermaid chart={"flowchart TD\n    A[\"One input block (device sample rate)\"] --> B{\"threshold_db > −60?\"}\n    B -- Yes --> C[\"RMS gate: zero 10 ms segments below the threshold\"]\n    B -- No --> D\n    C --> D[\"Roll into input_wav\"]\n    D --> E{\"input_denoise?\"}\n    E -- Yes --> F[\"TorchGate denoising + crossfade with the previous block's tail\"]\n    E -- No --> G\n    F --> G[\"sinc resample to 16 kHz, roll into input_wav_res\"]\n    G --> H{\"passthrough?\"}\n    H -- No --> I[\"_infer: HuBERT on the whole context; index retrieval only for new frames; F0 on the tail rolled into a 1024-frame pitch cache; net_g.infer(skip_head, return_length, return_length2)\"]\n    I --> J[\"Formant resampling upp_res → tgt_sr/100; resample to device sample rate\"]\n    H -- Yes --> K[\"Take the (denoised) input directly\"]\n    J --> L{\"output_denoise?\"}\n    L -- Yes --> M[TorchGate output denoising]\n    L -- No --> N\n    M --> N{\"rms_mix_rate < 1?\"}\n    N -- Yes --> O[RMS envelope blending]\n    N -- No --> P\n    O --> P[\"SOLA: find offset by normalised cross-correlation in a 10 ms window, sin² crossfade\"]\n    P --> Q[\"One output block\"]"} />
+
+- HuBERT runs on the whole `context` (longer context stabilises features), but retrieval only handles new frames after `skip_head // 2`, and synthesis generates only new audio (`skip_head`/`return_length`), keeping latency manageable.
+- F0 is computed only on the buffer tail: length `block_frame_16k + 800`, rounded up to a multiple of 5120 then minus 160 for RMVPE (its frame alignment). After removing a few frames at both ends, results roll into the 1024-frame `cache_pitch`/`cache_pitchf`. Live pm differs from offline: both ends are zero-padded using a 65 Hz lower bound, then trimmed to the block's frame count (`_pm`), matching the original's live implementation.
+- Formant: `return_length2 = ceil(return_length · factor)`, `cache_pitchf` is multiplied by `return_length2 / return_length`, then generated audio is resampled back using `upp_res`—the offline method comes from here.
+- SOLA ([`audio/sola.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/audio/sola.py), from DDSP-SVC): finds the offset within `sola_search_frame` with the highest normalised cross-correlation to the previous block's tail, fades in/out with `sin²`, and saves the tail for the next block.
+- Resampling from device sample rate to 16 kHz and from synthesizer sample rate to device sample rate both use the ported `sinc_resample.Resample`, through CUDA Graph (`realtime-input-resample`, `realtime-output-resample`).
+
+### Two differences from the original
+
+- **Speaker selection works**: the original's `rtrvc.py` hardcodes `sid` to 0, preventing speaker selection for multi-speaker voices in the live GUI and VST; here it uses `params.speaker_id`, clamped to `[0, n_spk−1]`.
+- **Changing block size does not reload the model**: see the next section.
+
+### Hot updates
+
+| Call | Effect |
+| --- | --- |
+| `update(VoiceParams)` | Pitch, formant, index strength, protect, loudness mix, speaker and F0 method apply from the next block |
+| `reconfigure(StreamParams)` | Threshold and denoising switches update live; changes to `block_ms`, `crossfade_ms`, `context_ms` (`StreamParams.same_buffers()` is false) rebuild buffers while keeping the voice loaded, with about one silent block |
+| `set_voice(voice, index)` | Switch voice between blocks; HuBERT and F0 models are shared by the runtime |
+| `set_index(index)` / `reset()` | Change index / clear all buffers (after switching devices) |
+| `prewarm()` | Run a block of 220 Hz test tone through every stage to trigger CUDA Graph capture and lazy loading, then `reset()` |
+| `passthrough` property | Skip the voice and return (gated, denoised) input, replacing the original's `im` mode |
+
+All entry points share an `RLock`, so control-thread updates cannot interleave with the processing thread's `process()`.
+
+<Callout type="warn" title="removeweightnorm() modifies the cached network">
+
+`prepare_voice()` calls `remove_weight_norm()` on the voice's `net_g`, matching the original's live loader (folding weight normalisation into weights for faster inference). This modifies the runtime's cached object in place, so `StreamEngine` is used only in the Live worker's own `Runtime`, never the server process's runtime.
+
+</Callout>
+### Latency estimation
+
+`stream/latency.py:estimate_latency_ms()` extends the original's display formula (output latency + block + crossfade + 10 ms, plus the input denoising term `min(crossfade, 40 ms)`): it also adds one block prefilled in the output ring buffer, one block of target ring-buffer fill for split streams, and input device latency. Measured inference time is reported separately in statistics (`infer_ms_p50/p95`).
+
+## Audio codecs and DSP
+
+| Module | Contents |
+| --- | --- |
+| [`audio/io.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/audio/io.py) | `probe()` (duration, sample rate, channels, codec; counts frames for containers without duration), `decode()` (PyAV + libswresample decode, mix and resample in one pass, with `max_seconds` for previews), `encode()` (soundfile for wav/flac, PyAV transcoding for mp3/m4a; writes `.<name>.part` then renames), `to_int16()`. Falls back to `ffmpeg`/`ffprobe` commands (if on PATH) when PyAV fails. The original's `clean_path` quote/space stripping was removed—paths are already clean here, and any path accepted by the operating system works |
+| `audio/resample.py` | `resample()`: librosa's default (soxr) resampling, for the post-conversion “resample to” option, matching the original |
+| [`audio/sinc_resample.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/audio/sinc_resample.py) | `Resample`, `sinc_resample_kernel`, `apply_sinc_resample_kernel` ported from torchaudio 2.11, bit-identical (see [Parity with the original](/docs/development-parity)) |
+| `audio/dsp.py` | `highpass_16k()` (48 Hz 5th-order Butterworth, zero-phase), `change_rms()` (original loudness envelope blending), dB conversion |
+| `audio/peaks.py` | `compute_peaks()`: interleaved (min, max) pairs for waveform display, cached by core in `cache/peaks/` |
+| `audio/sola.py` | SOLA crossfade |
+| `audio/denoise.py` | TorchGate spectral gate denoising, copied from the original's `tools/torchgate/` (reuses `STFT` from `f0/rmvpe.py`) |
+
+PyAV uses the same libavformat/libswresample libraries that the original invokes through `ffmpeg`, so no system ffmpeg installation is required. mp3 and AAC accept only specific sample rates; `_transcode()` uses `encoder_rate()` to raise 40 kHz output to 44.1 kHz—the original's `wav2` omits this, so mp3/m4a export from 40k models fails.
+
+## Real-time audio devices (`audio_io`)
+
+Device handling in the original's `realtime_gui.py` has several problems: the same microphone appears once per Windows driver (MME, DirectSound, WASAPI, WDM-KS), requiring users to select a driver type first; MME truncates names to 31 characters, while the GUI saves and matches by name; a single duplex `sd.Stream` requires the same driver type for input and output; missing saved devices silently switch to system defaults; refreshing the list stops conversion and calls private `sd._terminate()`/`sd._initialize()`; changing any device stops streams and reloads the model. `audio_io/` rewrites this handling to address these problems.
+
+### Enumeration and grouping (`devices.py`)
+
+`enumerate_raw()` is the only function importing `sounddevice`: it calls `query_hostapis()`, `query_devices()`, then probes support for 44.1/48/88.2/96 kHz with `check_input_settings`/`check_output_settings`. It runs in the short-lived `workers.devices` subprocess, so re-enumeration does not disturb active streams.
+
+`group_devices()` and `resolve_selection()` are pure functions, tested with captured real enumeration results (`tests/fixtures/devices/{windows,macos,linux_pipewire}.json`):
+
+- Name normalisation (`normalize_name`): case folding, collapsing whitespace, stripping `(<host api>)` suffixes added by some drivers.
+- Group names from longest to shortest, so an MME name truncated to 31 characters can match the full name by prefix; ambiguous prefixes form separate groups—the cost is duplicate display, safer than combining different devices.
+- Each group is a physical device, with `variants` sorted by driver rank and the recommended driver first. Ranks (`HOST_API_RANKS`, lower is better): Windows ASIO → WASAPI → WDM-KS → DirectSound → MME; macOS Core Audio; Linux JACK → ALSA → Pulse → OSS.
+- Device id is `sha1(host_api | original name | direction | same-name ordinal)[:12]`, stable across enumeration; `portaudio_index` is valid only for the current enumeration and is never saved.
+- Aliases following system defaults, such as `Microsoft Sound Mapper` and `Primary Sound Driver`, are omitted; virtual devices (VB-Audio, VoiceMeeter, BlackHole, Loopback, Soundflower, null sink…) get `is_virtual`.
+
+`resolve_selection(selection, device_list, direction)` recovers saved selections in a new list, trying in order: same `device_id` → same physical key and driver → recommended driver for the same physical key → same name on any driver → system default. It returns `exact`, `matched`, `default_fallback` or `missing`, with an explanation for the last two. Core decides whether output fallback is allowed (`allow_output_fallback`), because sending converted audio to speakers instead of a virtual cable is an immediately noticeable error.
+
+### Sessions and topology (`streams.py`)
+
+`AudioSession` opens input, output and optional monitor output on a `Backend`, connects them with ring buffers, and runs a processing thread passing whole blocks to a processor (usually `StreamEngine.process`).
+
+- **Engine sample rate** (`engine_rate`): selected output sample rate; otherwise the output device's default if supported; otherwise 48 kHz. This replaces the original's confusing `sr_model`/`sr_device` switch.
+- **Topology** (`choose_topology`): one duplex stream (`duplex`, lowest latency) when input and output share a driver and both support the rate; otherwise separate input + output streams (`split`), with drift correction in the ring buffer between them. If input does not support the engine rate, it opens at its own default rate and converts with `LinearResampler` linear interpolation—the engine resamples to 16 kHz anyway, so this interpolation has little cost. Monitor output is always a separate output stream branched from the processing thread (`monitor_source`: `converted`, `input` or `both`).
+- **Channels**: input opens through the highest selected channel, with selected channels mixed to mono in the callback; output writes mono to selected channels (first two by default).
+- **Callbacks only move data and update counters**: no torch, logging or large allocations. The output ring buffer is prefilled with one silent block at startup (two for `split`).
+- **Device loss**: reported when a stream's `finished_callback` fires unexpectedly or the watchdog sees no callback for a role for longer than `max(0.5 s, 3 blocks)` (`on_device_lost(role, device_id, reason, message)`), only once. `classify_portaudio_error()` maps PortAudio error text to `missing`, `busy`, `format`, `permission`.
+- **Statistics**: input/output peak and RMS, inference time p50/p95 (last 50 blocks), underrun/overrun counts, drift ppm for `split`.
+
+`Ring` (`rings.py`) is a single-producer, single-consumer float32 ring buffer; the lock covers only index operations and two slice copies, so the audio callback waits for the processing thread for no longer than one copy. Writing to a full buffer counts as an overrun; reading an empty one as an underrun.
+
+`DriftCorrector` (`drift.py`) handles the fact that two device clocks never stay perfectly synchronised: the reader exponentially smooths ring-buffer fill; when it deviates from target by more than half a block, it removes or duplicates one sample every 10 ms (at the quietest point in each 10 ms segment) until within 1/8 block of target. Target fill is measured after the first second, because the relative phase of the two callbacks determines the stable fill level, which no constant can predict. Real clock drift is tens of ppm, a few samples per second, and is inaudible.
+
+`SounddeviceBackend` uses PortAudio (`latency="low"`, WASAPI exclusive mode through `WasapiSettings`); `enable_asio` sets `SD_ENABLE_ASIO=1` to select the ASIO-enabled PortAudio bundled on Windows since sounddevice 0.5.1. `fake.py:FakeBackend` simulates devices: one thread per stream calls callbacks at the device's own clock (`1 + ppm·1e-6` times the nominal rate), `lose(index)` simulates unplugging a USB device, `refuse` makes opening fail, and output is recorded for assertions. Tests and worker requests with `backend: "fake"` use it (`backend_from_request`). `tone.py:chime()` is the chime played by the “Test” button.
+
+## Live worker and control protocol
+
+[`workers/live.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/workers/live.py) is a persistent process owning audio devices and real-time threads, isolated from the server's event loop, GIL contention and crashes. It connects back to core with `multiprocessing.connection.Client` (address and random authkey in the request file, `protocol/live.py:WorkerRequest`), exchanging JSON messages defined in `protocol/live.py`.
+
+<Mermaid chart={"flowchart LR\n    subgraph worker[\"workers.live process\"]\n        IN[\"Input callback\"] --> R1[(Input ring buffer)]\n        R1 --> PT[\"Processing thread: StreamEngine.process\"]\n        PT --> R2[(Output ring buffer)]\n        R2 --> OUT[Output callback]\n        PT --> R3[(Monitor ring buffer)]\n        R3 --> MON[Monitor callback]\n        CT[\"Control thread\"] -. Update .-> PT\n        ST[\"Statistics thread 10 Hz\"]\n    end\n    CORE[\"Core LiveSupervisor\"] <-- \"JSON messages\" --> CT\n    ST --> CORE"} />
+
+| To the worker | Purpose |
+| --- | --- |
+| `Start(config)` | Load voice (`voice_path`, `index_path`), build engine, prewarm, open devices; states `starting` → `loading` → `prewarming` → `running` |
+| `Stop` / `Shutdown` | Stop session / exit process |
+| `UpdateVoice(params)` | Hot update; changing F0 method first loads the new model in the control thread; missing assets keep the old method and report `asset_missing` |
+| `UpdateStream(stream)` | Hot-update threshold and denoising; block size and similar changes close streams, `reconfigure`, reopen streams, without reloading the voice |
+| `SetVoice(voice_path, index_path, speaker_id)` | Switch voice while running: the old voice keeps converting while the new one loads; loading failure reports `detail.reason == "voice_load"` and retains the old voice. Success or failure returns `State` with `voice_path`, telling core which voice is actually converting |
+| `SetDevices(devices)` | Only close and reopen streams; rebuild the engine only if engine sample rate changes (the voice remains in the runtime cache) |
+| `Meter(on, input)` | Open input alone while stopped to measure levels |
+| `TestTone(device)` | Play a chime on an output |
+| `Passthrough(on)` | Pass input straight to monitor (or output) to check routing |
+| `ReleaseMemory` | Unload engine and all models; ignored during an active session |
+
+| From the worker | Contents |
+| --- | --- |
+| `State` | `state`, `error` (`{code, message, detail}`), `topology`, `sample_rate`, `meter`, `passthrough`, `cached` (models loaded in the worker runtime, for “Free GPU memory”), `voice_path` |
+| `Stats` | 10 Hz levels, inference time, block size, estimated latency, underruns/overruns, drift, GPU memory |
+| `DeviceLost` | Role, device id, reason, message |
+| `Log` | Logs |
+
+After device loss, the worker reports `DeviceLost`, stops the session and enters `reconnecting`, then waits for `SetDevices`; core handles re-enumeration and reopening on `exact`/`matched` (see [Core services](/docs/development-core)). On a processing-thread error or OOM during loading/prewarming, the worker unloads all its models first, then reports `compute_unavailable` (`detail.reason = "out_of_memory"`).
+
+## Vocal separation
+
+- **Model table and presets** ([`separate/presets.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/separate/presets.py)): `MODELS` is the original's `MODEL_SPECS` in `tools/pymss_webui.py`—five Roformer models (`vocals`, `vocals-aggressive`, `dereverb`, `dereverb-aggressive`, `karaoke`), each with checkpoint, YAML, primary/secondary output stems and labels, batch size, overlap, size and SHA-256. Presets are data in `core/separation/presets.json`: five single-model presets plus two chains, `vocals-clean` (vocals → dereverb) and `lead-clean` (vocals → karaoke → dereverb). YAML is packaged (`separate/configs/`), so only checkpoints need downloading; `resolve_model()` prefers YAML found beside `pymss_weights/` in the asset directory, allowing direct use of an original installation.
+- **Chain planning** (`plan_chain`): each step separates the previous step's primary stem; the final primary stem is written with the preset's `primary_stem` label, and other stems are written if their labels appear in preset `stems`, each label only once. Output names are `<input>.<label>.<format>`, with `-2`, `-3` on conflicts.
+- **Runner** (`separate/runner.py:run_separation`): decodes each input once to 44.1 kHz stereo, separates step by step according to the plan and writes stems; models load only once per job; progress is “audio seconds processed / total seconds × steps”. `PymssSeparator` uses pymss 2.1.7's `MSSeparator` with the same options as the original; pymss recognises only cpu/cuda/mps, so on DirectML the model loads on CPU before moving to the device (converted to half precision for the fp16 attempt).
+- **DirectML fp16 → fp32 retry**: DirectML tries fp16 first; a retryable error (other than OOM) before any file succeeds raises `RetryInFp32`, causing the worker to exit with `75` (`EXIT_RETRY`). Core reruns in a new process with `precision: "fp32"`—matching the original design, because a failed DirectML context cannot recover in-process.
+- **Import check**: the `check` action in `workers/separate.py` loads an imported model once on CPU, rejecting incorrect checkpoint/YAML pairs during import. `inspect_config()` identifies YAML using pymss_core's `detect_model_type`, and `custom_model()` produces the same description shape as `resolve_model()` for imported models.
+- `FakeSeparator` splits input in half into two stems, with configurable delay and fp16 failure for tests.
+
+## Training
+
+Core adds an optional `clean` stage before these stages (cleaning the dataset with a separation preset); it calls the separation service rather than engine training code. See [Core services](/docs/development-core).
+
+Each stage is a function: it accepts a frozen request dataclass, writes to the experiment folder, reports progress and logs through callbacks, and skips completed work. Stages run in `workers.train` subprocesses (one process per stage; cancellation kills the process tree); parallel portions use `train/parallel.py:run_parts()` to start subprocesses with `spawn` (fork breaks CUDA and some BLAS implementations), running in-process when there is only one part.
+
+| Stage | Function | Output (inside experiment folder) | Notes |
+| --- | --- | --- | --- |
+| `slice` | `train/preprocess.py:run(SliceRequest)` | `0_gt_wavs/`, `1_16k_wavs/`, `slice_done.txt` | slicer2 (−42 dB), about 3.7 s per slice with 0.3 s overlap, causal high-pass then normalisation before writing; **every slice's tail is written** (fixing an original regression); completed input keys go in `slice_done.txt`, so only unfinished inputs are re-sliced after interruption |
+| `f0` | `train/f0_extract.py:run(F0Request)` | `2a_f0/` (coarse), `2b-f0nsf/` (continuous) | Only `pm` (CPU multiprocessing) and `rmvpe` (one device, or one process per GPU with `CUDA_VISIBLE_DEVICES`); no pitch shift; entirely unvoiced clips are skipped |
+| `features` | `train/feature_extract.py:run(FeatureRequest)` | `3_feature256/` or `3_feature768/` | Shares `extract_features` with inference |
+| `fit` | `train/loop.py:run(TrainRequest)` | `G_*.pth`, `D_*.pth`, `weights/*.pth`, `metrics.jsonl`, `filelist.txt`, `config.json` | Single GPU or CPU in-process; multiple GPUs use DDP over gloo, one spawn process per card |
+| `index` | `index/build.py:run(IndexRequest)` | `trained_*.index`, `added_*.index`, `total_fea*.npy`, `index_fingerprint.json` | See “Retrieval indexes” above |
+
+Details of `fit`:
+
+- `train/filelist.py` writes `filelist.txt` like the original's `run_train_model` (`gt.wav|feature.npy|f0.npy|f0nsf.npy|speaker_id`, omitting two columns without pitch guidance, appending `|speaker_name` for multiple speakers), repeating rows according to each speaker's repeat count and adding two silent sample rows per speaker. Silent samples are packaged (`engine/train/data/mute/`, same contents as the original's `mute.zip`) and copied to `<experiment>/mute/`, because the data loader caches `.spec.pt` alongside them.
+- Hyperparameters are in `CONFIGS` in `train/hparams.py` (the original's `configs/v1|v2/*.json`); v2 has no 40k file, so it uses `v1/40k`.
+- Resume from the latest G/D and continue with **subsequent** epochs (the original repeats the saved epoch); otherwise load base models, expanding `emb_g` when speaker count exceeds the base model's (`load_pretrained_generator`). AMP is enabled only when every selected card qualifies for fp16 (`training_is_half`, the original's `get_training_dtype`).
+- The original's `os._exit(0)`, `argparse` and global state were removed; progress, logs, metrics and saved files are reported through `Sink` (direct callbacks in-process, rank 0 through a queue for DDP). Each metrics line is written to `metrics.jsonl` and sent as a `metric` event, converted by core to `train_metrics`. TensorBoard is optional. Small models go in `<experiment>/weights/`, no longer in global `assets/weights/`.
+
+Other helpers: `train/multispeaker.py` (speaker table, `Name_ID_Repeat` folder convention, `multispeaker_manifest.json`, slice files named by `output_key` to carry speakers through F0, features, file lists and indexes); `train/scan.py:scan_dataset()` (reports clip count, duration, sample rates and issues such as too short/too long/clipped before slicing); `train/experiment.py` (stage output existence, checkpoint lists, reading `metrics.jsonl`, reading original experiment folders with `read_legacy()`, default batch size of smallest GPU memory in GiB ÷ 2, default CPU process count of cores ÷ 1.5).
+
+### Fingerprints
+
+`train/fingerprint.py:of_paths(paths, extra)` hashes relative names, sizes and modification times of the given files and directories (recursively) with SHA-1, mixing in `extra` (settings determining output, such as sample rate and F0 method) as text; missing paths hash differently from empty folders. It reads metadata rather than contents, so even multi-GB datasets are instant. It has two users: the index stage uses it to decide whether to rebuild (see “Retrieval indexes” above); core records a fingerprint for each completed stage in `experiment.json`. “Run all” compares each stored fingerprint with a freshly computed one and reruns a stage whose fingerprint changed, together with every stage after it; settings edits and upstream reruns also mark stages stale explicitly (see [Core services](/docs/development-core)).
+
+## Worker subprocess entry points
+
+All four workers use `python -m rvc_next.workers.<name> <request.json>` and share [`workers/base.py:run_worker()`](https://github.com/licyk/rvc-next/blob/main/rvc_next/workers/base.py):
+
+- Duplicate real stdout for events, then redirect fd 1 to stderr—third-party `print` output stays as log text instead of entering the event stream.
+- Events are JSON lines prefixed with `@rvc ` (`protocol/jsonl.py`); `parse_line()` treats unprefixed lines as info logs. Types are in `protocol/messages.py`: `progress`, `step`, `log`, `metric`, `output`, `result`, `error`.
+- `rvc_next` logger output becomes `log` events; `SIGTERM` exits with 130 (`EXIT_CANCELLED`).
+- Exception mapping: `Cancelled` → 130; `MissingAssetError` → `asset_missing` (with `detail.assets`); `ModelFormatError` → `invalid_model`; OOM → `compute_unavailable` (`detail.reason = "out_of_memory"`); other errors → `internal_error`, first sending the full traceback as a `log` event.
+
+| Worker | Request | Result |
+| --- | --- | --- |
+| `train` | `{"stage": …}` plus the stage request fields, `assets_dir`, `device`, `precision` | Stage result dictionary |
+| `separate` | Inputs, preset, resolved models, output directory and format, device and precision; or `{"action": "check", "model": …}` | `{outputs, failed, processed, device, precision}`; exit code 75 means rerun in fp32 |
+| `devices` | `{"action": …}`, action `enumerate`, `check` or `test_tone` | Device list, or `{ok, reason, message, role, …}` |
+| `live` | `WorkerRequest` (address, authkey, asset directory, device, precision, `cuda_graph`, `enable_asio`, backend) | None; all communication through the connection |
+
+See [Architecture](/docs/development-architecture) and [Core services](/docs/development-core) for process startup and how events become job progress.

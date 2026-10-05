@@ -1,0 +1,189 @@
+---
+title: "Installation"
+description: "How to install RVC Next: prepare an isolated Python environment, install PyTorch for your hardware, install RVC Next itself, then check the installation with rvc-next doctor."
+icon: Download
+---
+
+## Prerequisites
+
+| Requirement | Description |
+| --- | --- |
+| Python | 3.10 or newer (3.10 through 3.13) |
+| Isolated virtual environment | A venv or standalone Python dedicated to RVC Next; **do not** share it with other applications |
+| PyTorch | Version 2.7.1 or newer; choose a CUDA or CPU build for your hardware and install it **before** RVC Next |
+| Disk space | Models need additional space: HuBERT and RMVPE, required for conversion, take about 353 MB; each separation model takes 300–440 MB, and each set of training base models about 350–420 MB |
+| PortAudio (Linux only, live voice conversion only) | See below |
+
+<Callout type="warn" title="Why an isolated environment is required">
+
+RVC Next restricts dependencies to tested version ranges. For example, it requires `transformers` 5.x, whose `tokenizers` dependency requires `huggingface_hub` below 2. If another project in the same environment needs `huggingface_hub` 2.x, they cannot coexist. A dedicated virtual environment avoids these conflicts.
+
+</Callout>
+<Callout type="idea" title="No torchaudio required">
+
+RVC Next has ported the resampling and FCPE code it needs. It no longer depends on `torchaudio`, and you do not need to install `torchfcpe` separately.
+
+</Callout>
+## Step 1: Create a virtual environment
+
+<Tabs items={["Windows", "macOS", "Linux"]}>
+<Tab value="Windows">
+
+```powershell
+py -3.11 -m venv rvc-next-env
+rvc-next-env\Scripts\activate
+python -m pip install --upgrade pip
+```
+
+</Tab>
+<Tab value="macOS">
+
+```bash
+python3 -m venv rvc-next-env
+source rvc-next-env/bin/activate
+python -m pip install --upgrade pip
+```
+
+</Tab>
+<Tab value="Linux">
+
+```bash
+python3 -m venv rvc-next-env
+source rvc-next-env/bin/activate
+python -m pip install --upgrade pip
+```
+
+</Tab>
+</Tabs>
+`py -3.11` is only an example; replace it with any installed version from 3.10 through 3.13. Run all subsequent commands in a terminal with this environment activated.
+
+## Step 2: Install PyTorch
+
+PyTorch needs a build suited to your hardware, so install it separately **first**. The version must be 2.7.1 or newer. The most reliable approach is to select your operating system and CUDA version in the selector at [pytorch.org](https://pytorch.org/get-started/locally/), copy its command and pin the version within this range.
+
+<Tabs items={["NVIDIA GPU (CUDA)", "CPU only", "macOS", "Windows: AMD / Intel GPU (DirectML)"]}>
+<Tab value="NVIDIA GPU (CUDA)">
+
+```bash
+python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128
+```
+
+The CUDA 12.8 build supports the RTX 50 series and earlier NVIDIA GPUs. If your driver is older, choose another CUDA build available for this version on pytorch.org.
+
+</Tab>
+<Tab value="CPU only">
+
+```bash
+python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
+```
+
+Use this when no GPU is available. Conversion and separation both work on CPU, but run more slowly; training on CPU is very slow.
+
+</Tab>
+<Tab value="macOS">
+
+```bash
+python -m pip install torch==2.11.0
+```
+
+PyTorch on macOS includes Apple MPS support.
+
+</Tab>
+<Tab value="Windows: AMD / Intel GPU (DirectML)">
+
+Install PyTorch as shown under “CPU only”, then install RVC Next with the `directml` extra in step 3:
+
+```powershell
+python -m pip install "rvc-next[directml]"
+```
+
+This extra installs `torch-directml` and `onnxruntime-directml`. `torch-directml` has its own PyTorch version requirements; before installing, check that its supported version falls within RVC Next's required range of 2.7.1–2.11. This path is experimental.
+
+</Tab>
+</Tabs>
+<Callout type="warn" title="Not validated on physical hardware">
+
+CUDA (including fp16 and CUDA Graphs), DirectML and MPS have not been tested on physical hardware. The CPU path has been tested; the full checks have passed with dependency combinations at both ends: torch 2.8 + numpy 1.26 and torch 2.11 + numpy 2.4.
+
+</Callout>
+## Step 3: Install RVC Next
+
+```bash
+python -m pip install rvc-next
+```
+
+Since PyTorch is already installed, pip considers the `torch` dependency satisfied and will not replace it with another build. After installation, the `rvc-next` command is available in the environment.
+
+### Install from source
+
+To use the latest code or contribute to development, install from source:
+
+```bash
+git clone https://github.com/licyk/rvc-next.git
+cd rvc-next
+python -m pip install -e .
+```
+
+The source **does not include a built web interface** (`rvc_next/webui/dist` is not in the repository). Without it, `rvc-next webui` serves only the API and logs `No web UI build found`. Building the web interface requires [bun](https://bun.sh):
+
+```bash
+python scripts/dev.py web-install   # Equivalent to running bun install in rvc_next/webui
+python scripts/dev.py web           # Build into rvc_next/webui/dist
+```
+
+To build a wheel yourself, use `python scripts/build_wheel.py`, which builds the web interface before packaging; a package built directly with `python -m build` will not include the web interface. See [Development environment](/docs/development-setup) for the full development setup.
+
+## Step 4 (optional): PortAudio for live voice conversion
+
+The **Live** page uses PortAudio through `sounddevice` to access sound cards.
+
+<Tabs items={["Windows", "macOS", "Linux"]}>
+<Tab value="Windows">
+
+No additional installation is needed. The Windows package of `sounddevice` includes PortAudio (with ASIO support).
+
+</Tab>
+<Tab value="macOS">
+
+No additional installation is needed. The macOS package of `sounddevice` includes PortAudio.
+
+</Tab>
+<Tab value="Linux">
+
+The system PortAudio library is required. On Debian / Ubuntu:
+
+```bash
+sudo apt install libportaudio2
+```
+
+On other distributions, install the corresponding PortAudio package.
+
+</Tab>
+</Tabs>
+PortAudio is not needed if you only convert files, separate audio and train models.
+
+## Step 5: Verify the installation
+
+```bash
+rvc-next version
+```
+
+Lists the versions of RVC Next, Python and major components such as torch, transformers, faiss-cpu, av, sounddevice and pymss. A component showing `not installed` indicates an incomplete installation.
+
+```bash
+rvc-next doctor
+```
+
+`doctor` performs a comprehensive check and offers recommendations:
+
+- The data folder location;
+- The torch and CUDA versions, the automatically selected compute device and precision, and each device's GPU memory and whether it is selected;
+- Whether `ffmpeg` is found (optional; PyAV can decode without it);
+- Whether audio devices are available (required for live voice conversion);
+- The status and verification results of each asset (HuBERT, RMVPE, base models, separation models, etc.).
+
+After a fresh installation, `doctor` reports that HuBERT and RMVPE are not installed and provides commands such as `rvc-next assets download hubert`. This is normal; the next page covers it. Both commands support `--json` output.
+
+## Next step
+
+Continue to [First run](/docs/first-run): start the web interface, download models and complete your first conversion.

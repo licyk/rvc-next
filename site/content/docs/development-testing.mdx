@@ -1,0 +1,165 @@
+---
+title: "测试与检查"
+description: "RVC Next 的测试有一个前提：默认测试套件离线、只用 CPU、不需要下载任何东西，在一台没有 GPU、没有声卡的机器上几分钟内跑完。做到这一点靠三样东西：随机初始化的 tiny 模型、模拟的 PortAudio 后端和模拟的分离器，以及在临时目录里构建的服务。需要真实模型或原版仓库的测试打上标记，默认不选。"
+icon: FlaskConical
+---
+
+## 一条命令：`dev.py check`
+
+```bash
+python scripts/dev.py check
+```
+
+它依次运行下面五步，遇到第一个失败即停。CI 跑的也是这些（见下文"CI"一节）：
+
+| 步骤 | 内容 |
+| --- | --- |
+| `lint` | `ruff check` 与 `ruff format --check`（`rvc_next`、`tests`、`scripts`） |
+| `typecheck-py` | `ty check`，以 3.10 为目标、`error-on-warning`；`tests/` 和 `scripts/` 同样检查 |
+| `test-py` | `pytest`，排除 `live`、`golden`、`assets` 标记 |
+| `test-web` | `vitest run` 与 `vue-tsc --noEmit` |
+| `typegen-check` | 重新生成 `schema.d.ts` 和 `paramSpecs.ts`，与提交的版本 diff |
+
+单独运行某一部分：
+
+```bash
+python -m pytest tests/engine/test_stream_engine.py -q
+python -m pytest -k pairing
+python scripts/dev.py test-web
+```
+
+## pytest 标记与环境变量
+
+`pyproject.toml` 的 `[tool.pytest.ini_options]` 设置 `testpaths = ["tests"]`，并用 `addopts = "-m 'not live and not golden and not assets'"` 默认排除三个标记：
+
+| 标记 | 含义 | 需要 |
+| --- | --- | --- |
+| `golden` | 与原版仓库的一致性（`tests/golden/`） | 原版检出、真实资源、音色和音频片段，以及原版一侧的依赖（见下） |
+| `assets` | 需要真实 HuBERT / RMVPE 的测试 | `RVC_NEXT_TEST_ASSETS`；`conftest.py` 的 `real_assets_dir` fixture 读取它，目录中没有 `hubert_base/config.json` 时跳过 |
+| `live` | 需要仓库之外某样东西的测试（例如真实设备） | 视测试而定 |
+
+目前只有 `tests/golden/` 使用了 `golden` 标记；`assets` 和 `live` 已声明并默认排除，`real_assets_dir` fixture 也已就绪，供需要真实模型的测试使用。要运行被排除的测试，显式选择标记，它会覆盖 `addopts` 中的 `-m`：
+
+```bash
+RVC_NEXT_TEST_ASSETS=~/scratch/assets \
+RVC_NEXT_GOLDEN_ORIGINAL=~/code_workspace/Retrieval-based-Voice-Conversion-WebUI \
+RVC_NEXT_GOLDEN_VOICES=~/voices/a.pth:~/voices/b.pth \
+RVC_NEXT_GOLDEN_CLIP=~/clips/speech.wav \
+python -m pytest -m golden -v
+```
+
+| 环境变量 | 用途 |
+| --- | --- |
+| `RVC_NEXT_TEST_ASSETS` | 真实资源目录（原版布局：`hubert_base/`、`rmvpe/`、`fcpe/` 等） |
+| `RVC_NEXT_GOLDEN_ORIGINAL` | 原版 RVC 检出，默认 `~/code_workspace/Retrieval-based-Voice-Conversion-WebUI`，应位于 `81eed5e` |
+| `RVC_NEXT_GOLDEN_VOICES` | 用 `os.pathsep` 分隔的 `.pth` 列表 |
+| `RVC_NEXT_GOLDEN_CLIP` | 一个音频文件 |
+
+golden 测试缺少任一输入时会跳过并说明原因。原版一侧的代码有自己的导入：离线测试中原版的 FCPE 需要 `torchfcpe`，流式测试中原版的实时代码需要 `torchaudio`；它们用 `pytest.importorskip` 处理，缺失时跳过。这两个包 RVC Next 自己并不需要，装的话要与 torch 版本成对（见[开发环境](/docs/development-setup)）。离线一致性也可以不经 pytest，直接用 `scripts/golden.py` 跑：
+
+```bash
+python scripts/golden.py --original <RVC 检出> --assets <资源目录> \
+    --voice a.pth [--voice b.pth] --clip x.wav [--clip y.wav] [--f0 pm --f0 rmvpe --f0 fcpe]
+```
+
+它在 CPU、fp32、相同种子、相同 16 kHz 输入下分别运行原版的 `infer.vc.pipeline.Pipeline` 和 RVC Next，每个用例打印一行，任何一例超过容差（逐样本差的 RMS，按 -1..1 计，`1e-4`）即以 1 退出。各用例的设计、哪些结果逐位相等，见[与原版的一致性](/docs/development-parity)。
+
+## tiny 模型
+
+[`tests/tiny.py`](https://github.com/licyk/rvc-next/blob/main/tests/tiny.py) 生成随机初始化、但**形状与真实模型一致**的模型，几秒钟就能在 CPU 上跑完每条代码路径：
+
+| 函数 | 生成什么 | 为什么这样设计 |
+| --- | --- | --- |
+| `tiny_config(sample_rate, speakers)` | 合成器的 18 项位置参数配置 | 保留每种采样率**真实的上采样倍数与核大小**（所以 hop 长度、填充、输出长度与真实音色一样），只把通道宽度缩小 |
+| `make_tiny_voice(path, version, f0, sample_rate, speakers, speaker_info, seed)` | 一个小模型 `.pth`（fp16 权重，去掉 `enc_q`），用 `write_small_model` 写出 | 走与真实音色完全相同的读取、识别和加载路径 |
+| `make_tiny_g_checkpoint(...)` | 一个训练用 G 检查点（`model`、`iteration`、`optimizer`、`learning_rate`） | 测试提取、按内容识别 G 检查点、导入底模 |
+| `make_tiny_hubert(assets)` | `assets/hubert_base/`：`hidden_size=768`、9 层、`classifier_proj_size=256`，内部很窄；`preprocessor_config.json` 中 `do_normalize: false` | 输出形状与 RVC 一致：v1 取第 9 层经 `final_proj` 的 256 维，v2 取最后一层的 768 维 |
+| `make_tiny_fcpe(path)` | torchfcpe 格式的 FCPE 检查点（`config_dict`、`model`，输出层权重用旧的 `weight_g` / `weight_v` 键） | 真实的 mel 前端加一个两层的窄网络；键名与官方权重一致，所以加载器的转换逻辑也被覆盖 |
+| `tiny_assets(root)` | 含 tiny HuBERT 和 tiny FCPE 的资源目录 | 默认套件能用 `pm` 和 `fcpe` 跑离线转换和流式引擎；RMVPE 没有 tiny 版本，只能在带真实资源的测试中运行 |
+| `make_tiny_index(path, dim, vectors, add)` | faiss `IVF4,Flat` 索引；`add=False` 得到训练过但为空的索引 | 模拟 `added_*` 与 `trained_*` 两种索引，测试按内容识别（宽度 256 / 768、`ntotal == 0`） |
+| `tone(seconds, sr, freq, amp)` | 带慢颤音和少量噪声的谐波音 | 让 F0 提取器有"有声"信号可追踪 |
+
+<Callout type="info" title="tiny 资源与资源校验">
+
+tiny HuBERT 的大小与 `catalog.json` 中记录的不一致，所以 `AssetService.require` 会认为它"未安装"。需要实际转换的测试使用 `no_asset_checks` fixture 把这项检查关掉；`test_missing_asset_exit_code` 则恰恰依赖它没被关掉，以验证缺少资源时退出码为 7。
+
+</Callout>
+## fixtures
+
+[`tests/conftest.py`](https://github.com/licyk/rvc-next/blob/main/tests/conftest.py) 提供：
+
+| fixture | 作用域 | 内容 |
+| --- | --- | --- |
+| `tiny_assets_dir` | session | 用 `tiny_assets()` 生成一次的资源目录 |
+| `real_assets_dir` | session | `RVC_NEXT_TEST_ASSETS`，不可用时跳过 |
+| `tiny_runtime` | function | `Runtime(tiny_assets_dir, device="cpu", precision="fp32")` |
+| `make_services` | function | 工厂：在 `tmp_path / "data"` 中 `build_services(environ={...})`，资源目录指向 tiny 资源、设备为 CPU，可传 `start_background=True` 和额外的环境变量；测试结束时全部关闭 |
+| `services` | function | `make_services()` 的结果 |
+| `no_asset_checks` | function | 把 `AssetService.require` 换成空操作 |
+| `tiny_voice_file` | function | `tmp_path/src/tiny-voice.pth` |
+| `wav_file` | function | 1.5 秒、22050 Hz 的 `tone()`，写成 `tmp_path/src/speech.wav` |
+
+服务通过 `environ=` 构建，从不读取真实的 `os.environ`，所以开发者本机的 `RVC_NEXT_*` 设置不会泄漏进测试。网络通过 `transport=`（`httpx.MockTransport`）替换，下载测试在本地模拟断点续传、校验失败和仓库回退。CLI 测试用 `monkeypatch.setenv` 设置 `RVC_NEXT_DATA_DIR`、`RVC_NEXT_PATHS__ASSETS_DIR` 和 `RVC_NEXT_COMPUTE__DEVICE=cpu`，因为命令在内部自己构建服务。
+
+## 测试布局
+
+```
+tests/
+  test_architecture.py   分层规则；导入核心层 / CLI 不加载 torch（及 FastAPI）
+  tiny.py, conftest.py
+  engine/                引擎单元：不涉及服务
+  core/                  服务：临时数据目录、tiny 模型
+  api/                   FastAPI TestClient
+  cli/                   typer CliRunner
+  workers/               以子进程方式运行 worker
+  golden/                与原版比对（golden 标记）
+  fixtures/devices/      录制的设备枚举：windows.json、macos.json、linux_pipewire.json
+```
+
+| 目录 | 覆盖的内容 |
+| --- | --- |
+| `engine/` | 检查点读写往返、合并时 `emb_g` 截断、从 G 提取；按内容识别索引和检查点；F0 后处理（插值、移调、粗量化）；离线转换的形状、FCPE、共振峰、分块与取消；流式引擎的逐块处理、门限、降噪、热更新、换音色、说话人、直通、延迟估算；环形缓冲、漂移校正、SOLA、拓扑选择、设备丢失（模拟后端）；设备分组与选择解析（录制的枚举）；训练阶段（切片保留每段尾部、F0、特征、文件列表、指纹）、两轮 tiny 拟合与续训、CPU 上的 gloo DDP；多说话人；分离预设；移植的重采样器与 FCPE；显存释放与 OOM 识别；编码 |
+| `core/` | 设置的分层与校验；端口选择；任务的调度、GPU 容量与 Live 租约、取消、子进程事件与杀进程、重启后的 `interrupted`；资源下载的续传、校验、仓库选择、速度与 ETA、删除；音色库导入、旧版安装、数据库丢失后重建；导入会话与配对规则；转换的输出与来源、预览、提交前校验；训练的完整运行、导出与过期标记；Live 服务（模拟后端）；释放显存与 OOM 后卸载 |
+| `api/` | 错误形状、Host / Origin / 令牌、原始上传、Range、峰值、浏览根目录、通过 API 提交转换、OpenAPI 中列出事件 |
+| `cli/` | 命令树快照、各层 `--debug`、`config`、`--json` 与 API 一致、用 `.pth` 路径转换、缺少资源的退出码 |
+| `workers/` | 设备 worker（枚举、格式检查、测试音，以及本机真实 PortAudio 的枚举）；Live worker（启动、热更新、换音色、设备丢失后重连、错误不致命、电平表 / 直通 / 测试音、端到端进程、空闲释放与 OOM 卸载）；分离 worker（模拟分离器下的链式事件、不覆盖已有文件、单个输入失败、缺少权重、DirectML fp16 失败请求 fp32 重试、杀进程取消）；训练 worker（切片 → F0 → 特征 → 索引） |
+
+### 替身
+
+- **模拟 PortAudio**（`engine/audio_io/fake.py`）：每个设备有自己的时钟（名义速率乘以 `1 + ppm·1e-6`），流在线程里按块回调；输入来自信号函数，输出按设备录下；`lose(index)` 让设备停止送数据（像拔掉 USB 设备），`refuse` 让打开失败并给出原因。漂移校正、欠载 / 过载计数、设备丢失与重连都在它上面测试。Live worker 和设备 worker 的请求里写 `"backend": "fake"` 即使用它。
+- **模拟分离器**：分离 worker 的请求带 `test_fake` 时，`engine/separate/runner.py` 用 `FakeSeparator` 代替 pymss，可以假装处于 DirectML（`pretend_dml`）以测试 fp16 → fp32 的重试。
+- **录制的设备枚举**（`tests/fixtures/devices/`）：Windows（MME、DirectSound、WASAPI、WDM-KS、虚拟声卡）、macOS 和 Linux PipeWire 机器上 `query_devices` / `query_hostapis` 的输出，用于测试分组、排序、虚拟设备标记和每一种解析结果。
+
+## Web UI 测试
+
+`rvc_next/webui` 用 vitest（`happy-dom` 环境）和 `@vue/test-utils`，`bun run test` 运行，`bun run typecheck` 做 `vue-tsc` 类型检查。`src/test/setup.ts` 补上 happy-dom 缺少的 `attachInternals`（`@material/web` 需要它），`src/test/motion-zero.css` 把所有动效时长设为 0，让动效测试快速且确定。
+
+除了组件和 store 的单元测试，还有一批**规则测试**，把约定变成会失败的测试：`tokens.test.ts`（`src/theme/` 之外不得出现十六进制颜色）、`imports.test.ts`（模块之间用 `@/` 别名导入）、`layout.test.ts`（含文件名的行给文本项 `min-width: 0`、页面是一列段落等布局规则）、`i18n/i18n.test.ts`（`zh-CN` 与 `en` 的键和占位符一致，固定词汇）、`ui/motion/motion.test.ts`（完整动效与减弱动效下都能运行、视图过渡）等。逐个说明见 [Web UI](/docs/development-webui)。
+
+## CI
+
+[`.github/workflows/ci.yml`](https://github.com/licyk/rvc-next/blob/main/.github/workflows/ci.yml) 在推送到 `main`、拉取请求、手动触发和被其他工作流调用（`release.yml` 复用它）时运行，同一分支上新的运行会取消旧的：
+
+| 作业 | 环境 | 内容 |
+| --- | --- | --- |
+| Lint and format | Ubuntu，Python 3.11 | 只装 `ruff==0.16.9`，`ruff check` 与 `ruff format --check`。拉取请求上同样运行 |
+| ty | Ubuntu / Windows / macOS × Python 3.10–3.13 | CPU 版 torch 加 `pip install -e . --group dev`，`ty check --python-version <版本> --python-platform <平台> --error-on-warning`。只为解析导入，所以装 CPU 版 torch 就够了 |
+| Tests | Ubuntu，Python 3.10 与 3.12 | 装 `libportaudio2`、CPU 版 torch 和开发依赖，`pytest -q` |
+| Web UI | Ubuntu，最新 bun | `bun install --frozen-lockfile`，`bun run test`、`typecheck`、`build`，然后 `python scripts/dev.py typegen-check` |
+| Documentation site | Ubuntu，最新 bun | 在 `site/` 中 `bun install --frozen-lockfile`，`bun run check`、`test`、`build` |
+
+CI 里不装 torchaudio 和 torchfcpe，与它们比对的用例会跳过；golden 测试本来就默认排除。发布与文档的工作流见[开发环境](/docs/development-setup)。
+
+## 尚未在真实硬件上验证
+
+构建所用的机器没有 GPU，也没有音频硬件。以下部分写了代码、在可能的范围内用替身测试过，但**从未在真实环境中运行**，相关改动和问题报告要格外小心：
+
+- CUDA：fp16、CUDA Graphs、DDP、显存占用报告；
+- DirectML、MPS；
+- 真实的 PortAudio 流、ASIO、WASAPI 独占模式；
+- macOS 麦克风权限被拒时表现为静音的检测（**没有实现**）；
+- 使用真实模型的分离链；
+- Live、Train、Separate 三个界面在真实任务下的表现（Convert 和 Models 已在无头 Chromium 中实际操作过）；
+- VST 适配器、浏览器音频：尚未实现。
+
+一致性方面，golden 测试只在 CPU、fp32 下运行；GPU 与 fp16 下的输出本来就不可能与原版逐位相同，也没有对应的测试。

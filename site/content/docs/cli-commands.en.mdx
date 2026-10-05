@@ -1,0 +1,792 @@
+---
+title: "Command reference"
+description: "This page lists every rvc-next command and subcommand by command tree, based on each command's --help output. Help lists commands and subcommands alphabetically; this page groups them by purpose."
+icon: SquareTerminal
+---
+
+All commands accept these two options, which are omitted from the tables below:
+
+| Option | Description |
+| --- | --- |
+| `--debug` | Print debug logs |
+| `--help` | Show this message and exit |
+
+A "—" in the "Default" column means the option has no effect unless supplied, or inherits a value from a preset or settings (as explained in the description). Ranges are written as `[a, b]`.
+
+## Root command
+
+```text
+rvc-next [OPTIONS] COMMAND [ARGS]...
+```
+
+Retrieval-based voice conversion: convert, live, separate and train.
+
+| Option | Description |
+| --- | --- |
+| `--install-completion` | Install completion for the current shell |
+| `--show-completion` | Show completion for the current shell, to copy it or customize the installation |
+
+## Server and system
+
+### `webui`
+
+Start the server and open the Web UI.
+
+```text
+rvc-next webui [OPTIONS]
+```
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `--host <str>` | Address to bind | From `server.host` in settings (`127.0.0.1`) |
+| `--port <int>` | First port to try, `[0, 65535]`; `0` lets the system pick any port | From `server.port` in settings (`7868`) |
+| `--strict-port / --no-strict-port` | Fail instead of trying the next port when the port is in use | From `server.strict_port` in settings (off) |
+| `--open / --no-open` | Open the Web UI in a browser | From `server.open_browser` in settings (on) |
+| `--data-dir <directory>` | Data directory (settings, database, models, outputs) | `RVC_NEXT_DATA_DIR` or the system default location |
+| `--config-dir <directory>` | Folder for `settings.toml` | `RVC_NEXT_CONFIG_DIR` or the data directory |
+| `--api-prefix <str>` | Serve the API, the socket and the Web UI under this path, e.g. `/voice` | None |
+
+If the port is in use, subsequent ports are tried in order (up to 20), and the actual port is reported in the log. If all attempts fail, the command exits with code 3. Binding to a non-local address requires an access token first; otherwise the command exits with code 4 (see [Remote access and security](/docs/advanced-remote)). After a successful start, stdout prints one line: `SERVER_READY url=http://...`.
+
+```bash
+rvc-next webui
+rvc-next webui --port 8000 --no-open
+rvc-next webui --data-dir D:/rvc-next-data
+```
+
+### `version`
+
+Show the versions of rvc-next and its main components (torch, transformers, faiss-cpu, librosa, av, sounddevice, pymss, fastapi, etc.).
+
+| Option | Description |
+| --- | --- |
+| `--json` | Print JSON |
+
+### `env`
+
+List the environment variables rvc-next reads, along with currently set `RVC_NEXT_*` variables (values whose names contain `TOKEN` are shown as `***`).
+
+| Option | Description |
+| --- | --- |
+| `--json` | Print JSON |
+
+### `doctor`
+
+Check Python, torch and CUDA, DirectML, ffmpeg, audio devices, assets, and the device and precision selected by the GPU rules, then list any issues and commands to fix them.
+
+| Option | Description |
+| --- | --- |
+| `--json` | Print JSON |
+
+```bash
+rvc-next doctor
+```
+
+## Conversion and separation
+
+### `convert`
+
+Convert audio files or folders with a voice. Parameters start from the voice's default preset, with command-line options overriding the corresponding values.
+
+```text
+rvc-next convert [OPTIONS] INPUTS...
+```
+
+| Argument | Description |
+| --- | --- |
+| `INPUTS...` | Audio files or folders (required; multiple allowed) |
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `-v, --voice <str>` | Voice ID, name, or `.pth` path (required) | — |
+| `-o, --output <directory>` | Output folder | The job's folder in the data directory |
+| `--preset <str>` | Start from this preset instead of the voice's default | The voice's default preset |
+| `--index <file>` | Index for a `.pth` voice given by path | — |
+| `--speaker <int>` | Speaker ID of a multi-speaker voice, `[0, 109]` | From the preset |
+| `--pitch <float>` | Pitch shift in semitones, `[-24, 24]` | From the preset |
+| `--formant <float>` | Formant shift in semitones, `[-2, 2]` | From the preset |
+| `--f0 <str>` | Pitch method: `pm`, `rmvpe`, or `fcpe` | From the preset |
+| `--index-rate <float>` | Index strength, `[0, 1]` | From the preset |
+| `--protect <float>` | Consonant protection, `[0, 0.5]`; 0.5 turns it off | From the preset |
+| `--rms-mix <float>` | Loudness match, `[0, 1]`; 1 keeps the converted loudness | From the preset |
+| `--separate <str>` | Separate first with this preset and convert the vocals | — |
+| `--remix` | Add the accompaniment back (needs `--separate`) | Off |
+| `--remix-gain <float>` | Accompaniment gain in dB | `0.0` |
+| `--format <str>` | `wav`, `flac`, `mp3`, or `m4a` | `convert.output_format` in settings (`wav`) |
+| `--resample <int>` | Resample the result to this rate, at least 16000 | The voice's own sample rate |
+| `--recursive / --no-recursive` | Look into subfolders of folder inputs | `--no-recursive` |
+| `--overwrite / --no-overwrite` | Replace existing files in the output folder | `--no-overwrite` |
+| `--preview <float>` | Convert only the first N seconds, `[1, 120]` | — |
+| `--json` | Print the finished job as JSON | Off |
+
+When finished, prints output file paths one per line.
+
+```bash
+rvc-next convert vocal.wav -v "My voice" --pitch 12
+rvc-next convert ./in --recursive -v kikiv1 --f0 fcpe -o ./out --format mp3
+rvc-next convert song.flac -v ./voice.pth --index ./added.index --separate vocals --remix
+```
+
+### `separate`
+
+Separate vocals, accompaniment, and reverb. Use a single preset or a chained preset.
+
+```text
+rvc-next separate [OPTIONS] [INPUTS]...
+```
+
+| Argument | Description |
+| --- | --- |
+| `INPUTS...` | Audio files or folders (required unless using `--list`) |
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `-p, --preset <str>` | Preset ID; see `--list` | `separation.default_preset` in settings (`vocals`) |
+| `-o, --output <directory>` | Output folder | The job's folder in the data directory |
+| `--format <str>` | `wav`, `flac`, `mp3`, or `m4a` | `separation.output_format` in settings (`flac`) |
+| `--recursive / --no-recursive` | Look into subfolders | `--no-recursive` |
+| `--list` | List the presets and exit | Off |
+| `--json` | Print JSON | Off |
+
+Built-in presets: `vocals`, `vocals-aggressive`, `dereverb`, `dereverb-aggressive`, `karaoke`, and the chained presets `vocals-clean` (vocals → dereverb) and `lead-clean` (vocals → lead vocals → dereverb). Imported separation models use `user-<name>` as their preset ID.
+
+```bash
+rvc-next separate --list
+rvc-next separate song.mp3 -p vocals-clean -o ./stems
+```
+
+## Settings: `config`
+
+Show and change settings. See [Configuration and environment variables](/docs/cli-config) for settings.
+
+### `config show`
+
+Show the effective settings (defaults, `settings.toml`, and environment variables merged). The access token is shown only as set or not set.
+
+| Option | Description |
+| --- | --- |
+| `--json` | Print JSON |
+
+### `config get`
+
+Print one setting.
+
+```text
+rvc-next config get KEY
+```
+
+| Argument | Description |
+| --- | --- |
+| `KEY` | Dotted key, e.g. `server.port` (required) |
+
+### `config set`
+
+Change one setting and save it to `settings.toml`.
+
+```text
+rvc-next config set KEY VALUE
+```
+
+| Argument | Description |
+| --- | --- |
+| `KEY` | Dotted key, e.g. `server.port` or `compute.device` (required) |
+| `VALUE` | New value. JSON is parsed (numbers, `true`/`false`, lists); `null` clears it (required) |
+
+If an environment variable overrides the same setting, the command reports "An environment variable overrides this setting.".
+
+```bash
+rvc-next config set compute.device cpu
+rvc-next config set server.access_token "a long random string"
+rvc-next config set paths.browse_roots '["D:/music", "E:/datasets"]'
+```
+
+### `config path`
+
+Print the settings file path.
+
+## Assets: `assets`
+
+HuBERT, RMVPE, base models, and separation model weights.
+
+### `assets list`
+
+Show each asset's ID, name, group, size, and status (installed, missing, corrupt), along with the current download repository.
+
+| Option | Description |
+| --- | --- |
+| `--json` | Print JSON |
+
+### `assets download`
+
+Download assets with resume support and SHA-256 verification.
+
+```text
+rvc-next assets download [OPTIONS] [IDS]...
+```
+
+| Argument | Description |
+| --- | --- |
+| `IDS...` | Asset IDs; see `rvc-next assets list` |
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `--group <str>` | `inference` (HuBERT, RMVPE, and FCPE), `training`, `separation`, or `all` | `inference` when neither IDs nor a group are given |
+| `--source <str>` | Endpoint: `huggingface`, `hf-mirror`, or `custom` (saved to settings) | `downloads.source` in settings |
+| `--repository <str>` | `rvc-model` or `official` (saved to settings) | `downloads.repository` in settings |
+
+Asset IDs: `hubert`, `rmvpe`, `rmvpe-onnx`, `fcpe`, `pretrained-v1-32k`, `pretrained-v1-40k`, `pretrained-v1-48k`, `pretrained-v2-32k`, `pretrained-v2-40k`, `pretrained-v2-48k`, `separation-vocals`, `separation-vocals-aggressive`, `separation-dereverb`, `separation-dereverb-aggressive`, `separation-karaoke`. No group includes `rmvpe-onnx`, which is used only on DirectML; the `inference` group contains `hubert`, `rmvpe`, and `fcpe`.
+
+```bash
+rvc-next assets download
+rvc-next assets download fcpe pretrained-v2-40k
+rvc-next assets download --group separation --source hf-mirror
+```
+
+### `assets verify`
+
+Check installed assets against their checksums. Without IDs or a group, checks all installed or corrupt assets.
+
+```text
+rvc-next assets verify [OPTIONS] [IDS]...
+```
+
+| Argument | Description |
+| --- | --- |
+| `IDS...` | Asset IDs |
+
+| Option | Description |
+| --- | --- |
+| `--group <str>` | `inference` (HuBERT, RMVPE, and FCPE), `training`, `separation`, or `all` |
+
+## Models: `model`
+
+The voice library.
+
+### `model list`
+
+List models of a given type.
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `--json` | Print JSON | Off |
+| `--all` | Include hidden legacy voices | Off |
+| `--type <str>` | `voice`, `index` (unassigned indexes), `base`, or `separation` | `voice` |
+
+### `model info`
+
+Show a voice: sample rate, version, pitch guidance, speakers, indexes, and default preset.
+
+```text
+rvc-next model info [OPTIONS] VOICE
+```
+
+| Argument | Description |
+| --- | --- |
+| `VOICE` | Voice ID, name, or `.pth` path (required) |
+
+| Option | Description |
+| --- | --- |
+| `--speakers` | List only speakers |
+| `--json` | Print JSON |
+
+### `model import`
+
+Import models. Each file is identified by content; pairing indexes with voices does not depend on file names.
+
+```text
+rvc-next model import [OPTIONS] PATHS...
+```
+
+| Argument | Description |
+| --- | --- |
+| `PATHS...` | Voices (`.pth`), indexes, `.zip` archives, base models (G/D), separation models (`.ckpt` + `.yaml`), folders, or an RVC installation (required) |
+
+| Option | Description |
+| --- | --- |
+| `--name <str>` | Name for a single imported voice |
+| `--index <path>` | An `.index` to attach to a single voice, whatever its name |
+| `--pair <str>` | Pair by file name: `VOICE.pth=FILE.index[:spkN]`; repeat for several |
+| `--keep-unassigned` | Put indexes that cannot be paired with certainty into the unassigned list |
+| `--extract` | Turn training generators (G) into voices instead of importing them as base models |
+| `--json` | Print JSON |
+
+If an index's pairing is uncertain or a separation checkpoint lacks its configuration, the command prints file and index tables (including compatible voices), then exits with code 3 without importing any files. Given the root directory of an RVC installation, it copies `assets/weights/*.pth` and `added_*.index` files under `assets/indices` and `logs`.
+
+```bash
+rvc-next model import voice.zip
+rvc-next model import model.pth --index ./whatever.index --name "My voice"
+rvc-next model import a.pth b.pth x.index y.index --pair a.pth=x.index --pair b.pth=y.index
+rvc-next model import G_2333333.pth D_2333333.pth            # Import as base models
+rvc-next model import G_2333333.pth --extract --name "Experiment"   # Extract a voice
+```
+
+### `model catalog`
+
+List ready-made voices available to download (RVC's official demo voices).
+
+| Option | Description |
+| --- | --- |
+| `--json` | Print JSON |
+
+### `model download`
+
+Download ready-made voices and their indexes into the voice library.
+
+```text
+rvc-next model download [OPTIONS] [IDS]...
+```
+
+| Argument | Description |
+| --- | --- |
+| `IDS...` | Voice IDs from `rvc-next model catalog` |
+
+| Option | Description |
+| --- | --- |
+| `--all` | Download all catalog voices not already in the voice library |
+
+IDs or `--all` must be supplied.
+
+### `model edit`
+
+Rename a voice, change its description, or name its speakers (saved beside the `.pth`, without modifying the `.pth`).
+
+```text
+rvc-next model edit [OPTIONS] VOICE
+```
+
+| Argument | Description |
+| --- | --- |
+| `VOICE` | Voice ID or name (required) |
+
+| Option | Description |
+| --- | --- |
+| `--name <str>` | New name |
+| `--description <str>` | New description |
+| `--speaker-name <str>` | `ID=name`; repeat for several |
+
+```bash
+rvc-next model edit duet --speaker-name 0=Alice --speaker-name 1=Bob
+```
+
+### `model remove`
+
+Remove a voice: library voices go to the recycle bin; legacy voices are only hidden.
+
+```text
+rvc-next model remove [OPTIONS] VOICE
+```
+
+| Argument | Description |
+| --- | --- |
+| `VOICE` | Voice ID or name (required) |
+
+| Option | Description |
+| --- | --- |
+| `-y, --yes` | Do not ask for confirmation |
+
+### `model merge`
+
+Merge two voices by weight to create a new voice.
+
+```text
+rvc-next model merge [OPTIONS] A B
+```
+
+| Argument | Description |
+| --- | --- |
+| `A` | First voice (required) |
+| `B` | Second voice (required) |
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `--name <str>` | Name of the new voice (required) | — |
+| `--alpha <float>` | Weight of the first voice, `[0, 1]` | `0.5` |
+| `--info <str>` | Text written into the model | Empty |
+
+### `model extract`
+
+Extract a small model from a training checkpoint into the voice library.
+
+```text
+rvc-next model extract [OPTIONS] CHECKPOINT
+```
+
+| Argument | Description |
+| --- | --- |
+| `CHECKPOINT` | A `G_*.pth` checkpoint, or `<experiment>/<file>` (required) |
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `--name <str>` | Name of the new voice (required) | — |
+| `--sr <str>` | Specify `32k`, `40k`, or `48k` if it cannot be read from the experiment | Read from the experiment |
+| `--version <str>` | `v1` or `v2` | Read from the experiment |
+| `--pitch / --no-pitch` | Pitch guidance | Read from the experiment |
+| `--info <str>` | Text written into the model | Empty |
+
+```bash
+rvc-next model extract alice/G_2333333.pth --name "Alice e100"
+```
+
+### `model index`
+
+Retrieval indexes.
+
+#### `model index attach`
+
+Attach an index file to a voice.
+
+```text
+rvc-next model index attach [OPTIONS] VOICE FILE
+```
+
+| Argument | Description |
+| --- | --- |
+| `VOICE` | Voice ID or name (required) |
+| `FILE` | `added_*.index` file (required) |
+
+| Option | Description |
+| --- | --- |
+| `--speaker <int>` | Attach as this speaker's own index |
+
+#### `model index assign`
+
+Attach an unassigned index to a voice; the index must match the voice's version.
+
+```text
+rvc-next model index assign [OPTIONS] INDEX_ID VOICE
+```
+
+| Argument | Description |
+| --- | --- |
+| `INDEX_ID` | An unassigned index (see `rvc-next model list --type index`; required) |
+| `VOICE` | Voice ID or name (required) |
+
+| Option | Description |
+| --- | --- |
+| `--speaker <int>` | Attach as this speaker's own index |
+
+#### `model index build`
+
+Build an index for a voice from an experiment's extracted features.
+
+```text
+rvc-next model index build [OPTIONS] VOICE
+```
+
+| Argument | Description |
+| --- | --- |
+| `VOICE` | Voice ID or name (required) |
+
+| Option | Description |
+| --- | --- |
+| `--experiment <str>` | Experiment whose features to use (required) |
+
+## Presets: `preset`
+
+Saved voice parameters.
+
+### `preset list`
+
+| Option | Description |
+| --- | --- |
+| `--voice <str>` | List only this voice's presets and global presets |
+| `--json` | Print JSON |
+
+### `preset save`
+
+Save voice parameters as a preset. Start from the voice's default preset (or `convert.default_params` in settings if no voice is specified), then apply the supplied options.
+
+```text
+rvc-next preset save [OPTIONS] NAME
+```
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | Preset name (required) |
+
+| Option | Description |
+| --- | --- |
+| `--voice <str>` | The voice this preset belongs to; omit for a global preset |
+| `--default` | Make it the voice's default preset |
+| `--speaker <int>` | Speaker ID of a multi-speaker voice, `[0, 109]` |
+| `--pitch <float>` | Pitch shift in semitones, `[-24, 24]` |
+| `--formant <float>` | Formant shift in semitones, `[-2, 2]` |
+| `--f0 <str>` | Pitch method: `pm`, `rmvpe`, or `fcpe` |
+| `--index-rate <float>` | Index strength, `[0, 1]` |
+| `--protect <float>` | Consonant protection, `[0, 0.5]`; 0.5 turns it off |
+| `--rms-mix <float>` | Loudness match, `[0, 1]`; 1 keeps the converted loudness |
+
+```bash
+rvc-next preset save "male-to-female" --voice "My voice" --pitch 12 --default
+```
+
+### `preset remove`
+
+```text
+rvc-next preset remove [OPTIONS] NAME
+```
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | Preset ID or name (required) |
+
+| Option | Description |
+| --- | --- |
+| `--voice <str>` | The voice this preset belongs to |
+
+## Training: `train`
+
+Training experiments.
+
+### `train list`
+
+List experiments: sample rate, version, pitch guidance, single/multi-speaker, stage states (`✓` done, `~` stale, `…` running, `✗` failed, `·` not run, `-` skipped), and last activity time.
+
+| Option | Description |
+| --- | --- |
+| `--json` | Print JSON |
+
+### `train new`
+
+Create an experiment. Unspecified values come from the `training` settings group.
+
+```text
+rvc-next train new [OPTIONS] NAME
+```
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | Experiment name (required) |
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `--dataset <directory>` | Dataset folder (single speaker); with `--multi-speaker`, the root of `Name_ID_Repeat` folders | — |
+| `--multi-speaker` | Read speakers from `Name_ID_Repeat` subfolders of `--dataset` | Off |
+| `--sr <str>` | `32k`, `40k`, or `48k` | `training.sample_rate` (`40k`) |
+| `--version <str>` | `v1` or `v2` | `training.version` (`v2`) |
+| `--no-pitch` | Train without pitch guidance | Use pitch guidance |
+| `--f0 <str>` | `pm` or `rmvpe` | `training.f0_method` (`auto`: rmvpe with a GPU, otherwise pm) |
+| `--clean <str>` | Separate the dataset with this preset before slicing, e.g. `vocals-clean` | — |
+| `--json` | Print JSON | Off |
+
+### `train dataset`
+
+An experiment's dataset.
+
+#### `train dataset scan`
+
+Report clip count, total duration, sample rates, and clips that are too short, too long, clipped, or silent.
+
+```text
+rvc-next train dataset scan [OPTIONS] NAME
+```
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | Experiment name (required) |
+
+| Option | Description |
+| --- | --- |
+| `--json` | Print JSON |
+
+#### `train dataset speakers`
+
+Show the speaker table or populate it from folders.
+
+```text
+rvc-next train dataset speakers [OPTIONS] NAME
+```
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | Experiment name (required) |
+
+| Option | Description |
+| --- | --- |
+| `--from-folders <directory>` | Populate the speaker table from `Name_ID_Repeat` subfolders |
+| `--json` | Print JSON |
+
+### `train run`
+
+Run stages: without a selection, run all unfinished stages (or those whose inputs have changed); optionally run only selected stages.
+
+```text
+rvc-next train run [OPTIONS] NAME
+```
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | Experiment name (required) |
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `--stage <str>` | `clean`, `slice`, `f0`, `features`, `fit`, `index`, or `all`; repeat for several | All stages that need to run |
+| `--epochs <int>` | Total epochs, at least 1 | Saved experiment value (new experiments use `training.epochs`, 20) |
+| `--batch-size <int>` | Batch size, at least 1 | Saved experiment value (auto: half the smallest GPU's memory in GiB) |
+| `--save-every <int>` | Save every N epochs, at least 1 | Saved experiment value (new experiments use `training.save_every`, 5) |
+| `--gpus <str>` | `auto`, `cpu`, or GPU IDs like `0-1`; saved in the experiment | Saved experiment value (new experiments use `training.gpus`, `auto`) |
+| `--force / --no-force` | Run the chosen stages even when their inputs are unchanged | `--no-force` |
+| `--base <str>` | Base model ID (see `rvc-next model list --type base`); saved in the experiment | Automatically selected by sample rate, version, and pitch guidance |
+
+`--epochs`, `--batch-size`, `--save-every`, and `--base` are written into the experiment's training settings. After increasing `--epochs`, running without `--stage` runs the fit stage again even if it was already completed.
+
+```bash
+rvc-next train run alice
+rvc-next train run alice --stage fit --epochs 300 --batch-size 6
+rvc-next train run alice --stage index --force
+```
+
+### `train status`
+
+Show stages, checkpoints, and the most recent metrics.
+
+```text
+rvc-next train status [OPTIONS] NAME
+```
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | Experiment name (required) |
+
+| Option | Description |
+| --- | --- |
+| `--json` | Print JSON |
+
+### `train export`
+
+Export a trained model and its indexes into the voice library.
+
+```text
+rvc-next train export [OPTIONS] NAME
+```
+
+| Argument | Description |
+| --- | --- |
+| `NAME` | Experiment name (required) |
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `--checkpoint <str>` | Name of a small model or G checkpoint | The latest one |
+| `--epoch <int>` | Export the small model or checkpoint from this epoch | — |
+| `--voice-name <str>` | Voice name in the library | — |
+
+### `train import`
+
+Copy in an original RVC experiment folder; stages whose outputs exist are considered complete.
+
+```text
+rvc-next train import [OPTIONS] PATH
+```
+
+| Argument | Description |
+| --- | --- |
+| `PATH` | An original experiment folder (`logs/<name>`; required) |
+
+| Option | Description |
+| --- | --- |
+| `--name <str>` | New name |
+
+```bash
+rvc-next train import D:/RVC/logs/alice --name alice-old
+```
+
+## Live voice conversion: `live`
+
+Live conversion using the audio devices on the server machine.
+
+### `live devices`
+
+List the server's audio devices: one row per physical device, with its drivers (host APIs) and IDs, marking default devices, virtual devices, and recommended drivers.
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `--refresh` | Enumerate devices again | `True` (always enumerates again) |
+| `--json` | Print JSON | Off |
+
+### `live check`
+
+Check saved devices: resolution results, formats, topology (one duplex stream or separate input/output streams), and estimated latency. Exits with code 8 if the check fails.
+
+| Option | Description |
+| --- | --- |
+| `--json` | Print JSON |
+
+### `live test-tone`
+
+Play a short test tone on an output device.
+
+```text
+rvc-next live test-tone [OPTIONS] [DEVICE]
+```
+
+| Argument | Description | Default |
+| --- | --- | --- |
+| `DEVICE` | Output device ID, name, or `default` | `default` |
+
+### `live run`
+
+Convert live with the server's devices until <kbd>ctrl</kbd>+<kbd>c</kbd>, with one status line in the terminal.
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `-v, --voice <str>` | Voice ID or name | The last voice used |
+| `--input <str>` | Input device ID, name, or `default` | Saved device |
+| `--output <str>` | Output device ID, name, or `default` | Saved device |
+| `--monitor <str>` | Monitor output ID, name, `default`, or `none` | Saved setting |
+| `--preset <str>` | Start from this preset | Last parameters for the same voice; otherwise the voice's default preset |
+| `--speaker <int>` | Speaker ID of a multi-speaker voice, `[0, 109]` | From the starting parameters |
+| `--pitch <float>` | Pitch shift in semitones, `[-24, 24]` | From the starting parameters |
+| `--formant <float>` | Formant shift in semitones, `[-2, 2]` | From the starting parameters |
+| `--f0 <str>` | Pitch method: `pm`, `rmvpe`, or `fcpe` | From the starting parameters |
+| `--index-rate <float>` | Index strength, `[0, 1]` | From the starting parameters |
+| `--protect <float>` | Consonant protection, `[0, 0.5]`; 0.5 turns it off | From the starting parameters |
+| `--rms-mix <float>` | Loudness match, `[0, 1]`; 1 keeps the converted loudness | From the starting parameters |
+| `--block-ms <int>` | Block length in milliseconds, `[20, 1500]` | Saved value (250) |
+| `--crossfade-ms <int>` | Crossfade in milliseconds, `[10, 150]` | Saved value (50) |
+| `--context-ms <int>` | Extra context in milliseconds, `[50, 5000]` | Saved value (2500) |
+| `--threshold-db <float>` | Input gate in dB, `[-60, 0]`; -60 turns it off | Saved value (-60) |
+| `--allow-fallback` | Start even if the saved output device is missing and the default would be used | Off |
+| `--seconds <float>` | Stop after this many seconds | Until <kbd>ctrl</kbd>+<kbd>c</kbd> |
+
+Device names can be full names or substrings, as long as they match exactly one device. If multiple devices match, use an ID from `live devices`. After starting, the devices, buffering parameters, voice, and voice parameters are saved as defaults for next time.
+
+```bash
+rvc-next live run -v "My voice" --pitch 12 --block-ms 400
+rvc-next live run --input "USB Microphone" --output "CABLE Input" --monitor none
+```
+
+## Jobs: `jobs`
+
+Jobs on this machine, including those from a running server.
+
+### `jobs list`
+
+List jobs in reverse chronological order.
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `--state <str>` | A state (`queued`, `waiting`, `running`, `cancelling`, `cancelled`, `failed`, `completed`, `interrupted`), or `active`, `finished` | All |
+| `--limit <int>` | Maximum number to list, `[1, 200]` | `30` |
+| `--json` | Print JSON | Off |
+
+### `jobs show`
+
+Show a job, optionally printing its log.
+
+```text
+rvc-next jobs show [OPTIONS] JOB_ID
+```
+
+| Argument | Description |
+| --- | --- |
+| `JOB_ID` | Job ID (required) |
+
+| Option | Description |
+| --- | --- |
+| `--log` | Print the job log |
+| `--json` | Print JSON |
+
+```bash
+rvc-next jobs list --state failed
+rvc-next jobs show j18f3c2a9b1c4d5e6f --log   # Job ID from jobs list
+```

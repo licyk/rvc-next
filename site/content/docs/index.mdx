@@ -1,0 +1,37 @@
+---
+title: "RVC Next"
+description: "基于检索的语音转换（RVC）的一体化重写：转换、实时变声、人声分离、训练与模型管理。"
+icon: House
+---
+
+RVC Next 是 [Retrieval-based-Voice-Conversion-WebUI](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI)（RVC）的一体化重写：**转换**、**实时**变声、人声**分离**、**训练**与**模型**管理，由同一个服务端、同一个网页界面和同一套命令行（`rvc-next`）提供。数值计算部分从原版逐行移植，并用对比测试保证与原版输出一致。
+
+<Cards>
+  <Card title="第一次使用" href="/docs/quick-start" description="了解 RVC Next，按顺序完成安装与首次启动。" />
+  <Card title="安装" href="/docs/installation" description="准备独立的 Python 环境，安装 PyTorch 与 RVC Next。" />
+  <Card title="首次启动" href="/docs/first-run" description="启动网页界面，下载所需模型，完成第一次转换。" />
+  <Card title="常见问题" href="/docs/advanced-faq" description="端口、资源下载、设备、显存等常见问题的解答。" />
+</Cards>
+
+## 能做什么
+
+| 功能 | 说明 | 教程 |
+| --- | --- | --- |
+| 转换 | 用音色模型转换音频文件或整个文件夹，可先分离人声、再混回伴奏。 | [转换](/docs/guide-convert) |
+| 实时变声 | 用服务端所在电脑的声卡实时变声，参数与音色可在运行中切换。 | [实时变声](/docs/guide-live) |
+| 人声分离 | 分离人声与伴奏、去混响、和声分离，以及多步串联预设。 | [人声分离](/docs/guide-separate) |
+| 训练 | 从数据集到音色模型：切片、音高、特征、训练、索引，改动后只重跑需要的步骤。 | [训练](/docs/guide-train) |
+| 模型管理 | 导入、整理音色与索引，下载演示音色、底模、分离模型和所需资源。 | [模型管理](/docs/guide-models) |
+
+## 文档板块
+
+<Cards>
+  <Card title="使用教程" href="/docs/guide" description="逐个界面讲解转换、实时变声、人声分离、训练、模型管理、音色参数与设置。" />
+  <Card title="命令行" href="/docs/cli" description="不打开浏览器也能完成全部操作：命令参考、配置文件与环境变量。" />
+  <Card title="进阶" href="/docs/advanced" description="从原版 RVC 迁移、远程访问与安全、硬件与性能调优，以及常见问题。" />
+  <Card title="开发文档" href="/docs/development" description="面向贡献者：整体架构、引擎、核心服务、API、网页界面、测试，以及与原版保持一致的方法。" />
+</Cards>
+
+<Callout title="关于硬件验证">
+  RVC Next 的转换、分离、训练和实时变声在 CPU 上经过了完整测试，实时变声的设备层用模拟声卡测试。CUDA、DirectML、MPS 与真实声卡（含 ASIO、WASAPI 独占模式）尚未在实际硬件上验证，详见[硬件与性能](/docs/advanced-hardware)。
+</Callout>

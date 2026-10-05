@@ -1,0 +1,133 @@
+---
+title: "Embedding in another program"
+description: "Start the RVC Next server and web UI from your own Python program (a launcher, a bundle, another WebUI): data and configuration in separate folders, pinned settings, a path prefix, and mounting into an existing FastAPI app."
+icon: Puzzle
+---
+
+RVC Next can be started as a library from another Python program. The server it starts is the same as `rvc-next webui`: the same API, the same web UI, the same jobs and live voice changing. The host program decides where the data goes, where the settings file goes, which settings the user may not change, and which path the UI sits under.
+
+<Callout type="warn" title="One environment">
+  The host program must run in the same Python environment as RVC Next, and that environment must meet RVC Next's requirements (see [Installation](/docs/installation)). Do not install it into a shared environment with conflicting dependencies.
+</Callout>
+
+## A minimal example
+
+```python
+from rvc_next import RvcNextServer
+
+server = RvcNextServer(data_dir="./rvc-next-data", port=0)
+url = server.start()   # returns as soon as it is listening, e.g. http://127.0.0.1:54123
+print(url)
+...
+server.stop()
+```
+
+`start()` runs the server on a background thread and returns the web UI's address; `run()` serves in the foreground until `Ctrl+C`. The object is also a context manager:
+
+```python
+with RvcNextServer(data_dir="./rvc-next-data", port=0) as server:
+    print(server.url)
+    ...  # stop() runs when the with block ends
+```
+
+`stop()` may be called more than once; it closes the server, the live voice changing process and the database, and frees the port. `import rvc_next` loads neither torch nor FastAPI; the server is loaded only when `RvcNextServer` is used.
+
+## Data folder and configuration folder
+
+| Parameter | What it holds | Default |
+| --- | --- | --- |
+| `data_dir` | The database, models, experiments, results, uploads, caches, and `server.json` | `RVC_NEXT_DATA_DIR` or the system default |
+| `config_dir` | The settings file, `settings.toml` | Same as `data_dir` |
+| `settings_path` | The settings file's full path (any file name); takes precedence over `config_dir` | None |
+
+A host program usually has its own configuration folder; RVC Next's settings can go there while the data stays in the data folder:
+
+```python
+server = RvcNextServer(
+    data_dir="D:/MyLauncher/data/rvc-next",
+    config_dir="D:/MyLauncher/config/rvc-next",   # settings go to D:/MyLauncher/config/rvc-next/settings.toml
+)
+```
+
+**Settings › About** in the web UI shows the data folder and the settings file in use. The command line supports the same: `rvc-next webui --config-dir <folder>`, or the environment variable `RVC_NEXT_CONFIG_DIR` (the easiest way to make `rvc-next config` and the other commands read and write the same settings).
+
+## Pinned settings
+
+`settings` takes a dictionary shaped like `settings.toml`. These values sit above the settings file and the environment, are **never written to the file**, and cannot be changed through the web UI or the API — for what the host program manages itself:
+
+```python
+server = RvcNextServer(
+    data_dir="./rvc-next-data",
+    settings={
+        "paths": {"assets_dir": "/srv/RVC/assets"},   # reuse the original RVC's assets
+        "compute": {"device": "cuda:0"},
+    },
+)
+```
+
+Pinned folders are marked **Set by the application rvc-next runs in** under **Settings › Storage**. Every setting is listed in [Configuration and environment variables](/docs/cli-config).
+
+## Address, port and access token
+
+| Parameter | Description |
+| --- | --- |
+| `host` | Address to bind; defaults to the `server.host` setting (`127.0.0.1`) |
+| `port` | `0` lets the system pick a free port; a number is the first port to try (moving up when taken, at most 20); `None` uses the `server.port` setting |
+| `strict_port` | When `True`, a taken port is an error |
+| `access_token` | The access token; required when binding to a non-local address, otherwise `start()` raises |
+| `open_browser` | Whether to open a browser after starting; `False` by default |
+| `log_level` | uvicorn's log level; `"warning"` by default |
+
+`host`, `access_token` and `open_browser` also take effect as pinned settings. For remote access, see [Remote access and security](/docs/advanced-remote).
+
+## Path prefix
+
+`api_prefix` moves the API, the socket and the web UI under one path, so they cannot collide with the host program's own routes:
+
+```python
+server = RvcNextServer(data_dir="./rvc-next-data", port=0, api_prefix="/voice")
+server.start()   # http://127.0.0.1:54123/voice
+```
+
+The web UI needs no rebuild: it derives its base path from the address of its own script. The command line supports the same with `rvc-next webui --api-prefix /voice`.
+
+## Mounting into an existing FastAPI app
+
+When the host program is itself a FastAPI (or any ASGI) application, it can mount RVC Next instead of opening another port:
+
+```python
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+from rvc_next.api.app import create_app
+from rvc_next.core.context import build_services
+
+services = build_services(data_dir=..., config_dir=..., start_background=True)
+child = create_app(services, bound_host="127.0.0.1", api_prefix="/voice")
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    async with child.router.lifespan_context(child):
+        yield
+    services.close()
+
+
+app = FastAPI(lifespan=lifespan)
+app.mount("/", child)   # the UI is at /voice/
+```
+
+The host enters the child app's `lifespan` on its own event loop (it starts forwarding events to the socket) and calls `services.close()` when it exits. `start_background=True` starts the job scheduler and idle unloading; without it, queued jobs do not run.
+
+## Calling the services directly
+
+`server.services` is the same set of service objects the server uses; the host program can call them without HTTP, for example to list voices, submit a conversion or change settings:
+
+```python
+services = server.services
+for voice in services.models.list_voices():
+    print(voice.name)
+```
+
+The methods match the API one to one and return models shaped like the API's JSON; see [Core services](/docs/development-core).
