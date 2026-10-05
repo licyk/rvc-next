@@ -53,7 +53,7 @@ DirectML、MPS 和 CPU 上始终是 fp32（DirectML 上的人声分离例外，�
 
 ### 安装对应的 PyTorch
 
-设备是否可用取决于安装的 PyTorch：NVIDIA 显卡需要 CUDA 版的 torch（RTX 50 系列需要 CUDA 12.8 版本），AMD 显卡需要 ROCm 版（Linux），Intel 显卡需要 XPU 版；只装了 CPU 版时 `auto` 会选 CPU。安装方法见 [安装](/docs/installation)；`rvc-next doctor` 显示 torch 版本和它的构建目标（例如 `CUDA 12.8`、`ROCm 7.2` 或 `XPU`）。
+设备是否可用取决于安装的 PyTorch：NVIDIA 显卡需要 CUDA 版的 torch，AMD 显卡需要 ROCm 版（AMD 自己发布，支持 Windows 和 Linux），Intel 显卡需要 XPU 版；只装了 CPU 版时 `auto` 会选 CPU。安装方法见 [安装](/docs/installation)；`rvc-next doctor` 显示 torch 版本和它的构建目标（例如 `CUDA 13.0`、`ROCm 10.0` 或 `XPU`）。
 
 ## CUDA Graph
 
@@ -68,7 +68,7 @@ CUDA Graph 把一次推理录制下来、之后直接重放，减少 CPU 调度�
 
 ## AMD ROCm 与 Intel XPU
 
-- ROCm：torch 的 ROCm 版（Linux）把 AMD 显卡当作 CUDA 设备，所以它们显示为 `cuda:N`，CUDA 上能运行的功能都能在上面运行，CUDA Graph 除外。人声分离直接使用显卡。
+- ROCm：torch 的 ROCm 版（Windows 和 Linux）把 AMD 显卡当作 CUDA 设备，所以它们显示为 `cuda:N`，CUDA 上能运行的功能都能在上面运行，CUDA Graph 除外。人声分离直接使用显卡。
 - XPU：Intel 显卡显示为 `xpu:N`。转换、实时变声、训练（fp16 使用 AMP；多卡训练使用 `xccl` 后端）以及音高和特征提取都在上面运行。人声分离先在 CPU 上加载模型再移到显卡，并以 fp32 运行，因为 pymss 本身不支持 XPU。
 - 多卡训练通过 `CUDA_VISIBLE_DEVICES`（ROCm 也读取它）或 XPU 上的 `ZE_AFFINITY_MASK` 选择显卡。**训练** 中的 GPU 编号指当前 torch 构建所提供的那一类设备。
 

@@ -53,7 +53,7 @@ Precision also determines chunk sizes for long audio (as in the original): CUDA,
 
 ### Install the appropriate PyTorch
 
-Device availability depends on the installed PyTorch: NVIDIA GPUs need a CUDA build of torch (RTX 50 series needs the CUDA 12.8 build), AMD GPUs a ROCm build (Linux), Intel GPUs an XPU build. With only a CPU build installed, `auto` selects CPU. For installation instructions, see [Installation](/docs/installation); `rvc-next doctor` shows the torch version and what it was built for (for example `CUDA 12.8`, `ROCm 7.2` or `XPU`).
+Device availability depends on the installed PyTorch: NVIDIA GPUs need a CUDA build of torch, AMD GPUs a ROCm build (AMD's own, on Windows and Linux), Intel GPUs an XPU build. With only a CPU build installed, `auto` selects CPU. For installation instructions, see [Installation](/docs/installation); `rvc-next doctor` shows the torch version and what it was built for (for example `CUDA 13.0`, `ROCm 10.0` or `XPU`).
 
 ## CUDA Graph
 
@@ -68,7 +68,7 @@ It works only on NVIDIA CUDA: on ROCm and XPU the switches have no effect and in
 
 ## AMD ROCm and Intel XPU
 
-- ROCm: torch's ROCm build (Linux) presents AMD GPUs as CUDA devices, so they appear as `cuda:N` and everything that runs on CUDA runs on them, except CUDA Graph. Vocal separation uses the GPU directly.
+- ROCm: torch's ROCm build (Windows and Linux) presents AMD GPUs as CUDA devices, so they appear as `cuda:N` and everything that runs on CUDA runs on them, except CUDA Graph. Vocal separation uses the GPU directly.
 - XPU: Intel GPUs appear as `xpu:N`. Conversion, Live, training (fp16 with AMP; several cards train with the `xccl` backend) and pitch and feature extraction run on them. Vocal separation loads the model on the CPU, moves it to the GPU and runs in fp32, because pymss has no XPU support of its own.
 - Multi-GPU training selects cards with `CUDA_VISIBLE_DEVICES` (also read by ROCm) or, on XPU, `ZE_AFFINITY_MASK`. The GPU ids under **Train** refer to the devices of whichever of the two your torch build provides.
 

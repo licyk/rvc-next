@@ -59,63 +59,69 @@ python -m pip install --upgrade pip
 
 ## 第二步：安装 PyTorch
 
-PyTorch 需要按硬件选择对应的构建，所以要**先**单独安装。版本须为 2.7.1 或更新。最可靠的做法是到 [pytorch.org](https://pytorch.org/get-started/locally/) 的选择器中选好系统和 CUDA 版本，复制给出的命令，并把版本号固定在这个范围内。
+PyTorch 需要按硬件选择对应的构建，所以要**先**单独安装。版本须为 2.7.1 或更新。按操作系统和显卡在下面选择对应的命令；其他构建见 [pytorch.org](https://pytorch.org/get-started/locally/)。
 
-<Tabs items={["NVIDIA 显卡（CUDA）", "Linux：AMD 显卡（ROCm）", "Intel 显卡（XPU）", "仅 CPU", "macOS", "Windows：AMD / Intel 显卡（DirectML）"]}>
+<Tabs items={["NVIDIA 显卡（CUDA）", "AMD 显卡（ROCm）", "Intel 显卡（XPU）", "macOS", "仅 CPU", "Windows：DirectML"]}>
 <Tab value="NVIDIA 显卡（CUDA）">
 
+Windows 和 Linux：
+
 ```bash
-python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128
+python -m pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cu130
 ```
 
-CUDA 12.8 的构建支持 RTX 50 系列，也适用于较早的 NVIDIA 显卡。如果你的驱动较旧，请在 pytorch.org 上选择该版本提供的其他 CUDA 构建。
+CUDA 13.0 构建需要较新的 NVIDIA 驱动（580 或更新版本）。
 
 </Tab>
-<Tab value="Linux：AMD 显卡（ROCm）">
+<Tab value="AMD 显卡（ROCm）">
+
+Windows 和 Linux：
 
 ```bash
-python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/rocm7.2
+python -m pip install "torch[device-all]==2.13.0+rocm10.0.0" --index-url https://stable.repo.amd.com/rocm/whl-next
 ```
 
-ROCm 构建只有 Linux 版。安装后 AMD 显卡显示为 `cuda:N`。请确认你的显卡和驱动受所选 ROCm 版本支持（pytorch.org 列出了每个版本提供的构建）。
+这是 AMD 自己发布的 ROCm 10 构建，来自 AMD 的软件包索引（它的 PyTorch 版本比官方发布稍晚，所以是 2.13）。附加项 `device-all` 会安装它支持的所有 AMD 显卡的 GPU 代码（每个显卡系列一个 `amd-torch-device-gfx…` 包），下载量较大。安装后 AMD 显卡显示为 `cuda:N`。加引号是为了防止 zsh 等 shell 把方括号当成文件通配符。
 
 </Tab>
 <Tab value="Intel 显卡（XPU）">
 
-```bash
-python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/xpu
-```
-
-XPU 构建可在 Linux 和 Windows 上运行，需要较新的 Intel 显卡驱动。安装后 Intel 显卡显示为 `xpu:N`。
-
-</Tab>
-<Tab value="仅 CPU">
+Windows 和 Linux：
 
 ```bash
-python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
+python -m pip install torch==2.14.0+xpu --index-url https://download.pytorch.org/whl/xpu
 ```
 
-没有可用的 GPU 时使用。转换和分离都能在 CPU 上运行，只是更慢；训练在 CPU 上会非常慢。
+需要较新的 Intel 显卡驱动。安装后 Intel 显卡显示为 `xpu:N`。
 
 </Tab>
 <Tab value="macOS">
 
 ```bash
-python -m pip install torch==2.11.0
+python -m pip install torch==2.14.0
 ```
 
-macOS 上的 PyTorch 自带 Apple MPS 支持。
+macOS 上的 PyTorch 自带 Apple MPS 支持（需要 Apple 芯片和 macOS 14 或更新版本）。
 
 </Tab>
-<Tab value="Windows：AMD / Intel 显卡（DirectML）">
+<Tab value="仅 CPU">
 
-先按“仅 CPU”安装 PyTorch，再在第三步安装带 `directml` 附加项的 RVC Next：
+```bash
+python -m pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu
+```
+
+没有可用的 GPU 时使用。转换和分离都能在 CPU 上运行，只是更慢；训练在 CPU 上会非常慢。
+
+</Tab>
+<Tab value="Windows：DirectML">
+
+DirectML 是备用方案，用于上面的 ROCm 和 XPU 构建不支持的 Windows AMD 和 Intel 显卡。先按“仅 CPU”安装 PyTorch，再在第三步安装带 `directml` 附加项的 RVC Next：
 
 ```powershell
 python -m pip install "rvc-next[directml]"
 ```
 
-该附加项会安装 `torch-directml` 和 `onnxruntime-directml`。`torch-directml` 对 PyTorch 版本有它自己的要求，安装前请确认它支持的版本落在 RVC Next 要求的 2.7.1～2.11 之内。这条路径是实验性的。
+该附加项会安装 `torch-directml` 和 `onnxruntime-directml`。`torch-directml` 对 PyTorch 版本有它自己的要求，可能比上面的版本旧；按它的要求安装即可，只要不低于 2.7.1。这条路径是实验性的。
 
 </Tab>
 </Tabs>

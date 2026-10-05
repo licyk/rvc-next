@@ -33,22 +33,26 @@ Use a fresh virtual environment (or a standalone Python): rvc-next pins its depe
 tested ranges and is not meant to share an environment with other applications. Install PyTorch
 for your hardware first (2.7.1 or newer; torchaudio is not needed):
 
-| Hardware | PyTorch build (`--index-url https://download.pytorch.org/whl/…`) |
-| --- | --- |
-| NVIDIA | `cu128` (RTX 50 cards need it; older cards also work with other CUDA builds) |
-| AMD, Linux | `rocm7.2`; the cards appear as `cuda:N` |
-| Intel Arc and recent integrated graphics | `xpu` (Linux and Windows); the cards appear as `xpu:N` |
-| Apple silicon | the default build (`pip install torch`); Metal is experimental |
-| CPU only | `cpu` |
+```bash
+# Windows / Linux, NVIDIA GPU
+python -m pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cu130
+# Windows / Linux, AMD GPU (AMD's ROCm build; the cards appear as cuda:N)
+python -m pip install "torch[device-all]==2.13.0+rocm10.0.0" --index-url https://stable.repo.amd.com/rocm/whl-next
+# Windows / Linux, Intel GPU (the cards appear as xpu:N)
+python -m pip install torch==2.14.0+xpu --index-url https://download.pytorch.org/whl/xpu
+# macOS (Apple silicon; Metal is experimental)
+python -m pip install torch==2.14.0
+```
 
-On Windows, AMD and Intel cards can also use DirectML: the CPU build plus
-`pip install "rvc-next[directml]"`.
+Without a GPU, use the CPU build (`--index-url https://download.pytorch.org/whl/cpu`). On
+Windows, AMD and Intel cards that the ROCm and XPU builds do not support can use DirectML: the
+CPU build plus `pip install "rvc-next[directml]"`.
 
-With an NVIDIA card, for example:
+Then, for example with an NVIDIA card:
 
 ```bash
 python -m venv .venv && . .venv/bin/activate
-python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128
+python -m pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cu130
 python -m pip install rvc-next
 rvc-next assets download          # HuBERT and the pitch models, RMVPE and FCPE (about 400 MB)
 rvc-next model download --all     # optional: the official RVC demo voices

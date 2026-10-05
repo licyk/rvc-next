@@ -59,63 +59,69 @@ python -m pip install --upgrade pip
 
 ## Step 2: Install PyTorch
 
-PyTorch needs a build suited to your hardware, so install it separately **first**. The version must be 2.7.1 or newer. The most reliable approach is to select your operating system and CUDA version in the selector at [pytorch.org](https://pytorch.org/get-started/locally/), copy its command and pin the version within this range.
+PyTorch needs a build suited to your hardware, so install it separately **first**. The version must be 2.7.1 or newer. Choose the command for your operating system and GPU below; [pytorch.org](https://pytorch.org/get-started/locally/) lists the other builds.
 
-<Tabs items={["NVIDIA GPU (CUDA)", "Linux: AMD GPU (ROCm)", "Intel GPU (XPU)", "CPU only", "macOS", "Windows: AMD / Intel GPU (DirectML)"]}>
+<Tabs items={["NVIDIA GPU (CUDA)", "AMD GPU (ROCm)", "Intel GPU (XPU)", "macOS", "CPU only", "Windows: DirectML"]}>
 <Tab value="NVIDIA GPU (CUDA)">
 
+Windows and Linux:
+
 ```bash
-python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128
+python -m pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cu130
 ```
 
-The CUDA 12.8 build supports the RTX 50 series and earlier NVIDIA GPUs. If your driver is older, choose another CUDA build available for this version on pytorch.org.
+The CUDA 13.0 build needs a current NVIDIA driver (version 580 or newer).
 
 </Tab>
-<Tab value="Linux: AMD GPU (ROCm)">
+<Tab value="AMD GPU (ROCm)">
+
+Windows and Linux:
 
 ```bash
-python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/rocm7.2
+python -m pip install "torch[device-all]==2.13.0+rocm10.0.0" --index-url https://stable.repo.amd.com/rocm/whl-next
 ```
 
-ROCm builds exist for Linux only. AMD GPUs then appear as `cuda:N`. Check that your card and driver are supported by the ROCm release you choose (pytorch.org lists the builds for each version).
+This is AMD's own ROCm 10 build, from AMD's package index (its PyTorch releases trail the official ones, hence 2.13). The `device-all` extra installs the GPU code for every AMD GPU it supports (one `amd-torch-device-gfx…` package per GPU family), so the download is large. AMD GPUs then appear as `cuda:N`. The quotes keep shells such as zsh from reading the square brackets as a file pattern.
 
 </Tab>
 <Tab value="Intel GPU (XPU)">
 
-```bash
-python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/xpu
-```
-
-The XPU build runs on Linux and Windows with a current Intel GPU driver. Intel GPUs then appear as `xpu:N`.
-
-</Tab>
-<Tab value="CPU only">
+Windows and Linux:
 
 ```bash
-python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
+python -m pip install torch==2.14.0+xpu --index-url https://download.pytorch.org/whl/xpu
 ```
 
-Use this when no GPU is available. Conversion and separation both work on CPU, but run more slowly; training on CPU is very slow.
+Needs a current Intel GPU driver. Intel GPUs then appear as `xpu:N`.
 
 </Tab>
 <Tab value="macOS">
 
 ```bash
-python -m pip install torch==2.11.0
+python -m pip install torch==2.14.0
 ```
 
-PyTorch on macOS includes Apple MPS support.
+PyTorch on macOS includes Apple MPS support (Apple silicon, macOS 14 or newer).
 
 </Tab>
-<Tab value="Windows: AMD / Intel GPU (DirectML)">
+<Tab value="CPU only">
 
-Install PyTorch as shown under “CPU only”, then install RVC Next with the `directml` extra in step 3:
+```bash
+python -m pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu
+```
+
+Use this when no GPU is available. Conversion and separation both work on CPU, but run more slowly; training on CPU is very slow.
+
+</Tab>
+<Tab value="Windows: DirectML">
+
+DirectML is a fallback for AMD and Intel GPUs on Windows that the ROCm and XPU builds above do not support. Install PyTorch as shown under “CPU only”, then install RVC Next with the `directml` extra in step 3:
 
 ```powershell
 python -m pip install "rvc-next[directml]"
 ```
 
-This extra installs `torch-directml` and `onnxruntime-directml`. `torch-directml` has its own PyTorch version requirements; before installing, check that its supported version falls within RVC Next's required range of 2.7.1–2.11. This path is experimental.
+This extra installs `torch-directml` and `onnxruntime-directml`. `torch-directml` has its own PyTorch version requirements, which can be older than the version above; install the PyTorch version it asks for, as long as it is 2.7.1 or newer. This path is experimental.
 
 </Tab>
 </Tabs>

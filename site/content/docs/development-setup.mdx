@@ -15,7 +15,7 @@ RVC Next **只在自己的环境里运行**：一个独立的 venv，或一份�
 uv venv .venv --python 3.11          # 不带 --system-site-packages
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
 
-# 1. 先装 torch，按硬件选 index（CPU / CUDA 12.8 / ...），版本 2.7.1 或更新
+# 1. 先装 torch，按硬件选 index（CPU / CUDA 13.0 / ...），版本 2.7.1 或更新
 uv pip install torch --index-url https://download.pytorch.org/whl/cpu
 
 # 2. 再以可编辑模式安装项目和开发依赖组

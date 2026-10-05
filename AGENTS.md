@@ -169,7 +169,7 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   (`CUDA_VISIBLE_DEVICES`, which HIP reads, or `ZE_AFFINITY_MASK`). XPU training: autocast and
   `GradScaler("xpu")`, DDP over `xccl`. CUDA Graphs never on ROCm. pymss has no XPU: separation
   loads on the CPU, moves the net, runs fp32. Decide fp16 with `supports_half(device)`, never
-  `startswith("cuda")`. `ComputeInfo.backend` = `torch_backend()` (`CUDA 12.8`, `ROCm 7.2`, `XPU`).
+  `startswith("cuda")`. `ComputeInfo.backend` = `torch_backend()` (`CUDA 13.0`, `ROCm 10.0`, `XPU`).
 - **HuBERT normalisation:** the real `preprocessor_config.json` has `do_normalize: false`, so
   neither training nor inference normalises (one function, `features/hubert.normalize_input`).
 - **Behaviour changes**, all in place: slicing keeps every tail; Live honours the
