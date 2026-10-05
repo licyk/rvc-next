@@ -92,9 +92,9 @@ rvc-next assets list                                 # 查看 ID 和状态
 
 分离使用 **设置 › 计算** 中选择的设备。CPU 也能运行，但 RoFormer 模型在 CPU 上较慢，长歌曲需要耐心等待。
 
-<Callout type="info" title="未验证的部分">
+<Callout type="info" title="DirectML 上的半精度">
 
-分离在 GPU 上的运行，以及真实模型下的串联预设，尚未在真实硬件上验证。在 DirectML 上，如果模型以半精度失败，RVC Next 会自动改用 fp32 重新运行（日志中记录 `Retrying in fp32`）。
+在 DirectML 上，如果模型以半精度失败，RVC Next 会自动改用 fp32 重新运行（日志中记录 `Retrying in fp32`）。
 
 </Callout>
 ## 结果

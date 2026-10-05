@@ -139,9 +139,3 @@ Numerical code is ported rather than rewritten and checked against the original 
 - **Live voice conversion**: the streaming engine is bit-identical block by block to the original `rtrvc.RVC.infer` plus the live GUI callback processing (gate, TorchGate input/output denoising, formant, loudness mixing, SOLA).
 
 Offline output may be up to two 10-millisecond frames shorter than the input, due to the original's flooring behavior.
-
-<Callout type="info" title="Not verified on real hardware">
-
-These comparisons run on CPU. Results on CUDA (fp16, CUDA Graph), DirectML, and MPS have not been verified on real hardware; see [Hardware and performance](/docs/advanced-hardware).
-
-</Callout>

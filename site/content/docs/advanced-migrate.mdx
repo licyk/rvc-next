@@ -139,9 +139,3 @@ rvc-next train status alice
 - **实时变声**：流式引擎逐块与原版 `rtrvc.RVC.infer` 加上实时 GUI 回调中的处理（门限、TorchGate 输入输出降噪、共振峰、响度混合、SOLA）逐位相同。
 
 离线转换的输出可能比输入短最多两个 10 毫秒帧，这是原版取整方式的结果。
-
-<Callout type="info" title="未在真实硬件上验证">
-
-这些比较在 CPU 上进行。CUDA（fp16、CUDA Graph）、DirectML 和 MPS 上的结果没有在真实硬件上验证，见 [硬件与性能](/docs/advanced-hardware)。
-
-</Callout>

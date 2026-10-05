@@ -64,8 +64,6 @@ As recorded in AGENTS.md, on CPU fp32:
 - **Offline**, pm and RMVPE: four voice types—v1 40k, v2 40k, v2 40k without pitch, v2 48k—on speech, silence, and a 70-second clip exceeding the chunking threshold, with pitch shift and speaker ID, produce **bit-identical** output; FCPE is also bit-identical.
 - **Streaming**: `StreamEngine` is bit-identical block by block to `rtrvc.RVC.infer` plus the live GUI callback mathematics (gate, input/output TorchGate, formant, RMS mix, SOLA).
 
-Parity on GPU, fp16, and CUDA Graph has no golden validation (the build machine has no GPU; see [Tests and checks](/docs/development-testing)).
-
 <Callout type="warn" title="Build models before setting the seed">
 
 HuBERT, RMVPE, and FCPE weight initialization (later overwritten by checkpoints) consumes the global RNG, while the original builds RMVPE/FCPE inside `Pipeline`. If one side seeds before building models and the other does the reverse, subsequent random sequences (such as the NSF noise source) diverge, and results cease to be bit-identical. Golden code therefore calls `runtime.hubert()` and `runtime.f0(method)` first; the original side also builds RMVPE/FCPE in advance and assigns them to `pipeline.model_rmvpe`/`model_fcpe`, then calls `torch.manual_seed()`. Keep this order in new golden cases.

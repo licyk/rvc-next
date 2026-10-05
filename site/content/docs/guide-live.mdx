@@ -6,11 +6,6 @@ icon: Mic
 
 实时转换跑在一个独立的后台进程里，和服务器、转换任务互不干扰；它打开的是**服务器所在电脑**上的声卡，而不是你正在用的浏览器所在的设备。
 
-<Callout type="warn" title="尚未在真实硬件上验证">
-
-rvc-next 的构建机器没有 GPU，也没有声卡。以下功能目前只在模拟后端上测试过，真实环境中的表现还未经验证：真实的 PortAudio 音频流、ASIO、WASAPI 独占模式、CUDA（含 CUDA Graph 加速）。如果你遇到问题，欢迎反馈。
-
-</Callout>
 <Callout type="info" title="页面显示“此服务器暂不支持实时转换。”">
 
 说明服务器的 Python 环境里没有安装 `sounddevice`（PortAudio 的 Python 封装）。在 Linux 上还需要系统级的 `libportaudio2`。安装方法见 [安装](/docs/installation)。
@@ -192,7 +187,7 @@ rvc-next 的构建机器没有 GPU，也没有声卡。以下功能目前只在�
 4. **上下文** 不增加延迟，但会增加每块的计算量；负载偏高时可以从 2500 ms 适当减小。
 5. **交叉淡化** 直接计入延迟，一般 50 ms 足够；开启 **输入降噪** 会再增加最多 40 ms。
 6. 音高算法上，pm 最快，RMVPE 质量最好；GPU 较弱时可以试试 pm。
-7. GPU 上默认启用 **设置 › 计算 › 实时转换使用 CUDA Graph**，可以减少每块的开销（未在真实 GPU 上验证）。
+7. GPU 上默认启用 **设置 › 计算 › 实时转换使用 CUDA Graph**，可以减少每块的开销。
 
 ## ASIO（Windows）
 
@@ -203,7 +198,7 @@ rvc-next 的构建机器没有 GPU，也没有声卡。以下功能目前只在�
 
 <Callout type="idea">
 
-实时后台进程在第一次使用时启动并一直保留。切换 ASIO 开关后如果 ASIO 设备打不开，重启一次 rvc-next 服务器即可让新设置作用于实时进程。ASIO 支持尚未在真实声卡上验证。
+实时后台进程在第一次使用时启动并一直保留。切换 ASIO 开关后如果 ASIO 设备打不开，重启一次 rvc-next 服务器即可让新设置作用于实时进程。
 
 </Callout>
 ## 用命令行运行

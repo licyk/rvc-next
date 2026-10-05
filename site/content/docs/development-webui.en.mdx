@@ -195,8 +195,6 @@ A few more conventions:
 
 `test/setup.ts` patches `HTMLElement` with `attachInternals`: happy-dom lacks `ElementInternals`, but `@material/web` form-associated elements (buttons, fields) call it during creation. Component tests mount with `@vue/test-utils`, mocking queries and stores as needed.
 
-Live, Train, and Separate have not yet been exercised with real workloads; Convert and Models have been driven successfully in headless Chromium (see [Tests and checks](/docs/development-testing)).
-
 ## Adding a screen
 
 1. **API first.** If new endpoints are needed, add them in the core and `api/routers/`, run `python scripts/dev.py typegen`, and alias frequently used schemas in `api/types.ts` (see [API and events](/docs/development-api)).

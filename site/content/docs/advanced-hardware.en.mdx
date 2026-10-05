@@ -6,11 +6,6 @@ icon: Cpu
 
 This page explains how RVC Next selects compute devices and precision, manages GPU memory, and which settings affect speed and live latency. Related settings are in the `compute` group (**Settings** › **Compute** in the Web UI). For the full list, see [Configuration and environment variables](/docs/cli-config).
 
-<Callout type="warn" title="Not verified on real hardware">
-
-The development machine has no GPU or audio hardware. CUDA (fp16, CUDA Graph, multi-GPU training, GPU memory reporting), AMD ROCm, Intel XPU, DirectML, MPS, real PortAudio streams, ASIO, and WASAPI exclusive mode have **not been verified on real hardware**. This page describes the code's behavior; please report any issues you encounter on these platforms.
-
-</Callout>
 ## Select a device
 
 `compute.device` (**Settings** › **Compute** › **Device**) accepts:

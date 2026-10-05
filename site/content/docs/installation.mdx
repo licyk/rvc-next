@@ -125,11 +125,7 @@ python -m pip install "rvc-next[directml]"
 
 </Tab>
 </Tabs>
-<Callout type="warn" title="未在真实硬件上验证">
 
-CUDA（包括 fp16 和 CUDA Graphs）、ROCm、XPU、DirectML 和 MPS 都没有在真实硬件上测试过。CPU 路径已经测试；依赖组合在两端都通过了测试：Python 3.10 上 torch 2.7.1 且其余依赖都取下限，以及 Python 3.12 至 3.14 上 torch 2.11 配 numpy 2.5、librosa 1.0、av 19。
-
-</Callout>
 ## 第三步：安装 RVC Next
 
 ```bash

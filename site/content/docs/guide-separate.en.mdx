@@ -92,9 +92,9 @@ Each click on **Separate** creates **one** job for all current inputs, with a ti
 
 Separation uses the device selected in **Settings › Compute**. CPU also works, but RoFormer models are slower on CPU, so long songs require patience.
 
-<Callout type="info" title="Unverified behavior">
+<Callout type="info" title="Half precision on DirectML">
 
-Separation on GPU and chain presets with real models have not yet been validated on physical hardware. On DirectML, if a model fails in half precision, RVC Next automatically reruns it in fp32 (logging `Retrying in fp32`).
+On DirectML, if a model fails in half precision, RVC Next automatically reruns it in fp32 (logging `Retrying in fp32`).
 
 </Callout>
 ## Results

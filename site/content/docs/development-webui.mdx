@@ -195,8 +195,6 @@ rvc_next/webui/
 
 `test/setup.ts` 为 `HTMLElement` 补上 `attachInternals`：happy-dom 没有 `ElementInternals`，而 `@material/web` 的表单关联元素（按钮、输入框）在创建时就会调用它。组件测试用 `@vue/test-utils` 挂载，查询与 store 按需模拟。
 
-Live、训练和人声分离界面尚未在真实负载下驱动过；转换与模型界面曾在无头 Chromium 中走通（见[测试与检查](/docs/development-testing)）。
-
 ## 新增一个界面
 
 1. **API 先行。** 若需要新接口，先在核心层和 `api/routers/` 加好，运行 `python scripts/dev.py typegen`，在 `api/types.ts` 为常用 schema 起别名（见 [API 与事件](/docs/development-api)）。

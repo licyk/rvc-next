@@ -12,7 +12,7 @@ rvc-next 是 [Retrieval-based-Voice-Conversion-WebUI](https://github.com/RVC-Pro
 - **音频设备**按物理设备列出，每个设备只出现一次；输入和输出可以使用任意驱动，可选监听输出，带电平表和测试音，设备重新接入后自动恢复；还可以用回环测试实测真实延迟，而不只是估算。
 - **已有模型无需改动即可加载**（`.pth` 和 `added_*.index`），可以直接读取已有的 RVC 安装，新生成的模型也使用同样的格式。
 
-文档（使用教程、命令行与开发文档，中英双语）位于 [site/content/docs/](site/content/docs/index.mdx)，是 `site/` 中项目网站的一部分（运行 `python scripts/dev.py site-dev` 可本地预览）。设计记录、约定和已知的不足见 [AGENTS.md](AGENTS.md)。
+文档（使用教程、命令行与开发文档，中英双语）位于 [site/content/docs/](site/content/docs/index.mdx)，是 `site/` 中项目网站的一部分（运行 `python scripts/dev.py site-dev` 可本地预览）。设计记录、约定以及与原计划的差异见 [AGENTS.md](AGENTS.md)。
 
 ## 安装
 
@@ -42,7 +42,7 @@ rvc-next model download --all     # 可选：RVC 官方演示音色
 rvc-next webui                    # http://127.0.0.1:7868
 ```
 
-`rvc-next doctor` 会报告 torch 的构建版本（CUDA、ROCm 或 XPU）、GPU 规则选中的设备、音频设备访问情况以及资源状态。ROCm、XPU、DirectML 和 Metal 尚未在真实硬件上验证。在 Linux 上，实时变声需要 PortAudio（`libportaudio2`）。
+`rvc-next doctor` 会报告 torch 的构建版本（CUDA、ROCm 或 XPU）、GPU 规则选中的设备、音频设备访问情况以及资源状态。在 Linux 上，实时变声需要 PortAudio（`libportaudio2`）。
 
 如果要复用已有 RVC 安装中的模型，把 `paths.assets_dir` 指向它的 `assets/` 文件夹，并把该安装添加为原版 RVC 安装（**模型** › **音色** › **原版 RVC 安装**；或运行 `rvc-next model import <RVC 文件夹>`，把其中的音色复制到模型库）。
 

@@ -25,7 +25,7 @@ loop) is ported so existing voices sound the same; everything around it is new:
 The documentation (tutorials, the command line and developer documentation, in Chinese and
 English) is in [site/content/docs/](site/content/docs/index.mdx), part of the project's website in
 `site/` (`python scripts/dev.py site-dev` to preview it).
-The design record, the conventions and the known gaps are in [AGENTS.md](AGENTS.md).
+The design record, the conventions and the departures from the original plan are in [AGENTS.md](AGENTS.md).
 
 ## Install
 
@@ -60,8 +60,7 @@ rvc-next webui                    # http://127.0.0.1:7868
 ```
 
 `rvc-next doctor` reports the torch build (CUDA, ROCm or XPU), the GPU rule's choice, audio
-device access and the assets. ROCm, XPU, DirectML and Metal have not yet been tried on real
-hardware. On Linux, live conversion needs PortAudio (`libportaudio2`).
+device access and the assets. On Linux, live conversion needs PortAudio (`libportaudio2`).
 
 To reuse the models of an existing RVC install, point `paths.assets_dir` at its `assets/`
 folder and add the install as a legacy root (Models › Voices › Original RVC installs, or

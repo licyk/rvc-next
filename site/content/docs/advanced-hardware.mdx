@@ -6,11 +6,6 @@ icon: Cpu
 
 本页说明 RVC Next 怎样选择计算设备和精度、怎样管理显存，以及影响速度和实时延迟的设置。相关设置都在 `compute` 组（Web UI 的 **设置** › **计算**），完整列表见 [配置与环境变量](/docs/cli-config)。
 
-<Callout type="warn" title="未在真实硬件上验证">
-
-开发机器没有 GPU 和音频硬件。CUDA（fp16、CUDA Graph、多卡训练、显存统计）、AMD ROCm、Intel XPU、DirectML、MPS、真实的 PortAudio 音频流、ASIO 和 WASAPI 独占模式都**没有在真实硬件上验证过**。本页描述的是代码的行为；如果你在这些平台上遇到问题，欢迎反馈。
-
-</Callout>
 ## 选择设备
 
 `compute.device`（**设置** › **计算** › **设备**）可以是：

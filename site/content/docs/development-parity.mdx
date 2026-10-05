@@ -64,8 +64,6 @@ python scripts/golden.py --original ~/code_workspace/Retrieval-based-Voice-Conve
 - **离线**，pm 和 RMVPE：v1 40k、v2 40k、v2 40k 无音高、v2 48k 四类音色，在语音、静音和一段超过分块阈值的 70 秒片段上，带移调和说话人 id，输出**逐位相同**；FCPE 同样逐位相同。
 - **流式**：`StreamEngine` 与 `rtrvc.RVC.infer` 加实时 GUI 回调数学（门限、输入输出 TorchGate、共振峰、RMS 混合、SOLA）逐块逐位相同。
 
-GPU、fp16、CUDA Graph 下的一致性没有 golden 验证（构建机没有 GPU，见[测试与检查](/docs/development-testing)）。
-
 <Callout type="warn" title="模型必须在设置种子之前构建">
 
 HuBERT、RMVPE 和 FCPE 的权重初始化（随后被检查点覆盖）会从全局随机数生成器取数，而原版在 `Pipeline` 内部才构建 RMVPE/FCPE。如果一边先播种再建模型、另一边相反，两边后续的随机序列就错开了（例如 NSF 的噪声源），结果不再逐位相同。所以 golden 代码先 `runtime.hubert()`、`runtime.f0(method)`，原版一侧也预先构建 RMVPE/FCPE 塞进 `pipeline.model_rmvpe`/`model_fcpe`，然后才 `torch.manual_seed()`。新增 golden 用例时保持这个顺序。

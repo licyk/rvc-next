@@ -6,11 +6,6 @@ icon: Mic
 
 Live voice conversion runs in a separate background process, independently of the server and conversion jobs. It opens audio devices on **the server machine**, rather than the device running your browser.
 
-<Callout type="warn" title="Not yet verified on real hardware">
-
-The rvc-next build machine has neither a GPU nor an audio device. The following features have only been tested with a simulated backend; their behavior on real hardware remains unverified: real PortAudio streams, ASIO, WASAPI exclusive mode and CUDA (including CUDA Graph acceleration). Please report any problems you encounter.
-
-</Callout>
 <Callout type="info" title="The page says “Live is not available on this server yet.”">
 
 This means `sounddevice` (the Python wrapper for PortAudio) is not installed in the server's Python environment. Linux also needs the system package `libportaudio2`. See [Installation](/docs/installation).
@@ -192,7 +187,7 @@ Live voice conversion holds the GPU while running on it:
 4. **Context** adds no latency but increases computation per block. If load is high, try reducing it from 2500 ms.
 5. **Crossfade** contributes directly to latency; 50 ms is usually enough. **Reduce input noise** adds up to another 40 ms.
 6. For pitch methods, pm is fastest and RMVPE has the best quality. Try pm on a weaker GPU.
-7. **Settings › Compute › CUDA Graph for Live** is enabled by default on GPU and can reduce per-block overhead (unverified on a real GPU).
+7. **Settings › Compute › CUDA Graph for Live** is enabled by default on GPU and can reduce per-block overhead.
 
 ## ASIO (Windows)
 
@@ -203,7 +198,7 @@ Professional audio interfaces often provide ASIO drivers, usually with lower lat
 
 <Callout type="idea">
 
-The live background process starts on first use and stays running. If ASIO devices fail to open after toggling the ASIO setting, restart the rvc-next server so the live process picks up the new setting. ASIO support has not been verified on a real audio interface.
+The live background process starts on first use and stays running. If ASIO devices fail to open after toggling the ASIO setting, restart the rvc-next server so the live process picks up the new setting.
 
 </Callout>
 ## Run from the command line

@@ -149,17 +149,3 @@ Alongside component and store unit tests, **rule tests** turn conventions into f
 | Documentation site | Ubuntu, latest bun | In `site/`, `bun install --frozen-lockfile`, `bun run check`, `test`, `build` |
 
 CI does not install torchaudio or torchfcpe, so comparisons against them skip; golden tests are already deselected by default. See [Development environment](/docs/development-setup) for release and documentation workflows.
-
-## Not yet verified on real hardware
-
-The build machine has neither GPU nor audio hardware. The following parts are implemented and tested with doubles where possible, but **have never run in a real environment**; take extra care with changes and issue reports concerning them:
-
-- CUDA: fp16, CUDA Graphs, DDP, GPU memory usage reporting;
-- DirectML, MPS;
-- Real PortAudio streams, ASIO, WASAPI exclusive mode;
-- Detecting silence caused by denied macOS microphone permissions (**not implemented**);
-- Separation chains with real models;
-- Live, Train, and Separate screens under real tasks (Convert and Models have been exercised in headless Chromium);
-- VST adapter, browser audio: not yet implemented.
-
-For parity, golden tests run only on CPU fp32; GPU and fp16 output cannot be bit-identical to the original in any case, and have no corresponding tests.

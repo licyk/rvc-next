@@ -149,17 +149,3 @@ tests/
 | Documentation site | Ubuntu，最新 bun | 在 `site/` 中 `bun install --frozen-lockfile`，`bun run check`、`test`、`build` |
 
 CI 里不装 torchaudio 和 torchfcpe，与它们比对的用例会跳过；golden 测试本来就默认排除。发布与文档的工作流见[开发环境](/docs/development-setup)。
-
-## 尚未在真实硬件上验证
-
-构建所用的机器没有 GPU，也没有音频硬件。以下部分写了代码、在可能的范围内用替身测试过，但**从未在真实环境中运行**，相关改动和问题报告要格外小心：
-
-- CUDA：fp16、CUDA Graphs、DDP、显存占用报告；
-- DirectML、MPS；
-- 真实的 PortAudio 流、ASIO、WASAPI 独占模式；
-- macOS 麦克风权限被拒时表现为静音的检测（**没有实现**）；
-- 使用真实模型的分离链；
-- Live、Train、Separate 三个界面在真实任务下的表现（Convert 和 Models 已在无头 Chromium 中实际操作过）；
-- VST 适配器、浏览器音频：尚未实现。
-
-一致性方面，golden 测试只在 CPU、fp32 下运行；GPU 与 fp16 下的输出本来就不可能与原版逐位相同，也没有对应的测试。

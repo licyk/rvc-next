@@ -105,7 +105,8 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   Tested at both ends, from the built wheel (smoke install, then the test suite): Python 3.10 with
   torch 2.7.1 and every direct dependency at its floor (`uv pip install --resolution lowest-direct`),
   and Python 3.12–3.14 with torch 2.11, numpy 2.5, scipy 1.18, librosa 1.0, av 19, send2trash 2
-  (those need Python 3.12+; 3.11, the dev env, gets numpy 2.4, librosa 0.11, av 18). The floor
+  (those need Python 3.12+; 3.11, the dev env, gets numpy 2.4, librosa 0.11, av 18); torch 2.13 and
+  2.14 (the versions the install docs name) on Python 3.12. The floor
   run found `fastapi` 0.115.0's Starlette ignoring Range requests, hence `>=0.115.3`. Standalone
   Pythons for such runs: `sd-webui-all-in-one self-manager python-standalone list`.
 - Assets for real runs: a scratch `assets/` in the original's layout; point
@@ -389,10 +390,3 @@ rule tests come from Hanaikada.
 | Import commit as a job, with an `imports_changed` event | Synchronous commit returning `ImportResult`; `models_changed` | Copies are local and fast; the separation load check is the slowest step (seconds) |
 | Tables for base models, separation models and the index inbox | Folders with JSON sidecars | Nothing queries them; a folder scan cannot drift from the files |
 | `--type` to force a file's kind on the CLI | Not built | Content identification has been exact on every file tried; decisions cover the rest |
-
-## 9. Not verified (no GPU, no audio hardware on the build machine)
-
-CUDA (fp16, CUDA Graphs, DDP, VRAM reporting), ROCm, Intel XPU (tests fake the device queries), DirectML, MPS, real PortAudio streams, ASIO,
-WASAPI exclusive mode, the macOS permission-silence detection (not implemented), separation
-chains with real models, the Live, Train and Separate screens against real work (Convert and
-Models were driven in headless Chromium), the VST adapter (M9), browser audio (M8).

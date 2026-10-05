@@ -33,11 +33,6 @@ RVC Next 是 [Retrieval-based-Voice-Conversion-WebUI](https://github.com/RVC-Pro
 - **原版 RVC 的老用户**：可以直接读取原版安装中的音色和资源，见[从原版 RVC 迁移](/docs/advanced-migrate)。
 - **喜欢命令行或要批处理的用户**：每个界面操作都有对应的 `rvc-next` 命令，见[命令行](/docs/cli)。
 
-<Callout type="info" title="关于硬件支持">
-
-RVC Next 的开发机器没有 GPU，也没有音频硬件。CPU 上的转换、分离和网页界面都经过了测试；但 CUDA（fp16、CUDA Graphs、多卡训练、显存统计）、DirectML、Apple MPS 以及真实的声卡（ASIO、WASAPI 独占模式等）**尚未在真实硬件上验证**。如果你在这些环境中遇到问题，欢迎反馈。详见[硬件与性能](/docs/advanced-hardware)。
-
-</Callout>
 ## 文档的组织
 
 | 部分 | 内容 |

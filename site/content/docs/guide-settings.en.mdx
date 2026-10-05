@@ -61,11 +61,6 @@ The table below lists each device's ID, name, precision that will be used, and t
 
 Changing device, precision or **CUDA Graph for conversion** unloads the server's loaded models; the next job loads them with the new settings. Live voice conversion runs in its own background process and reads these settings when that process starts. If Live does not reflect a change, restart the server.
 
-<Callout type="warn">
-
-CUDA, fp16, CUDA Graph, DirectML and MPS have not been verified on real hardware (the build machine has no GPU). If you encounter problems, try changing **Device** to CPU to rule out device issues.
-
-</Callout>
 ## Audio
 
 The device panel here is identical to the one on **Live**; both edit the same settings. See “Audio devices” in [Live](/docs/guide-live) for instructions.

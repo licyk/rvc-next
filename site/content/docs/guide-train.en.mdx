@@ -6,11 +6,6 @@ icon: GraduationCap
 
 Compared with the original RVC, rvc-next combines “process data → extract pitch → extract features → train → build index” into one workflow: **Run all** only runs stages that are incomplete or whose inputs have changed.
 
-<Callout type="warn" title="Not yet verified on real hardware">
-
-The build machine has no GPU. The training workflow has only been tested on CPU with tiny models. CUDA training (including multi-GPU DDP), fp16 and GPU memory usage have not been verified on a real GPU.
-
-</Callout>
 ## Experiment list
 
 Open **Train** in the left navigation to see cards for all experiments. Each card shows:
