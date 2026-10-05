@@ -105,21 +105,24 @@ select = [
     "B",              # bugbear
     "SIM",            # simplify
     "RUF100",         # unused noqa
+    "ANN",            # type hints on every function in rvc_next (not the ported files, tests or scripts)
 ]
 ignore = [
     "B008",   # FastAPI's Depends/Query in defaults is the framework's idiom
     "B905",   # zip(strict=) adds noise where lengths are equal by construction
     "SIM105", # contextlib.suppress reads worse than try/except/pass in short cleanup paths
     "SIM108", # ternaries are not always clearer than if/else
+    "ANN401", # Any is allowed where the value really is anything (JSON, torch modules)
 ]
 
 [tool.ruff.lint.per-file-ignores]
 # Ported numerical code keeps the original's shape, so it can be read side by side with it.
-"rvc_next/engine/models/{attentions,commons,modules,transforms,synthesizer}.py" = ["B", "SIM", "UP", "E402", "E712", "E741", "F841"]
-"rvc_next/engine/f0/rmvpe.py" = ["B", "SIM", "UP", "E402", "E712", "E741", "F841"]
-"rvc_next/engine/audio/denoise.py" = ["B", "SIM", "UP", "E402", "E712", "E741", "F841"]
-"rvc_next/engine/train/{dataset,losses,mel,slicer}.py" = ["B", "SIM", "UP", "E402", "E712", "E722", "E741", "F841"]
-"tests/*" = ["B011", "B017"]
+"rvc_next/engine/models/{attentions,commons,modules,transforms,synthesizer}.py" = ["ANN", "B", "SIM", "UP", "E402", "E712", "E741", "F841"]
+"rvc_next/engine/f0/rmvpe.py" = ["ANN", "B", "SIM", "UP", "E402", "E712", "E741", "F841"]
+"rvc_next/engine/audio/denoise.py" = ["ANN", "B", "SIM", "UP", "E402", "E712", "E741", "F841"]
+"rvc_next/engine/train/{dataset,losses,mel,slicer}.py" = ["ANN", "B", "SIM", "UP", "E402", "E712", "E722", "E741", "F841"]
+"tests/*" = ["ANN", "B011", "B017"]
+"scripts/*" = ["ANN"]
 
 [tool.ty.environment]
 python-version = "3.10"

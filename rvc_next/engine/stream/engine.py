@@ -332,7 +332,7 @@ class StreamEngine:
         speaker = min(max(int(params.speaker_id), 0), max(voice.n_spk - 1, 0))
         sid = torch.LongTensor([speaker]).to(self.device)
         skip, ret, ret2 = int(skip_head), int(return_length), int(return_length2)
-        if cache_pitch is not None:
+        if cache_pitch is not None and cache_pitchf is not None:
             infered = run_cuda_graph(
                 net_g,
                 f"rvc-realtime-f0-{skip}-{ret}-{ret2}",

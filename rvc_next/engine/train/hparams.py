@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+from collections.abc import ItemsView, KeysView, ValuesView
 from pathlib import Path
 from typing import Any
 
@@ -255,13 +256,13 @@ class HParams:
                 v = HParams(**v)
             self[k] = v
 
-    def keys(self):
+    def keys(self) -> KeysView[str]:
         return self.__dict__.keys()
 
-    def items(self):
+    def items(self) -> ItemsView[str, Any]:
         return self.__dict__.items()
 
-    def values(self):
+    def values(self) -> ValuesView[Any]:
         return self.__dict__.values()
 
     def __len__(self) -> int:

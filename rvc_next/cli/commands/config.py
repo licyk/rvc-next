@@ -1,13 +1,16 @@
 """config show | get | set | path."""
 
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
 from rvc_next.cli.output import console, print_json
 
+if TYPE_CHECKING:
+    from rvc_next.core.settings import SettingsService
 
-def _settings():  # type: ignore[no-untyped-def]
+
+def _settings() -> "SettingsService":
     from rvc_next.core.settings import SettingsService
 
     return SettingsService()

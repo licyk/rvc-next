@@ -167,7 +167,7 @@ The principle in `pyproject.toml`: the **lower bound** is the version the code n
 | `tomli>=2; python_version < '3.11'` | 3.10 has no `tomllib` |
 | Optional group `directml` | `torch-directml`, `onnxruntime-directml`: DirectML for AMD / Intel GPUs on Windows, ONNX for RMVPE |
 
-The `dev` dependency group does not pin `ruff` or `ty`; the latest releases are used. Each `select` rule in `[tool.ruff.lint]` is listed explicitly: ruff upgrades change the default rule set, so listing the rules keeps an upgrade from changing which rules run (a newer release may still judge a rule more strictly). `tomli` is also in `dev`, allowing ty to resolve the 3.10 fallback import on newer Python versions.
+The `dev` dependency group does not pin `ruff` or `ty`; the latest releases are used. Each `select` rule in `[tool.ruff.lint]` is listed explicitly: ruff upgrades change the default rule set, so listing the rules keeps an upgrade from changing which rules run (a newer release may still judge a rule more strictly). `ANN` requires a type hint on every function in `rvc_next/` (`Any` allowed); the ported files, tests and scripts are exempt. `tomli` is also in `dev`, allowing ty to resolve the 3.10 fallback import on newer Python versions.
 
 ## Code conventions at a glance
 
