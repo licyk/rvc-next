@@ -93,6 +93,8 @@ class LiveWorker:
         self.index_path: str | None = None
         self.passthrough = False
         self.meter = False
+        self._cold = False
+        """The engine has buffers or a sample rate it has not run with: prewarm before audio flows."""
         self._closed = threading.Event()
         self._stats_thread = threading.Thread(target=self._stats_loop, name="rvc-live-stats", daemon=True)
 
@@ -240,8 +242,15 @@ class LiveWorker:
         return StreamEngine(self._runtime(), voice, self.params, self.stream, rate, index)
 
     def _open_session(self, cfg: SessionConfig) -> bool:
-        """Open the devices around the loaded engine and go to ``running``; report a refusal as an error."""
+        """Open the devices around the loaded engine and go to ``running``; report a refusal as an error.
+
+        An engine with new buffers or a new rate is prewarmed first, while the audio is stopped anyway,
+        so its first block is not late (a late block would leave a backlog and a load spike).
+        """
         assert self.engine is not None
+        if self._cold:
+            self.engine.prewarm()
+            self._cold = False
         session = AudioSession(
             self.backend,
             cfg,
@@ -313,6 +322,8 @@ class LiveWorker:
         old, self.stream = self.stream, new
         if self.engine is None:
             return
+        if not old.same_buffers(new):
+            self._cold = True
         if old.same_buffers(new) or self.session is None:
             self.engine.reconfigure(new)
             return
@@ -355,6 +366,11 @@ class LiveWorker:
             self.params = replace(self.params, speaker_id=int(speaker_id))
         self.engine.update(self.params)
         self.engine.set_voice(voice, index)
+        if self.session is not None:
+            # The new voice's first block runs its model for the first time (and captures its CUDA
+            # Graphs). It cannot be prewarmed beside the running block: a capture on another thread
+            # would break that block's GPU work. A late block's backlog is trimmed by the session.
+            self.session.skip_timing(1)
         self.set_state(self.state, voice_path=voice_path)
 
     def set_devices(self, devices: dict[str, Any]) -> None:
@@ -368,6 +384,7 @@ class LiveWorker:
         rate = engine_rate(cfg.output, cfg.input)
         if rate != self.engine.sample_rate:
             self.engine = self._new_engine(self.engine.voice, self.engine.index, rate)
+            self._cold = True
         else:
             self.engine.reset()
         self._open_session(cfg)

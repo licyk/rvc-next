@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -200,4 +200,8 @@ def measure(backend: Backend, config: SessionConfig, block: int, pings: int = 4,
         reported = session.latency_ms
     finally:
         session.stop()
-    return LoopbackRun(probe.result(), session.topology, session.sample_rate, session.block, reported, session.underruns, session.overruns, lost)
+    result = probe.result()
+    if session.trimmed or session.skipped:
+        # The session dropped audio to catch up after a stall: the bursts no longer line up with what was played.
+        result = replace(result, ok=False, reason="inconsistent")
+    return LoopbackRun(result, session.topology, session.sample_rate, session.block, reported, session.underruns, session.overruns, lost)

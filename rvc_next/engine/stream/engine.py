@@ -13,6 +13,7 @@ without reloading the voice.
 from __future__ import annotations
 
 import threading
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -176,28 +177,32 @@ class StreamEngine:
             self.rms_buffer[:] = 0
 
     def prewarm(self) -> None:
-        """Run one block of a test tone through every stage (CUDA Graph capture, lazy model loads), then clear the buffers."""
+        """Run test blocks through the whole of ``process`` before the audio starts, then clear the buffers.
+
+        A first block pays for everything done for the first time: librosa's lazily imported
+        ``feature.rms``, kernel selection, CUDA Graph capture for each input shape. Paid inside a
+        session, that cost makes the first block late, which shows as a load spike and leaves its
+        backlog in the output buffer. So every path a running session can switch to is taken here:
+        the gate off and on (it lengthens the resampler's input by two frames), input and output
+        denoise, and the loudness match.
+        """
         import torch
 
         with self._lock:
+            stream, params, passthrough = self.stream, self.params, self.passthrough
             try:
-                samples = self.input_wav_res.shape[0]
-                phase = torch.arange(samples, device=self.device, dtype=torch.float32)
-                self.input_wav_res.copy_(0.05 * torch.sin(2 * np.pi * 220.0 * phase / 16000.0))
-                with torch.no_grad():
-                    if self.stream.input_denoise:
-                        self.tg(self.input_wav[-self.sola_buffer_frame - self.block_frame :].unsqueeze(0), self.input_wav.unsqueeze(0))
-                    resample_input = self.input_wav[-self.block_frame - 2 * self.zc :]
-                    run_cuda_graph(self.resampler, "realtime-input-resample", lambda audio: self.resampler(audio), resample_input)
-                    inferred = self._infer()
-                    if self.resampler2 is not None:
-                        resampler2 = self.resampler2
-                        inferred = run_cuda_graph(resampler2, "realtime-output-resample", lambda audio: resampler2(audio), inferred)
-                    if self.stream.output_denoise:
-                        self.tg(inferred.unsqueeze(0), self.output_buffer.unsqueeze(0))
+                self.passthrough = False
+                t = np.arange(self.block_frame) / self.sample_rate
+                block = (0.1 * np.sin(2 * np.pi * 220.0 * t)).astype(np.float32)  # -23 dB, above the gate
+                self.params = replace(params, rms_mix_rate=min(params.rms_mix_rate, 0.5))
+                for gate, denoise in ((-60.0, False), (-50.0, False), (-50.0, True)):
+                    self.stream = replace(stream, threshold_db=gate, input_denoise=denoise, output_denoise=denoise)
+                    with torch.no_grad():
+                        self._process(block)
                 if cuda_graph_enabled(self.device):
                     torch.cuda.synchronize(self.device)
             finally:
+                self.stream, self.params, self.passthrough = stream, params, passthrough
                 self.reset()
 
     # -- processing ------------------------------------------------------------------------------

@@ -155,7 +155,7 @@ The status bar updates 10 times per second and includes:
 | Item | Description |
 | --- | --- |
 | **Input** / **Output** meters | Input and converted output levels (RMS and peak) |
-| **Load** | Inference time ÷ block length. Above 80%, the bar turns a warning color, indicating the model is close to falling behind real time |
+| **Load** | Inference time (the 95th percentile of the last 50 blocks; the median until 10 blocks are in) ÷ block length. Above 80%, the bar turns a warning color, indicating the model is close to falling behind real time; above 100% it reads **>100%** and the output has gaps. If a block is ever late, the session skips the stale input and trims the output buffer, so the delay does not stay |
 | **Increase block to N ms** | Appears when load is too high. Uses the 95th percentile of recent inference times to estimate a block length that brings load back to about 70% (up to 1500 ms). Click to apply |
 | **Latency N ms** | Current estimated end-to-end latency |
 | **measured N ms** | The [measured latency](#measure-latency), when a measurement fits the session's devices and block length |

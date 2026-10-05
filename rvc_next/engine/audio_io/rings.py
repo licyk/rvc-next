@@ -67,6 +67,19 @@ class Ring:
                 self._fill -= n_read
             return n_read
 
+    def discard(self, n: int, fade: int = 0) -> int:
+        """Drop the oldest ``n`` samples; return how many were dropped. ``fade`` fades in what then
+        comes first, so the cut does not click."""
+        with self._lock:
+            n_drop = max(0, min(int(n), self._fill))
+            self._read = (self._read + n_drop) % self.capacity
+            self._fill -= n_drop
+            k = min(int(fade), self._fill)
+            if n_drop and k:
+                idx = (self._read + np.arange(k)) % self.capacity
+                self._buf[idx] *= np.linspace(0.0, 1.0, k, dtype=np.float32)
+            return n_drop
+
     def read(self, n: int) -> np.ndarray:
         out = np.zeros(n, dtype=np.float32)
         got = self.read_into(out, n)

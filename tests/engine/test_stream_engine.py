@@ -121,3 +121,30 @@ def test_engine_delay(tiny_runtime, voice, crossfade_ms: int, denoise: bool) -> 
     score = [np.dot(seg, x[20 * n - d : 30 * n - d]) / np.linalg.norm(x[20 * n - d : 30 * n - d]) for d in lags]
     delay_ms = 1000 * int(lags[int(np.argmax(score))]) / sr
     assert engine_delay_ms(stream) - 10 <= delay_ms <= engine_delay_ms(stream)
+
+
+def test_prewarm_takes_every_path_and_leaves_nothing_behind(tiny_runtime, voice, monkeypatch) -> None:
+    """Prewarm runs the gate, the denoisers and the loudness match (librosa's rms), then the engine
+    converts exactly as one that never prewarmed."""
+    import librosa
+    import torch
+
+    stream = StreamParams(block_ms=100, crossfade_ms=50, context_ms=300)
+    params = VoiceParams(f0_method="pm", rms_mix_rate=1.0)
+    x = tone(0.6, sr=16000)
+    outs = []
+    # The first run in a process differs slightly from all later ones (a one-off in the shared
+    # models, prewarm or not), so a throwaway run goes first and the last two are compared.
+    for warm in (False, False, True):
+        engine = StreamEngine(tiny_runtime, voice, params, stream, 16000, None)
+        if warm:
+            calls = []
+            real = librosa.feature.rms
+            monkeypatch.setattr(librosa.feature, "rms", lambda *a, calls=calls, real=real, **k: calls.append(1) or real(*a, **k))
+            engine.prewarm()
+            monkeypatch.setattr(librosa.feature, "rms", real)
+            assert len(calls) >= 6  # three passes, input and output, with the loudness match forced on
+            assert (engine.stream, engine.params, engine.passthrough) == (stream, params, False)
+        torch.manual_seed(0)
+        outs.append(np.concatenate(_run(engine, x, 3)))
+    np.testing.assert_array_equal(outs[1], outs[2])

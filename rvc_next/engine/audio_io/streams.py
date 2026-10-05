@@ -9,6 +9,12 @@ Topology: one duplex stream when input and output share a host API and the engin
 an input stream and an output stream joined by a ring with drift correction. A monitor is always
 its own output stream, fed from a tee, with its own drift correction.
 
+A block that takes longer than the block length leaves a backlog: input piles up meanwhile, and
+once it is converted the output buffer holds more than its prefill, for good (duplex has no drift
+correction, and split's would take minutes). So the processing thread skips input that is a whole
+block or more behind, and trims the output buffer back to its prefill when its level after a write
+stays above the normal range; the output then plays from the newest audio again.
+
 The backend is pluggable: ``SounddeviceBackend`` drives PortAudio; ``fake.FakeBackend`` simulates
 devices with independent clocks for tests.
 """
@@ -30,6 +36,11 @@ from rvc_next.engine.audio_io.drift import DriftCorrector
 from rvc_next.engine.audio_io.rings import Ring
 
 DEFAULT_RATE = 48000
+MIN_TIMINGS = 10
+"""Blocks timed before the 95th percentile is reported; with fewer, one slow block would be all of it."""
+TRIM_FADE = 64
+BACKLOG_WRITES = 3
+"""Writes in a row above the normal level before the output buffer is trimmed."""
 
 
 class DeviceOpenError(Exception):
@@ -413,6 +424,16 @@ class AudioSession:
         self.input_levels = _Levels()
         self.output_levels = _Levels()
         self.infer_ms: collections.deque[float] = collections.deque(maxlen=50)
+        self._untimed = 0
+        """Blocks still to process without timing them (see ``skip_timing``)."""
+        # After a write the output buffer holds the prefill (duplex), or up to a block more (split,
+        # where the two clocks' phase moves the reads); more than that for several writes is a backlog.
+        self._backlog_limit = prefill + (3 * self.block) // 2 if self.topology == "split" else prefill + self.block // 2
+        self._after_write: collections.deque[int] = collections.deque(maxlen=BACKLOG_WRITES)
+        self.trimmed = 0
+        """Output samples dropped to undo a backlog."""
+        self.skipped = 0
+        """Input samples skipped to catch up after a stall."""
         self.callback_underruns = 0
         self.callback_overruns = 0
         self.processed_blocks = 0
@@ -577,6 +598,10 @@ class AudioSession:
                 if not self.in_ring.wait_for(self.in_block, timeout=wait):
                     self._watchdog()
                     continue
+                behind = self.in_ring.available // self.in_block - 1
+                if behind > 0:
+                    # A whole block or more is waiting behind this one: convert only the newest.
+                    self.skipped += self.in_ring.discard(behind * self.in_block)
                 x = self.in_ring.read(self.in_block)
                 if self._resampler is not None:
                     self._pending = np.concatenate([self._pending, self._resampler(x)])
@@ -603,7 +628,10 @@ class AudioSession:
         if processor is not None and not (self.passthrough and cfg.monitor is None):
             t0 = time.perf_counter()
             y = np.asarray(processor(x), dtype=np.float32).reshape(-1)
-            self.infer_ms.append((time.perf_counter() - t0) * 1000)
+            if self._untimed > 0:
+                self._untimed -= 1
+            else:
+                self.infer_ms.append((time.perf_counter() - t0) * 1000)
         else:
             y = x
         if y.shape[0] != self.block:
@@ -611,6 +639,7 @@ class AudioSession:
         out = y * db_to_gain(cfg.output_gain_db) if cfg.output_gain_db else y
         self.output_levels.update(out)
         self.out_ring.write(out)
+        self._trim_backlog()
         if cfg.monitor is not None:
             if self.passthrough or cfg.monitor_source == "input":
                 mon = x
@@ -622,6 +651,19 @@ class AudioSession:
                 mon = mon * db_to_gain(cfg.monitor_gain_db)
             self.mon_ring.write(mon.astype(np.float32, copy=False))
         self.processed_blocks += 1
+
+    def _trim_backlog(self) -> None:
+        self._after_write.append(self.out_ring.available)
+        if len(self._after_write) < BACKLOG_WRITES or min(self._after_write) <= self._backlog_limit:
+            return
+        self.trimmed += self.out_ring.discard(self.out_ring.available - self._prefill, fade=TRIM_FADE)
+        self._after_write.clear()
+        self.out_reader.resettle()
+
+    def skip_timing(self, blocks: int) -> None:
+        """Leave the next ``blocks`` out of the inference timings: they do one-off work (a new voice's
+        first run and CUDA Graph capture) that says nothing about the load."""
+        self._untimed = max(self._untimed, int(blocks))
 
     # -- stats ---------------------------------------------------------------------------------------------
 
@@ -638,7 +680,10 @@ class AudioSession:
         return self.out_reader.drift_ppm if self.topology == "split" else None
 
     def infer_percentiles(self) -> tuple[float, float]:
+        """Median and 95th percentile of the last 50 blocks' inference time. Until ``MIN_TIMINGS``
+        blocks are in, both are the median: the 95th percentile of a few would be their slowest."""
         if not self.infer_ms:
             return 0.0, 0.0
         data = np.array(self.infer_ms)
-        return float(np.percentile(data, 50)), float(np.percentile(data, 95))
+        p50 = float(np.percentile(data, 50))
+        return p50, float(np.percentile(data, 95)) if data.size >= MIN_TIMINGS else p50

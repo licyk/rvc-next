@@ -172,6 +172,16 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   `key − formant`, generate `ceil(n·2^(f/12))` frames with NSF pitch scaled, resample back);
   any path; inference off the audio callback; block/crossfade/context changes rebuffer.
 - Offline output is up to two 10 ms frames shorter than the input — the original's flooring.
+- **Late blocks** (`AudioSession`): a block slower than the block length used to leave its backlog
+  in the output buffer for good (duplex has no drift correction; split's settle target adopted it).
+  The processing thread now converts only the newest input block when a whole block more waits,
+  trims the output ring to its prefill when its after-write level stays above prefill + ½ block
+  (duplex) or + 1½ blocks (split) for 3 writes (`trimmed`, `skipped`), and the drift corrector
+  re-settles after an underrun or a trim. `prewarm()` runs `_process` itself (gate off/on, denoise,
+  loudness match) so the first block is not late; the worker prewarms again before reopening after
+  a rebuffer or a new rate. A hot voice swap cannot be prewarmed beside the running block (a CUDA
+  Graph capture on another thread breaks its GPU work), so its first block is left out of the
+  timings (`skip_timing`). Load is p95 of 50 blocks, the median until 10; the UI shows ">100%".
 - `StreamEngine` calls `remove_weight_norm()` on its voice's net, as the original does; it runs
   in the live worker's own runtime, never the server's.
 

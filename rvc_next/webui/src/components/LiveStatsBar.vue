@@ -27,7 +27,7 @@ const suggested = computed(() => (s.value ? Math.min(1500, Math.ceil((s.value.in
     <div class="load">
       <span class="type-label-medium muted">{{ t('live.load') }}</span>
       <ProgressBar :value="Math.min(1, live.load)" :label="t('live.load')" :tone="loadHigh ? 'error' : 'primary'" class="bar" />
-      <span class="type-label-large num">{{ Math.round(live.load * 100) }}%</span>
+      <span class="type-label-large num">{{ live.load > 1 ? '>100' : Math.round(live.load * 100) }}%</span>
     </div>
     <span class="type-label-large num">{{ t('live.latency') }} {{ s ? Math.round(s.est_latency_ms) : '—' }} ms</span>
     <span v-if="measured !== null" class="type-label-large num">{{ t('live.measured', { ms: Math.round(measured) }) }}</span>

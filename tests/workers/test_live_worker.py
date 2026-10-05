@@ -127,6 +127,9 @@ def test_start_update_swap_stop(worker) -> None:
     assert stats.block_ms == 100 and stats.est_latency_ms > 200
 
     engine, net_g = w.engine, w.engine.voice.net_g
+    prewarms = []
+    real_prewarm = engine.prewarm
+    engine.prewarm = lambda: prewarms.append(1) or real_prewarm()
     client.send(P.UpdateVoice(params={"pitch": 4, "speaker_id": 0}))
     assert client.wait(lambda: w.engine.params.pitch == 4)
     client.send(P.UpdateStream(stream={"threshold_db": -50}))
@@ -135,6 +138,7 @@ def test_start_update_swap_stop(worker) -> None:
     client.send(P.UpdateStream(stream={"block_ms": 200}))
     assert client.wait(lambda: w.session is not None and w.session.block == 3200)
     assert w.engine is engine and w.engine.voice.net_g is net_g and client.states()[-1] == "running"
+    assert len(prewarms) == 1  # the new buffers, before the audio reopened; the gate change needed none
 
     other = make_tiny_voice(tmp / "b.pth", version="v1", seed=4)
     client.send(P.SetVoice(voice_path=str(other), index_path=None, speaker_id=0))

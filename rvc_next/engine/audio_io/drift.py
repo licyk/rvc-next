@@ -30,9 +30,17 @@ class DriftCorrector:
         self.underruns = 0
         self._last = 0.0
         self.enabled = enabled
-        self._settle = int(settle_seconds * sample_rate)
+        self._settle_samples = int(settle_seconds * sample_rate)
+        self._settle = self._settle_samples
         """Samples read before the target is taken from the measured level: where the fill settles
-        depends on the phase between the two callbacks, which no constant can know."""
+        depends on the phase between the two callbacks, which no constant can know. Restarted after
+        an underrun or a trim, so a stall never becomes the target."""
+
+    def resettle(self) -> None:
+        """Measure the level afresh and take the target from it once it has settled (after the ring was trimmed)."""
+        self.level = float(self.ring.available)
+        self._settle = self._settle_samples
+        self._correcting = 0
 
     @property
     def drift_ppm(self) -> float | None:
@@ -65,6 +73,7 @@ class DriftCorrector:
         self.consumed += got
         if got < want:
             self.underruns += 1
+            self._settle = self._settle_samples
             out = np.zeros(n, dtype=np.float32)
             take = min(got, n)
             out[:take] = raw[:take]

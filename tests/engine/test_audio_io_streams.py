@@ -196,7 +196,9 @@ def test_monitor_tee_and_passthrough() -> None:
     assert np.abs(backend.output(1)).max() == 0  # the output carries the (silent) conversion
 
 
-def test_slow_processing_counts_underruns_and_overruns() -> None:
+def test_slow_processing_underruns_and_skips_stale_input() -> None:
+    # Processing that never keeps up: the output runs dry, and the input converted is always the
+    # newest block, never a queue that overflows.
     backend = FakeBackend(*fake_machine(), time_scale=4.0)
 
     def slow(x: np.ndarray) -> np.ndarray:
@@ -206,9 +208,73 @@ def test_slow_processing_counts_underruns_and_overruns() -> None:
     session = _session(backend, "Speakers", processor=slow)
     session.start()
     try:
-        assert _wait(lambda: session.underruns > 2 and session.overruns > 0, timeout=10)
+        assert _wait(lambda: session.underruns > 2 and session.skipped > 0, timeout=10)
     finally:
         session.stop()
+    assert session.in_ring.overruns == 0
+
+
+def _stall_first_block(seconds: float) -> Any:
+    calls = [0]
+
+    def processor(x: np.ndarray) -> np.ndarray:
+        calls[0] += 1
+        if calls[0] == 1:
+            time.sleep(seconds)
+        return x
+
+    return processor
+
+
+@pytest.mark.parametrize(("output", "normal_max"), [("Speakers", 1), ("Jack Out", 3)])
+def test_a_stalled_first_block_leaves_no_backlog(output: str, normal_max: int) -> None:
+    """A first block 4.5 blocks late used to stay in the output buffer as latency for the whole session."""
+    backend = FakeBackend(*fake_machine(), time_scale=4.0)
+    session = _session(backend, output, processor=_stall_first_block(4.5 * 0.1 / 4))
+    session.start()
+    try:
+        assert _wait(lambda: session.processed_blocks >= 40, timeout=10)
+        fills = []
+        for _ in range(20):
+            fills.append(session.out_ring.available)
+            time.sleep(0.005)
+    finally:
+        session.stop()
+    assert session.trimmed + session.skipped > 0
+    assert max(fills) <= normal_max * 1600
+
+
+@pytest.mark.parametrize(("output", "ppm"), [("Speakers", 0), ("Jack Out", 0), ("Jack Out", 300)])
+def test_steady_sessions_never_trim(output: str, ppm: float) -> None:
+    backend = FakeBackend(*fake_machine(), ppm={3: ppm}, time_scale=4.0)
+    session = _session(backend, output)
+    session.start()
+    try:
+        assert _wait(lambda: session.processed_blocks >= 60, timeout=10)
+    finally:
+        session.stop()
+    assert (session.trimmed, session.skipped, session.underruns) == (0, 0, 0)
+
+
+def test_load_timings_need_enough_blocks_and_skip_warmup() -> None:
+    session = _session(FakeBackend(*fake_machine()), "Speakers")
+    session.infer_ms.extend([500.0, 10.0, 11.0])
+    assert session.infer_percentiles() == (11.0, 11.0)  # a few blocks: the median, not the slowest
+    session.infer_ms.extend([10.0] * 37)
+    assert session.infer_percentiles()[1] == pytest.approx(10.0, abs=1.0)  # one slow block in 40 is not the 95th percentile
+    session.infer_ms.clear()
+    session.skip_timing(1)
+    for _ in range(3):
+        session._process_block(np.zeros(1600, dtype=np.float32))
+    assert len(session.infer_ms) == 2
+
+
+def test_ring_discard_fades_in() -> None:
+    ring = Ring(8)
+    ring.write(np.ones(6, dtype=np.float32))
+    assert ring.discard(2, fade=3) == 2 and ring.available == 4
+    assert ring.read(4).tolist() == [0.0, 0.5, 1.0, 1.0]
+    assert ring.discard(10) == 0
 
 
 def test_device_loss_is_reported() -> None:

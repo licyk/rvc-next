@@ -189,7 +189,7 @@ def _status_loop(services: Services, seconds: float | None) -> None:
                     break
                 load = stats.infer_ms_p95 / stats.block_ms if stats.block_ms else 0.0
                 view.update(
-                    f"{state.state:11} {state.sample_rate or '-'} Hz {state.topology or ''}  latency {stats.est_latency_ms:.0f} ms  load {load:.0%}  "
+                    f"{state.state:11} {state.sample_rate or '-'} Hz {state.topology or ''}  latency {stats.est_latency_ms:.0f} ms  load {'>100%' if load > 1 else f'{load:.0%}'}  "
                     f"in {stats.input_peak_db:6.1f} dB  out {stats.output_peak_db:6.1f} dB  under/over {stats.underruns}/{stats.overruns}"
                 )
                 if seconds is not None and time.monotonic() - started >= seconds:
