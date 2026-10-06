@@ -22,6 +22,7 @@ only inside functions.
 
 from __future__ import annotations
 
+import importlib
 import sys
 import threading
 from collections.abc import Callable
@@ -66,9 +67,9 @@ class SoundcardLoopback:
     """
 
     def __init__(self) -> None:
-        import soundcard
-
-        self.sc = soundcard
+        # By name: soundcard is not installed on macOS, where an import statement fails type checking
+        # (and an ignore comment would be unused everywhere else).
+        self.sc: Any = importlib.import_module("soundcard")
 
     def sources(self) -> list[LoopbackSource]:
         out = []
