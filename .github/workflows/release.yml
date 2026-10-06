@@ -19,6 +19,9 @@ concurrency:
 env:
   # scripts/build_wheel.py reads this: the type-check runs as its own job below.
   CI: '1'
+  # uv installs into the interpreter setup-python provides (no virtual environment). Its cache
+  # stays off, as in ci.yml.
+  UV_SYSTEM_PYTHON: 1
 
 jobs:
   checks:
@@ -36,12 +39,14 @@ jobs:
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.11'
-          cache: pip
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: false
       - uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: latest
-      - run: pip install --upgrade build twine
-      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: uv pip install --upgrade build twine
+      - run: uv pip install torch --index-url https://download.pytorch.org/whl/cpu
 
       - name: The tag and rvc_next/version.py agree
         id: version
@@ -77,8 +82,8 @@ jobs:
 
       - name: The wheel installs and runs
         run: |
-          python -m venv /tmp/probe
-          /tmp/probe/bin/pip install --quiet dist/*.whl
+          uv venv /tmp/probe
+          uv pip install --python /tmp/probe/bin/python dist/*.whl
           /tmp/probe/bin/rvc-next version
           /tmp/probe/bin/python -c "import rvc_next; print(rvc_next.VERSION)"
 
@@ -100,8 +105,11 @@ jobs:
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.11'
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: false
       - name: Install Twine
-        run: python -m pip install --upgrade twine
+        run: uv pip install --upgrade twine
       - uses: actions/download-artifact@v8.0.1
         with:
           name: distributions

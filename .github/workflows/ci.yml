@@ -17,6 +17,12 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# uv installs into the interpreter setup-python provides (no virtual environment). Its cache stays
+# off: unpacked wheels (CPU torch alone is about 1 GB) for every job would crowd the 10 GB cache
+# limit, and uv downloads them about as fast as a cache restores.
+env:
+  UV_SYSTEM_PYTHON: 1
+
 jobs:
   lint:
     name: Lint and format
@@ -26,7 +32,10 @@ jobs:
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.11'
-      - run: pip install ruff
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: false
+      - run: uv pip install ruff
       - run: python -m ruff check rvc_next tests scripts
       - run: python -m ruff format --check rvc_next tests scripts
 
@@ -43,10 +52,12 @@ jobs:
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: ${{ matrix.python }}
-          cache: pip
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: false
       # The CPU torch build keeps the job small; ty only needs the packages to resolve imports.
-      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
-      - run: pip install -e . --group dev
+      - run: uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: uv pip install -e . --group dev
       - name: ty
         shell: bash
         run: |
@@ -65,11 +76,13 @@ jobs:
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: ${{ matrix.python }}
-          cache: pip
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: false
       - run: sudo apt-get update && sudo apt-get install -y libportaudio2
-      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
-      - run: pip install -e . --group dev
-      - run: python -m pytest -q
+      - run: uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: uv pip install -e . --group dev
+      - run: python -m pytest
 
   web:
     name: Web UI
@@ -79,12 +92,14 @@ jobs:
       - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.11'
-          cache: pip
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: false
       - uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: latest
-      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
-      - run: pip install -e . --group dev
+      - run: uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: uv pip install -e . --group dev
       - run: bun install --frozen-lockfile
         working-directory: rvc_next/webui
       - name: Tests, type-check and build
