@@ -89,6 +89,9 @@ const title = computed(() => t('app.title'));
 // icon shows the current choice (the same three as Settings › Appearance).
 const NEXT_THEME = { light: 'dark', dark: 'system', system: 'light' } as const;
 const cycleTheme = () => (prefs.prefs.theme = NEXT_THEME[prefs.prefs.theme]);
+// The documentation site, in the UI's language (Chinese is the site's default, English under /en).
+const DOCS_URL = 'https://rvc-next.netlify.app';
+const docsUrl = computed(() => (locale.value === 'en' ? `${DOCS_URL}/en/docs` : `${DOCS_URL}/docs`));
 const themeIcon = computed(() => ({ light: icons.Sun, dark: icons.Moon, system: icons.SunMoon })[prefs.prefs.theme]);
 const activeCount = computed(() => jobs.active.length);
 </script>
@@ -102,6 +105,7 @@ const activeCount = computed(() => jobs.active.length);
       <LiveChip />
       <IconButton :icon="activeCount ? icons.Loader2 : icons.ListChecks" :spin="activeCount > 0" :label="activeCount ? t('jobs.chip', { n: activeCount }) : t('jobs.idle')" :badge="activeCount || null" @click="sheetOpen = true" />
       <GpuIndicator />
+      <IconButton :icon="icons.CircleHelp" :label="t('app.help')" :href="docsUrl" />
       <IconButton :icon="themeIcon" :label="`${t('settings.theme')}: ${t(`settings.themes.${prefs.prefs.theme}`)}`" @click="cycleTheme" />
     </template>
     <RouterView v-slot="{ Component, route: r }">

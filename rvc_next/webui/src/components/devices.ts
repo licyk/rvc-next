@@ -1,5 +1,5 @@
 import type { AudioDevice, DeviceList, DeviceSelection, PhysicalDevice, ResolvedDevice } from '@/api/types';
-import type { DeviceOption } from '@/ui';
+import type { PickerOption } from '@/ui';
 
 /** The value the device menus use for "follow the system default". */
 export const DEFAULT_VALUE = '__default__';
@@ -11,6 +11,10 @@ export interface DeviceLabels {
   notConnected: string;
   /** Badge for an output device recorded as an input (listed with ``live.show_all_devices``). */
   loopback?: string;
+  /** The second line of "System default". */
+  systemDefaultHint?: string;
+  /** The second line of a device: its recommended driver, channels and rate. */
+  describe?: (device: PhysicalDevice, variant: AudioDevice) => string;
 }
 
 /**
@@ -18,18 +22,19 @@ export interface DeviceLabels {
  * then the rest alphabetically; virtual devices badged; a saved device that is not in the list is
  * kept, greyed, as "not connected". A physical device is chosen by its key.
  */
-export function deviceOptions(devices: PhysicalDevice[], saved: DeviceSelection | null | undefined, labels: DeviceLabels): DeviceOption[] {
+export function deviceOptions(devices: PhysicalDevice[], saved: DeviceSelection | null | undefined, labels: DeviceLabels): PickerOption[] {
   // An output device recorded as an input (a loopback) comes after the real inputs and says what it is.
   const sorted = [...devices].sort(
     (a, b) => Number(a.is_loopback) - Number(b.is_loopback) || (a.is_default === b.is_default ? a.name.localeCompare(b.name) : a.is_default ? -1 : 1),
   );
-  const options: DeviceOption[] = [{ value: DEFAULT_VALUE, label: labels.systemDefault }];
+  const options: PickerOption[] = [{ value: DEFAULT_VALUE, label: labels.systemDefault, description: labels.systemDefaultHint }];
   for (const d of sorted) {
-    const badges: DeviceOption['badges'] = [];
+    const badges: PickerOption['badges'] = [];
     if (d.is_loopback && labels.loopback) badges.push({ text: labels.loopback, tone: 'neutral' });
     if (d.is_default) badges.push({ text: labels.default, tone: 'primary' });
     if (d.is_virtual) badges.push({ text: labels.virtual, tone: 'neutral' });
-    options.push({ value: d.key, label: d.name, badges });
+    const v = d.variants.find((x) => x.id === d.recommended_id) ?? d.variants[0];
+    options.push({ value: d.key, label: d.name, description: v && labels.describe ? labels.describe(d, v) : undefined, badges });
   }
   const key = saved?.physical_key;
   if (key && !devices.some((d) => d.key === key)) {

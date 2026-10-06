@@ -30,6 +30,13 @@ describe('device menu options', () => {
     expect(options[1].label).toBe('Microphone (USB Audio Device)');
   });
 
+  it('describes each device by its recommended driver, and the system default', () => {
+    const options = deviceOptions(list, null, { ...labels, systemDefaultHint: 'Follows the system', describe: (d, v) => `${d.name}: ${v.host_api} · ${v.channels} ch` });
+    expect(options[0].description).toBe('Follows the system');
+    expect(options[1].description).toBe('Microphone (USB Audio Device): wasapi · 2 ch');
+    expect(deviceOptions(list, null, labels)[1].description).toBeUndefined();
+  });
+
   it('keeps a saved device that is gone, greyed and unselectable', () => {
     const options = deviceOptions(list, { physical_key: 'old headset', name: 'Old Headset', device_id: 'x', host_api: 'wasapi', channels: null, sample_rate: null, exclusive: false }, labels);
     const gone = options[options.length - 1];

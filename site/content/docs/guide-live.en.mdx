@@ -32,20 +32,23 @@ The same device panel appears in **Settings › Audio**. Both edit the same sett
 
 | Item | Purpose |
 | --- | --- |
-| **Input** | The microphone. The **Input level** meter on the right shows its volume in real time, even while stopped. You can turn this off in **Settings › Audio › Show the input meter while stopped**. |
-| **Output** | The converted audio goes here. The **Test** button beside it plays a tone on this device. To send the audio into an input device, first turn on **List every device in the input and output menus** in [Settings](/docs/guide-settings). |
+| **Input** | The microphone. The **Input level** meter below it shows its volume in real time, even while stopped. You can turn this off in **Settings › Audio › Show the input meter while stopped**. |
+| **Output** | The converted audio goes here. The **Test** button below it plays a tone on this device. To send the audio to another program, choose a virtual cable's playback side; to convert what an output device plays, see [Record an output device](#loopback). |
 | **Monitor** | An optional second output, set to **No monitor** by default. Useful for sending output to a virtual audio device while listening through headphones. Selecting a monitor device reveals a **Test** button and the following controls: |
 | 　Monitor source | **Converted** / **Input** / **Both** (the original and converted audio mixed together) |
 | 　**Monitor level** | −60 to +12 dB, default 0 dB |
 
 Device menus are arranged as follows:
 
+- Each device takes a full row; its menu opens as wide as the row, and long names wrap rather than being cut off. Under each name is a second line: the recommended driver, the channel count and the default sample rate.
+- While the server is still listing the devices (a moment, longer with many drivers installed), each menu says **Looking for audio devices…**.
+- A long list (nine items or more, usual on Windows) has a search field at the top.
 - The first item is always **System default**, following the operating system's current default device.
 - Next comes the system's default device (marked **default**), followed by devices sorted by name. Virtual audio devices are marked **virtual**.
 - Each menu item represents one **physical device**, showing its full name. On Windows, the same microphone can appear under several drivers, such as MME, DirectSound and WASAPI. rvc-next combines these into one item and automatically selects the recommended driver (in order of preference: ASIO, WASAPI, WDM-KS, DirectSound, MME on Windows; JACK, ALSA, PulseAudio on Linux).
 - Previously saved devices that are now disconnected remain visible in gray, marked **not connected**.
 
-### Record an output device (loopback)
+### Record an output device (loopback) [#loopback]
 
 To convert what the computer plays rather than a microphone (a video, a game, a call), turn on **Settings › Audio › Record output devices as inputs (loopback)**. The input menu then also lists every output device, marked **loopback**; choosing one makes whatever that device plays the input.
 

@@ -1,11 +1,12 @@
 /** English messages. The vocabulary is fixed: voice, pitch, formant, index strength, consonant protection, loudness match. */
 export default {
-  app: { title: 'RVC Next' },
+  app: { title: 'RVC Next', help: 'Help (documentation)' },
   nav: { convert: 'Convert', live: 'Live', separate: 'Separate', train: 'Train', models: 'Models', settings: 'Settings', jobs: 'Jobs', components: 'Components' },
   common: {
     cancel: 'Cancel',
     save: 'Save',
     close: 'Close',
+    noMatches: 'No matches',
     delete: 'Delete',
     remove: 'Remove',
     retry: 'Retry',
@@ -56,6 +57,7 @@ export default {
   voice: {
     label: 'Voice',
     search: 'Search voices',
+    loading: 'Loading voices…',
     none: 'No voices yet',
     noneHint: 'Import a .pth model, or a .zip with its index, in Models.',
     choose: 'Choose a voice',
@@ -252,6 +254,12 @@ export default {
     automatic: 'Automatic',
     exclusive: 'Exclusive mode (WASAPI)',
     systemDefault: 'System default',
+    systemDefaultHint: 'Follows the device the system uses',
+    loading: 'Looking for audio devices…',
+    loadingHint: 'Listing the audio devices takes a moment, longer with many drivers installed.',
+    search: 'Search devices',
+    channelCount: '{n} ch',
+    loopbackDriver: 'Records what this output plays',
     default: 'default',
     virtual: 'virtual',
     notConnected: 'not connected',

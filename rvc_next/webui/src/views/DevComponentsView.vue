@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import type { Job } from '@/api/types';
 import JobCard from '@/components/JobCard.vue';
 import { useI18n } from '@/i18n';
-import { AppButton, Badge, DeviceMenu, DropZone, LevelMeter, LineChart, ParamSlider, ProgressBar, SegmentedControl, Stepper, Surface, Waveform, icons, type DeviceOption, type StepItem } from '@/ui';
+import { AppButton, Badge, DropZone, LevelMeter, LineChart, ParamSlider, ProgressBar, SegmentedControl, Stepper, Surface, Waveform, PickerMenu, icons, type PickerOption, type StepItem } from '@/ui';
 
 /** Every shared component, for checking the theme and the motion in one place. */
 const { t } = useI18n();
@@ -17,10 +17,10 @@ const steps: StepItem<'one' | 'two' | 'three'>[] = [
   { id: 'two', label: 'Run', state: 'running', note: 'Pitch' },
   { id: 'three', label: 'Results', state: 'stale' },
 ];
-const devices: DeviceOption[] = [
-  { value: 'd', label: 'System default' },
-  { value: 'mic', label: 'Microphone (USB Audio Device)', badges: [{ text: 'default', tone: 'primary' }] },
-  { value: 'cable', label: 'CABLE Output (VB-Audio Virtual Cable)', badges: [{ text: 'virtual' }] },
+const devices: PickerOption[] = [
+  { value: 'd', label: 'System default', description: 'Follows the system default device' },
+  { value: 'mic', label: 'Microphone (USB Audio Device)', description: 'Windows WASAPI · 1 ch · 48 kHz', badges: [{ text: 'default', tone: 'primary' }] },
+  { value: 'cable', label: 'CABLE Output (VB-Audio Virtual Cable)', description: 'Windows WASAPI · 2 ch · 48 kHz', badges: [{ text: 'virtual' }] },
   { value: 'gone', label: 'Old headset', badges: [{ text: 'not connected', tone: 'warning' }], unavailable: true },
 ];
 const device = ref<string | null>('mic');
@@ -45,7 +45,7 @@ const job: Job = {
       <ParamSlider v-model="value" label="Pitch" help="Shift in semitones" :min="-24" :max="24" unit="st" :default-value="0" />
       <SegmentedControl v-model="seg" :options="[{ value: 'a', label: 'Result' }, { value: 'b', label: 'Source' }]" />
       <Stepper v-model="step" :steps="steps" />
-      <DeviceMenu v-model="device" label="Input" :options="devices" />
+      <PickerMenu v-model="device" label="Input" :icon="icons.Mic" :options="devices" />
       <DropZone label="Drop audio files here" hint="or click" />
       <ProgressBar :value="progress" label="progress" />
       <div class="row"><Badge value="default" tone="primary" /><Badge value="virtual" tone="neutral" /><Badge value="not connected" tone="warning" /></div>

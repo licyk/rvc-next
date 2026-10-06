@@ -2,12 +2,13 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useMeta, useSettings } from '@/api/queries/app';
 import { checkDevices, useLiveControl, useLiveDevices, useMeasureLatency, useRefreshDevices } from '@/api/queries/live';
-import type { DeviceCheck, DeviceList, DeviceSelection, LiveDevices } from '@/api/types';
+import type { AudioDevice, DeviceCheck, DeviceList, DeviceSelection, LiveDevices, PhysicalDevice } from '@/api/types';
 import ErrorNotice from '@/components/ErrorNotice.vue';
 import { DEFAULT_VALUE, channelOptions, deviceOptions, devicesFor, driverOptions, selectionFor, selectionValue, statusMessage, variantOf } from '@/components/devices';
 import { useI18n } from '@/i18n';
 import { useLiveStore } from '@/stores/live';
-import { AppButton, DeviceMenu, ExpansionPanel, IconButton, LevelMeter, ParamSlider, SegmentedControl, SelectField, Switch, icons } from '@/ui';
+import { formatRate } from '@/format';
+import { AppButton, ExpansionPanel, IconButton, LevelMeter, ParamSlider, PickerMenu, SegmentedControl, SelectField, Switch, icons, type PickerOption } from '@/ui';
 
 /**
  * The device picker, on the Live screen and in Settings › Audio: physical devices with
@@ -16,6 +17,8 @@ import { AppButton, DeviceMenu, ExpansionPanel, IconButton, LevelMeter, ParamSli
  * measurement of the real latency.
  */
 const props = withDefaults(defineProps<{ running?: boolean }>(), { running: false });
+/** A device list this long gets a search field (Windows lists each device under several drivers' names). */
+const SEARCH_FROM = 9;
 const model = defineModel<LiveDevices>({ required: true });
 const emit = defineEmits<{ change: [LiveDevices] }>();
 const { t, tOr } = useI18n();
@@ -29,6 +32,9 @@ const check = ref<DeviceCheck | null>(null);
 const advanced = ref(false);
 
 const deviceList = computed(() => list.data.value as DeviceList | undefined);
+// The first enumeration is a subprocess on the server (most of a second, longer on Windows with many drivers).
+const loading = computed(() => list.isLoading.value);
+const hostApiName = (id: string) => deviceList.value?.host_apis.find((h) => h.id === id)?.name ?? id;
 const inputs = computed(() => devicesFor(deviceList.value, 'input'));
 const outputs = computed(() => devicesFor(deviceList.value, 'output'));
 const labels = computed(() => ({
@@ -37,7 +43,19 @@ const labels = computed(() => ({
   virtual: t('devices.virtual'),
   notConnected: t('devices.notConnected'),
   loopback: t('devices.loopback'),
+  systemDefaultHint: t('devices.systemDefaultHint'),
+  describe: (d: PhysicalDevice, v: AudioDevice) =>
+    [d.is_loopback ? t('devices.loopbackDriver') : hostApiName(v.host_api), t('devices.channelCount', { n: v.channels }), formatRate(v.default_sample_rate)].join(' · '),
 }));
+/** The picker props every device role shares: the loading state, and a search once the list is long. */
+const pickerProps = (options: PickerOption[]) => ({
+  options,
+  loading: loading.value,
+  placeholder: t('devices.loading'),
+  searchLabel: t('devices.search'),
+  searchFrom: SEARCH_FROM,
+  noMatches: t('common.noMatches'),
+});
 const inputOptions = computed(() => deviceOptions(inputs.value, model.value.input, labels.value));
 const outputOptions = computed(() => deviceOptions(outputs.value, model.value.output, labels.value));
 const monitorOptions = computed(() => [{ value: '__none__', label: t('devices.monitorNone') }, ...deviceOptions(outputs.value, model.value.monitor, labels.value)]);
@@ -153,20 +171,25 @@ const inLevels = computed(() => (live.stats ? { rms: live.stats.input_rms_db, pe
   <section class="devices">
     <header class="head">
       <h2 class="type-title-medium title">{{ host ? t('devices.title', { host }) : t('devices.titleUnknown') }}</h2>
-      <IconButton :icon="icons.RefreshCw" :spin="refresh.isPending.value" :label="t('devices.refresh')" @click="refresh.mutate()" />
+      <IconButton :icon="icons.RefreshCw" :spin="refresh.isPending.value || loading" :disabled="loading" :label="t('devices.refresh')" @click="refresh.mutate()" />
     </header>
     <p v-if="meta.data.value && !meta.data.value.local" class="type-body-small muted">{{ t('devices.remoteNote') }}</p>
     <ErrorNotice v-if="list.error.value" :error="list.error.value" />
     <template v-else>
       <!-- What the enumeration could not do (no ASIO driver, no way to record an output here), as the server words it. -->
       <p v-for="e in deviceList?.errors ?? []" :key="e" class="type-body-small warn">{{ e }}</p>
-      <!-- One group per role; on a wide page they stand side by side. -->
+      <p v-if="loading" class="type-body-small muted" role="status">{{ t('devices.loadingHint') }}</p>
+      <!-- One role per row: device names are long, so each picker takes the whole row, with its meter or test below. -->
       <div class="roles">
         <div class="group">
-          <div class="role">
-            <DeviceMenu :label="t('devices.input')" :model-value="roleValue('input')" :options="inputOptions" @update:model-value="setRole('input', $event)" />
-            <LevelMeter :label="t('devices.meter')" :rms-db="inLevels.rms" :peak-db="inLevels.peak" />
-          </div>
+          <PickerMenu
+            v-bind="pickerProps(inputOptions)"
+            :label="t('devices.input')"
+            :icon="icons.Mic"
+            :model-value="roleValue('input')"
+            @update:model-value="setRole('input', $event)"
+          />
+          <LevelMeter :label="t('devices.meter')" :rms-db="inLevels.rms" :peak-db="inLevels.peak" />
           <p v-if="status('input')" class="type-body-small warn">{{ status('input') }}</p>
           <div v-for="p in problems('input')" :key="p.reason" class="problem type-body-small">
             <span>{{ tOr(`devices.reasons.${p.reason}`, p.reason) }}: {{ p.message }}<template v-if="p.action === 'grant_permission' || p.action === 'choose'"> · {{ tOr(`devices.actions.${p.action}`, p.action) }}</template></span>
@@ -174,9 +197,15 @@ const inLevels = computed(() => (live.stats ? { rms: live.stats.input_rms_db, pe
           </div>
         </div>
         <div class="group">
-          <div class="role">
-            <DeviceMenu :label="t('devices.output')" :model-value="roleValue('output')" :options="outputOptions" @update:model-value="setRole('output', $event)" />
-            <AppButton variant="tonal" :icon="icons.Volume2" @click="control.testTone.mutate({ role: 'output', device: model.output })">{{ t('devices.test') }}</AppButton>
+          <PickerMenu
+            v-bind="pickerProps(outputOptions)"
+            :label="t('devices.output')"
+            :icon="icons.Speaker"
+            :model-value="roleValue('output')"
+            @update:model-value="setRole('output', $event)"
+          />
+          <div class="below">
+            <AppButton variant="tonal" :icon="icons.Volume2" :disabled="loading" @click="control.testTone.mutate({ role: 'output', device: model.output })">{{ t('devices.test') }}</AppButton>
           </div>
           <p v-if="status('output')" class="type-body-small warn">{{ status('output') }}</p>
           <div v-for="p in problems('output')" :key="p.reason" class="problem type-body-small">
@@ -185,9 +214,15 @@ const inLevels = computed(() => (live.stats ? { rms: live.stats.input_rms_db, pe
           </div>
         </div>
         <div class="group">
-          <div class="role">
-            <DeviceMenu :label="t('devices.monitor')" :model-value="roleValue('monitor')" :options="monitorOptions" @update:model-value="setRole('monitor', $event)" />
-            <AppButton v-if="model.monitor" variant="tonal" :icon="icons.Headphones" @click="control.testTone.mutate({ role: 'monitor', device: model.monitor })">{{ t('devices.test') }}</AppButton>
+          <PickerMenu
+            v-bind="pickerProps(monitorOptions)"
+            :label="t('devices.monitor')"
+            :icon="icons.Headphones"
+            :model-value="roleValue('monitor')"
+            @update:model-value="setRole('monitor', $event)"
+          />
+          <div v-if="model.monitor" class="below">
+            <AppButton variant="tonal" :icon="icons.Headphones" :disabled="loading" @click="control.testTone.mutate({ role: 'monitor', device: model.monitor })">{{ t('devices.test') }}</AppButton>
           </div>
           <div v-if="model.monitor" class="monitor">
             <SegmentedControl v-model="monitorSource" :options="sourceOptions" />
@@ -231,7 +266,7 @@ const inLevels = computed(() => (live.stats ? { rms: live.stats.input_rms_db, pe
       </ExpansionPanel>
       <p v-if="statusLine" class="type-body-small muted status">{{ statusLine }}</p>
       <div class="measure">
-        <AppButton variant="tonal" :icon="icons.Timer" :loading="measure.isPending.value" :disabled="running || live.state.passthrough" @click="runMeasure">{{ t('devices.measure') }}</AppButton>
+        <AppButton variant="tonal" :icon="icons.Timer" :loading="measure.isPending.value" :disabled="loading || running || live.state.passthrough" @click="runMeasure">{{ t('devices.measure') }}</AppButton>
         <p class="type-body-small muted hint">{{ measure.isPending.value ? t('devices.measuring') : t('devices.measureHint') }}</p>
       </div>
       <ErrorNotice v-if="measure.error.value" :error="measure.error.value" />
@@ -246,9 +281,9 @@ const inLevels = computed(() => (live.stats ? { rms: live.stats.input_rms_db, pe
 .devices { display: flex; flex-direction: column; gap: var(--app-space-3); min-width: 0; }
 .head { display: flex; align-items: center; gap: var(--app-space-2); }
 .title { flex: 1; margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: var(--app-space-3) var(--app-space-6); align-items: start; }
-.group { display: flex; flex-direction: column; gap: var(--app-space-3); min-width: 0; }
-.role { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 220px); gap: var(--app-space-3); align-items: center; }
+.roles { display: flex; flex-direction: column; gap: var(--app-space-5); }
+.group { display: flex; flex-direction: column; gap: var(--app-space-2); min-width: 0; }
+.below { display: flex; flex-wrap: wrap; align-items: center; gap: var(--app-space-2); }
 .monitor { display: flex; flex-direction: column; gap: var(--app-space-2); padding-left: var(--app-space-3); }
 .advanced { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); gap: var(--app-space-3) var(--app-space-6); align-items: center; padding: var(--app-space-2) 0; }
 .warn { margin: 0; color: var(--md-sys-color-tertiary); }
@@ -256,7 +291,4 @@ const inLevels = computed(() => (live.stats ? { rms: live.stats.input_rms_db, pe
 .status { margin: 0; font-variant-numeric: tabular-nums; }
 .measure { display: flex; flex-wrap: wrap; align-items: center; gap: var(--app-space-2) var(--app-space-3); }
 .hint { margin: 0; flex: 1 1 240px; min-width: 0; }
-@media (max-width: 599px) {
-  .role { grid-template-columns: 1fr; }
-}
 </style>

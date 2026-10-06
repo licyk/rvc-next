@@ -1,11 +1,12 @@
 /** 简体中文。词汇固定（计划 §11.3 规则 8）：音色、音高、共振峰、索引强度、辅音保护、响度匹配。 */
 export default {
-  app: { title: 'RVC Next' },
+  app: { title: 'RVC Next', help: '帮助（文档）' },
   nav: { convert: '转换', live: '实时', separate: '分离', train: '训练', models: '模型', settings: '设置', jobs: '任务', components: '组件' },
   common: {
     cancel: '取消',
     save: '保存',
     close: '关闭',
+    noMatches: '没有匹配项',
     delete: '删除',
     remove: '移除',
     retry: '重试',
@@ -56,6 +57,7 @@ export default {
   voice: {
     label: '音色',
     search: '搜索音色',
+    loading: '正在加载音色…',
     none: '还没有音色',
     noneHint: '在“模型”中导入 .pth 模型，或包含索引的 .zip。',
     choose: '选择音色',
@@ -252,6 +254,12 @@ export default {
     automatic: '自动',
     exclusive: '独占模式（WASAPI）',
     systemDefault: '系统默认',
+    systemDefaultHint: '跟随系统当前使用的设备',
+    loading: '正在查找音频设备…',
+    loadingHint: '列出音频设备需要一点时间，安装的驱动较多时会更久。',
+    search: '搜索设备',
+    channelCount: '{n} 声道',
+    loopbackDriver: '录制这台输出设备播放的声音',
     default: '默认',
     virtual: '虚拟',
     notConnected: '未连接',
