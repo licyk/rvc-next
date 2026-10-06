@@ -198,7 +198,7 @@ rvc-next config set server.access_token null # 清除令牌
 | `live.last_params` | 对象 | 同 `convert.default_params`，但 `index_rate` 和 `rms_mix_rate` 为 `0` | 上次使用的音色参数（原版实时 GUI 的初始值） |
 | `live.auto_reconnect` | bool | `true` | 自动重新连接丢失的设备 |
 | `live.show_meters` | bool | `true` | 停止时显示输入电平 |
-| `live.show_all_devices` | bool | `false` | 输入与输出菜单都列出所有设备（不按方向过滤），用于把声音送到输入设备 |
+| `live.show_all_devices` | bool | `false` | 输入菜单同时列出输出设备，作为内录输入：输出设备播放的声音成为输入（Windows 用 WASAPI 环回，Linux 用 PulseAudio/PipeWire 监视器；macOS 不支持） |
 | `live.enable_asio` | bool | `false` | 启用 ASIO 驱动（Windows） |
 
 "设备选择"是一个对象：`device_id`（空为跟随系统默认）、`physical_key`、`name`、`host_api`、`channels`（输入为要混合成单声道的声道，从 1 开始；输出为写入的声道；空为输入第一个、输出前两个）、`sample_rate`、`exclusive`（WASAPI 独占模式）。这些通常在 Web UI 的设备面板里选择，或由 `rvc-next live run --input/--output` 写入，不需要手动编辑。

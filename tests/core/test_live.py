@@ -128,30 +128,70 @@ def test_voice_switch_while_running(live, services, tmp_path, monkeypatch):
     assert wait_for(lambda: live.state().state == "stopped")
 
 
-def test_show_all_devices_lists_both_directions(live, services):
-    """live.show_all_devices puts every device in both menus, for routing audio into an input device."""
+def _loopbacks_listed(live) -> bool:
+    return any(p.is_loopback for p in live.devices().inputs)
+
+
+def _pick(physicals, name: str) -> DeviceSelection:
+    p = next(p for p in physicals if p.name == name)
+    return DeviceSelection(device_id=p.recommended_id, physical_key=p.key, name=p.name)
+
+
+def test_show_all_devices_lists_outputs_as_loopback_inputs(live, services):
+    """live.show_all_devices lists every output device in the input menu too, recorded as a loopback;
+    nothing can play into an input device, so the output menu keeps its own."""
     from rvc_next.core.events.models import DevicesChangedEvent
 
     events: list = []
     services.events.subscribe(lambda e: events.append(e) if isinstance(e, DevicesChangedEvent) else None)
     listing = live.devices(refresh=True)
-    input_keys, output_keys = {p.key for p in listing.inputs}, {p.key for p in listing.outputs}
-    mic = next(p for p in listing.inputs if p.key not in output_keys)  # an input-only device
-    assert mic.key not in output_keys
+    output_names = {p.name for p in listing.outputs}
+    assert not any(p.is_loopback for p in listing.inputs)
 
     services.settings.update({"live": {"show_all_devices": True}})
-    assert events and {p.key for p in events[-1].devices.outputs} >= output_keys | input_keys
+    assert wait_for(lambda: _loopbacks_listed(live))
+    assert events and any(p.is_loopback for p in events[-1].devices.inputs)
     merged = live.devices()
-    assert {p.key for p in merged.outputs} == output_keys | input_keys and {p.key for p in merged.inputs} == input_keys | output_keys
-    # The menu's own devices come first; the others keep their direction, and are never the default.
-    assert [p.direction for p in merged.outputs[: len(output_keys)]] == ["output"] * len(output_keys)
-    out = next(r for r in live.resolve(LiveDevices(output=DeviceSelection(device_id=mic.recommended_id, physical_key=mic.key, name=mic.name))) if r.role == "output")
-    assert out.status == "exact" and out.device is not None and out.device.physical_key == mic.key
-    default_out = next(r for r in live.resolve(LiveDevices()) if r.role == "output")
-    assert default_out.device is not None and default_out.device.direction == "output"
+    loopbacks = [p for p in merged.inputs if p.is_loopback]
+    assert {p.name for p in loopbacks} == output_names and all(p.key.startswith("loopback:") and p.direction == "input" for p in loopbacks)
+    assert merged.inputs[0].name == "Fake Microphone" and {p.name for p in merged.outputs} == output_names
+    # The system default input is still the microphone.
+    default_in = next(r for r in live.resolve(LiveDevices()) if r.role == "input")
+    assert default_in.device is not None and default_in.device.loopback_of is None
 
     services.settings.update({"live": {"show_all_devices": False}})
-    assert {p.key for p in live.devices().outputs} == output_keys
+    assert wait_for(lambda: not _loopbacks_listed(live))
+
+
+def test_recording_an_output_device(live, services, tiny_voice_file):
+    """A loopback input converts what another output plays; recording the output the voice plays on is refused."""
+    services.settings.update({"live": {"show_all_devices": True}})
+    assert wait_for(lambda: _loopbacks_listed(live))
+    listing = live.devices()
+    speakers_in = _pick([p for p in listing.inputs if p.is_loopback], "Fake Speakers")
+    speakers, headphones = _pick(listing.outputs, "Fake Speakers"), _pick(listing.outputs, "Fake Headphones")
+
+    result = live.check(LiveDevices(input=speakers_in, output=speakers))
+    assert not result.ok and [(p.role, p.reason, p.action) for p in result.problems] == [("input", "feedback", "choose")]
+    assert [p.reason for p in live.check(LiveDevices(input=speakers_in)).problems] == ["feedback"]  # the default output is the speakers
+    result = live.check(LiveDevices(input=speakers_in, output=headphones))
+    assert result.ok and result.topology == "split"
+
+    voice = services.models.import_paths([tiny_voice_file]).voices[0]
+    params = VoiceParamsModel(f0_method="pm", index_rate=0, rms_mix_rate=0)
+    with pytest.raises(DeviceError) as info:
+        live.start(LiveConfig(voice_id=voice.id, params=params, devices=LiveDevices(input=speakers_in, output=speakers)))
+    assert info.value.detail["reason"] == "feedback"
+    services.settings.update({"live": {"devices": LiveDevices(input=speakers_in, output=speakers).model_dump()}})
+    with pytest.raises(DeviceError):
+        live.passthrough(True)
+
+    live.start(LiveConfig(voice_id=voice.id, params=params, stream=StreamParamsModel(block_ms=200, context_ms=500), devices=LiveDevices(input=speakers_in, output=headphones)))
+    assert wait_for(lambda: live.state().state == "running"), live.state()
+    with pytest.raises(DeviceError):
+        live.set_devices(LiveDevices(input=speakers_in, output=speakers))
+    live.stop()
+    assert wait_for(lambda: live.state().state == "stopped")
 
 
 def test_latency_measurement(live, services):

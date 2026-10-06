@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from rvc_next.engine.audio_io.devices import accepted_channels, group_devices, is_virtual, normalize_name, probe_device, resolve_selection
+from rvc_next.engine.audio_io.devices import accepted_channels, group_devices, is_virtual, loopback_target, normalize_name, probe_device, resolve_selection
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "devices"
 
@@ -170,3 +170,35 @@ def test_variants_carry_the_channel_counts() -> None:
     assert grouped["inputs"][0]["variants"][0]["channel_counts"] == [2]
     del devices[0]["input_channel_counts"]
     assert group_devices(hostapis, devices, "win32")["inputs"][0]["variants"][0]["channel_counts"] == []
+
+
+# -- loopback inputs -------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("name", "target"),
+    [
+        ("Speakers (Realtek(R) Audio) [Loopback]", "Speakers (Realtek(R) Audio)"),
+        ("Monitor of Built-in Audio Analog Stereo", "Built-in Audio Analog Stereo"),
+        ("Microphone (Realtek(R) Audio)", None),
+        ("Loopback Audio", None),
+        ("BlackHole 2ch", None),
+    ],
+)
+def test_loopback_target(name: str, target: str | None) -> None:
+    assert loopback_target(name) == target
+
+
+def test_portaudio_loopback_devices_stay_apart_from_microphones() -> None:
+    # A newer PortAudio lists every WASAPI output again as a "[Loopback]" input; a headset may name its
+    # microphone like its speakers, and the loopback must not become a driver of that microphone.
+    hostapis = [{"name": "Windows WASAPI", "default_input_device": 0, "default_output_device": 1}]
+    devices = [
+        {"name": "Headset (USB)", "index": 0, "hostapi": 0, "max_input_channels": 1, "max_output_channels": 0},
+        {"name": "Headset (USB)", "index": 1, "hostapi": 0, "max_input_channels": 0, "max_output_channels": 2},
+        {"name": "Headset (USB) [Loopback]", "index": 2, "hostapi": 0, "max_input_channels": 2, "max_output_channels": 0},
+    ]
+    inputs = group_devices(hostapis, devices, "win32")["inputs"]
+    assert [(p["key"], p["is_loopback"]) for p in inputs] == [("headset (usb)", False), ("loopback:headset (usb)", True)]
+    loopback = inputs[1]["variants"][0]
+    assert loopback["loopback_of"] == "Headset (USB)" and loopback["loopback_source"] is None and loopback["portaudio_index"] == 2

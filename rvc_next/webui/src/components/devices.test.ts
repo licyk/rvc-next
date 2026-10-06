@@ -4,11 +4,11 @@ import { DEFAULT_VALUE, channelOptions, deviceOptions, driverOptions, selectionF
 
 const variant = (id: string, host: string, name: string): AudioDevice => ({
   id, physical_key: name.toLowerCase(), name, raw_name: name.slice(0, 31), host_api: host, direction: 'input', channels: 2, default_sample_rate: 48000,
-  channel_counts: [], supported_rates: [44100, 48000], latency_ms: [10, 40], is_default: false, is_virtual: false, portaudio_index: 1,
+  channel_counts: [], supported_rates: [44100, 48000], latency_ms: [10, 40], is_default: false, is_virtual: false, portaudio_index: 1, loopback_of: null, loopback_source: null,
 });
 const phys = (name: string, extra: Partial<PhysicalDevice> = {}): PhysicalDevice => {
   const variants = [variant(`${name}-wasapi`, 'wasapi', name), variant(`${name}-mme`, 'mme', name)];
-  return { key: name.toLowerCase(), name, direction: 'input', is_default: false, is_virtual: false, variants, recommended_id: variants[0].id, ...extra };
+  return { key: name.toLowerCase(), name, direction: 'input', is_default: false, is_virtual: false, is_loopback: false, variants, recommended_id: variants[0].id, ...extra };
 };
 const labels = { systemDefault: 'System default', default: 'default', virtual: 'virtual', notConnected: 'not connected' };
 
@@ -23,10 +23,10 @@ describe('device menu options', () => {
     expect(options[0].value).toBe(DEFAULT_VALUE);
   });
 
-  it('puts devices of the other direction last, marked, and never as the default', () => {
-    const speakers = phys('Speakers (Realtek)', { direction: 'output', is_default: true });
-    const options = deviceOptions([...list, speakers], null, { ...labels, inputDevice: 'input device', outputDevice: 'output device' }, 'input');
-    expect(options.at(-1)).toMatchObject({ label: 'Speakers (Realtek)', badges: [{ text: 'output device', tone: 'warning' }] });
+  it('puts output devices recorded as inputs last, marked as loopback', () => {
+    const speakers = phys('Speakers (Realtek)', { key: 'loopback:speakers (realtek)', is_loopback: true });
+    const options = deviceOptions([speakers, ...list], null, { ...labels, loopback: 'loopback' });
+    expect(options.at(-1)).toMatchObject({ value: 'loopback:speakers (realtek)', label: 'Speakers (Realtek)', badges: [{ text: 'loopback', tone: 'neutral' }] });
     expect(options[1].label).toBe('Microphone (USB Audio Device)');
   });
 

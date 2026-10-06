@@ -37,6 +37,7 @@ HOST_API_IDS: tuple[tuple[str, str], ...] = (
     ("pulseaudio", "pulse"),
     ("pulse", "pulse"),
     ("oss", "oss"),
+    ("loopback", "loopback"),
 )
 
 HOST_API_RANKS: dict[str, dict[str, int]] = {
@@ -55,6 +56,12 @@ _VIRTUAL = re.compile(
     r"vb-audio|\bcable (input|output)\b|voicemeeter|blackhole|\bloopback\b|soundflower|null (sink|output|input)|\bvirtual\b|vb-cable",
     re.IGNORECASE,
 )
+
+# A PortAudio device that records an output: a newer PortAudio's WASAPI loopback, a PulseAudio monitor.
+_LOOPBACK_NAME = re.compile(r"^monitor of (?P<monitor>.+)$|^(?P<wasapi>.+?)\s*\[loopback\]$", re.IGNORECASE)
+
+LOOPBACK_KEY = "loopback:"
+"""Prefixes a loopback input's physical key: it is never grouped with a microphone of the same name."""
 
 MME_NAME_LIMIT = 31
 
@@ -83,6 +90,12 @@ def host_api_rank(api_id: str, platform: str | None = None) -> int:
 def is_virtual(name: str) -> bool:
     """Virtual cables and loopback drivers: VB-Audio, VoiceMeeter, BlackHole, Loopback, Soundflower, null sinks."""
     return bool(_VIRTUAL.search(name or ""))
+
+
+def loopback_target(name: str) -> str | None:
+    """The output a PortAudio loopback device records, from its name (``X [Loopback]``, ``Monitor of X``); None otherwise."""
+    m = _LOOPBACK_NAME.match((name or "").strip())
+    return (m.group("monitor") or m.group("wasapi")).strip() if m else None
 
 
 def normalize_name(name: str, host_api_name: str = "") -> str:
@@ -148,9 +161,13 @@ def _variants(raw_hostapis: list[dict[str, Any]], raw_devices: list[dict[str, An
         ordinal = ordinals.get((aid, raw_name), 0)
         ordinals[(aid, raw_name)] = ordinal + 1
         pa_index = int(raw.get("index", idx))
+        # -1 is "no default"; a loopback source's index is negative too, and never a default.
+        is_default = pa_index >= 0 and int(api.get(default_key, -1)) == pa_index
         default_rate = int(round(float(raw.get("default_samplerate", 48000) or 48000)))
         rates = sorted({int(r) for r in raw.get("supported_rates", [default_rate])})
         counts = sorted({int(c) for c in raw.get(f"{direction}_channel_counts") or []})
+        loopback_of = (raw.get("loopback_of") or loopback_target(raw_name)) if direction == "input" else None
+        norm = normalize_name(raw_name, str(api.get("name", "")))
         variants.append(
             {
                 "id": device_id(aid, raw_name, direction, ordinal),
@@ -164,12 +181,14 @@ def _variants(raw_hostapis: list[dict[str, Any]], raw_devices: list[dict[str, An
                 "default_sample_rate": default_rate,
                 "supported_rates": rates,
                 "latency_ms": _latency(raw, direction),
-                "is_default": int(api.get(default_key, -1)) == pa_index,
+                "is_default": is_default,
                 "is_virtual": is_virtual(raw_name),
                 "portaudio_index": pa_index,
-                "_norm": normalize_name(raw_name, str(api.get("name", ""))),
+                "loopback_of": loopback_of,
+                "loopback_source": raw.get("loopback_source") if loopback_of else None,
+                "_norm": LOOPBACK_KEY + normalize_name(loopback_of) if loopback_of else norm,
                 "_rank": host_api_rank(aid, plat),
-                "_system_default": hi == default_hostapi and int(api.get(default_key, -1)) == pa_index,
+                "_system_default": hi == default_hostapi and is_default,
             }
         )
     return variants
@@ -226,11 +245,12 @@ def _group_direction(
                 "direction": direction,
                 "is_default": system_default,
                 "is_virtual": any(v["is_virtual"] for v in clean),
+                "is_loopback": any(v["loopback_of"] for v in clean),
                 "variants": clean,
                 "recommended_id": clean[0]["id"],
             }
         )
-    out.sort(key=lambda p: (not p["is_default"], str(p["name"]).casefold()))
+    out.sort(key=lambda p: (not p["is_default"], p["is_loopback"], str(p["name"]).casefold()))
     return out
 
 

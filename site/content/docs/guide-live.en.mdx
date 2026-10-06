@@ -45,6 +45,20 @@ Device menus are arranged as follows:
 - Each menu item represents one **physical device**, showing its full name. On Windows, the same microphone can appear under several drivers, such as MME, DirectSound and WASAPI. rvc-next combines these into one item and automatically selects the recommended driver (in order of preference: ASIO, WASAPI, WDM-KS, DirectSound, MME on Windows; JACK, ALSA, PulseAudio on Linux).
 - Previously saved devices that are now disconnected remain visible in gray, marked **not connected**.
 
+### Record an output device (loopback)
+
+To convert what the computer plays rather than a microphone (a video, a game, a call), turn on **Settings › Audio › Record output devices as inputs (loopback)**. The input menu then also lists every output device, marked **loopback**; choosing one makes whatever that device plays the input.
+
+| System | How it records | Notes |
+| --- | --- | --- |
+| Windows | WASAPI loopback | Works with any output device, at any sample rate; silence while nothing plays |
+| Linux | The PulseAudio/PipeWire monitor of each output (“Monitor of …”) | Needs a running PulseAudio or PipeWire (pipewire-pulse) |
+| macOS | Not possible with the system alone | Install a loopback driver such as BlackHole, send the sound to it, and choose its input (an ordinary input device) |
+
+When recording is not possible, the device panel says why. Send the converted voice to a **different** device than the one being recorded (headphones, or a virtual cable for another program): recording the output that plays the voice would feed it back into itself, so rvc-next refuses it (**Records its own output**). Turning the setting off hides these inputs again.
+
+Nothing can play *into* an input device, so the output menu lists only outputs. To send the converted voice to another program, choose the playback side of a virtual cable (for example **CABLE Input**) as the output; the other program records its recording side (**CABLE Output**).
+
 ### Hear yourself
 
 The **Hear yourself** switch sends the original input straight to the monitor device (or to the output if no monitor is set), so you can check the “microphone → headphones” routing.
@@ -96,6 +110,7 @@ Whenever you change devices, rvc-next actually tries to open them with the curre
 | --- | --- | --- |
 | **Not connected** | The device cannot be found | **Choose another**: select a different device in the menu |
 | **In use by another program** | Another program is using the device | If exclusive mode is on, a **Turn off exclusive mode** button appears; otherwise, **Choose another** is suggested |
+| **Records its own output** | The input records the output (or monitor) that plays the converted voice | **Choose another** input or output |
 | **Refuses this channel count** | The driver will not open the device with this many channels (rvc-next already picks a count the device reported accepting, so this usually means exclusive mode or a device that changed) | If exclusive mode is on, a **Turn off exclusive mode** button appears; otherwise, **Choose another** is suggested (another driver of the same device usually works) |
 | **Refuses this format** | The device rejects the current sample rate | Click **Use 48 kHz** |
 | **Microphone permission denied** | The system has not granted microphone access | **How to grant access**: allow it in the system's privacy settings |

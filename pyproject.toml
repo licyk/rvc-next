@@ -58,6 +58,9 @@ dependencies = [
     "soundfile>=0.12,<1",
     # 0.5.1 bundles the ASIO-enabled PortAudio on Windows (SD_ENABLE_ASIO).
     "sounddevice>=0.5.1,<0.6",
+    # Records an output device (Live's loopback input): WASAPI loopback on Windows, PulseAudio/PipeWire
+    # monitors on Linux. 0.4.3 returns silence instead of blocking while nothing plays.
+    "soundcard>=0.4.3,<0.5; sys_platform == 'win32' or sys_platform == 'linux'",
     # The separation adapter is written against this release's MSSeparator.
     "pymss==2.1.7",
 ]

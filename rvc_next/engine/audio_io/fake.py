@@ -8,7 +8,9 @@ output back into every input, as a cable would: input sample ``n`` is output sam
 ``n − block − delay`` (in each stream's own count; a block played during one callback is captured
 by the next, as on a real device), times ``gain``, plus ``noise``. A device's
 ``<direction>_channel_counts``, when given, are the only counts it opens with (a WDM-KS pin, say);
-``probe_device`` over ``check`` finds them again.
+``probe_device`` over ``check`` finds them again. ``list_loopback`` lists every output as a
+loopback source too, as the real provider does (``capture.add_loopback_sources``); opening one
+records what that output has played, sample for sample.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from typing import Any
 
 import numpy as np
 
+from rvc_next.engine.audio_io.capture import LoopbackSource, add_loopback_sources
 from rvc_next.engine.audio_io.streams import DeviceOpenError, DuplexCallback, Endpoint, FinishedCallback, InputCallback, OutputCallback, StatusFlags
 
 Source = Callable[[int, int, int], np.ndarray]
@@ -60,9 +63,19 @@ def default_devices() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
 
 class FakeStream:
     def __init__(
-        self, backend: FakeBackend, kind: str, indexes: tuple[int | None, int | None], rate: int, block: int, channels: tuple[int, int], callback: Any, finished: FinishedCallback
+        self,
+        backend: FakeBackend,
+        kind: str,
+        indexes: tuple[int | None, int | None],
+        rate: int,
+        block: int,
+        channels: tuple[int, int],
+        callback: Any,
+        finished: FinishedCallback,
+        source: Source | None = None,
     ) -> None:
         self.backend = backend
+        self.source = source
         self.kind = kind
         self.in_index, self.out_index = indexes
         self.rate = rate
@@ -113,7 +126,7 @@ class FakeStream:
                 continue
             flags = StatusFlags()
             if self.kind in ("input", "duplex"):
-                mono = self.backend.source(self.rate, self.samples, self.block)
+                mono = (self.source or self.backend.source)(self.rate, self.samples, self.block)
                 indata = np.repeat(mono[:, None], self.in_ch, axis=1)
             outdata = np.zeros((self.block, self.out_ch), dtype=np.float32) if self.kind in ("output", "duplex") else None
             try:
@@ -146,6 +159,7 @@ class FakeBackend:
         latency: tuple[float, float] = (0.01, 0.01),
         refuse: dict[int, str] | None = None,
         loopback: dict[str, Any] | None = None,
+        list_loopback: bool = False,
     ) -> None:
         if hostapis is None or devices is None:
             hostapis, devices = default_devices()
@@ -156,6 +170,8 @@ class FakeBackend:
         self.time_scale = time_scale
         self.latency = latency
         self.refuse = {int(k): v for k, v in (refuse or {}).items()}
+        self.list_loopback = list_loopback
+        self.loopback_error: str | None = None
         if loopback is not None:
             self.source = self._loopback_source(**loopback)
         self.lost: set[int] = set()
@@ -206,7 +222,26 @@ class FakeBackend:
     # -- Backend ---------------------------------------------------------------------------------
 
     def query(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
-        return self.hostapis, [d for d in self.devices if d["index"] not in self.lost], 0
+        hostapis, devices = [dict(h) for h in self.hostapis], [d for d in self.devices if d["index"] not in self.lost]
+        if self.list_loopback:
+            outputs = list({str(d["name"]): d for d in reversed(devices) if int(d.get("max_output_channels", 0)) > 0}.values())[::-1]
+            add_loopback_sources(hostapis, devices, [LoopbackSource(str(d["index"]), str(d["name"]), int(d["max_output_channels"])) for d in outputs])
+        return hostapis, devices, 0
+
+    def _recorded_output(self, ep: Endpoint) -> dict[str, Any]:
+        """The output device a loopback endpoint records (its source id is the output's index)."""
+        return self._device(Endpoint(device={"portaudio_index": int(ep.loopback_source or -1), "id": ep.device_id}), "output")
+
+    def _capture_source(self, index: int) -> Source:
+        def source(rate: int, start: int, n: int) -> np.ndarray:
+            played = self.output(index)
+            out = np.zeros(n, dtype=np.float32)
+            hi = min(start + n, played.shape[0])
+            if hi > start:
+                out[: hi - start] = played[start:hi]
+            return out
+
+        return source
 
     def _device(self, ep: Endpoint | None, direction: str) -> dict[str, Any]:
         index = ep.index if ep is not None else None
@@ -223,6 +258,9 @@ class FakeBackend:
         raise DeviceOpenError(f"No device {index}", "missing", direction, ep.device_id if ep else None)
 
     def check(self, ep: Endpoint, direction: str, channels: int, rate: int) -> None:
+        if ep.loopback_source is not None:
+            self._recorded_output(ep)  # any rate and channel count: the provider converts
+            return
         d = self._device(ep, direction)
         max_ch = int(d["max_input_channels" if direction == "input" else "max_output_channels"])
         counts = d.get(f"{direction}_channel_counts") or range(1, max_ch + 1)
@@ -247,6 +285,11 @@ class FakeBackend:
         return self._open("duplex", inp, out, rate, block, (in_ch, out_ch), callback, finished)
 
     def open_input(self, ep: Endpoint, rate: int, block: int, channels: int, callback: InputCallback, finished: FinishedCallback) -> FakeStream:
+        if ep.loopback_source is not None:
+            index = int(self._recorded_output(ep)["index"])
+            stream = FakeStream(self, "input", (index, None), rate, block, (channels, 0), callback, finished, source=self._capture_source(index))
+            self._streams.add(stream)
+            return stream
         return self._open("input", ep, None, rate, block, (channels, 0), callback, finished)
 
     def open_output(self, ep: Endpoint, rate: int, block: int, channels: int, callback: OutputCallback, finished: FinishedCallback) -> FakeStream:
@@ -258,8 +301,8 @@ class FakeBackend:
         self.played.append((int(d["index"]), int(audio.shape[0])))
 
 
-def backend_from_request(name: str, enable_asio: bool = False, fake: dict[str, Any] | None = None) -> Any:
-    """``sounddevice`` (default) or the fake backend configured from a request's ``fake`` dict."""
+def backend_from_request(name: str, enable_asio: bool = False, fake: dict[str, Any] | None = None, list_loopback: bool = False) -> Any:
+    """``sounddevice`` (default) or the fake backend configured from a request's ``fake`` dict; ``list_loopback`` lists output devices as loopback inputs."""
     if name == "fake":
         cfg = dict(fake or {})
         return FakeBackend(
@@ -269,7 +312,8 @@ def backend_from_request(name: str, enable_asio: bool = False, fake: dict[str, A
             time_scale=float(cfg.get("time_scale", 1.0)),
             refuse=cfg.get("refuse"),
             loopback=cfg.get("loopback"),
+            list_loopback=list_loopback,
         )
     from rvc_next.engine.audio_io.streams import SounddeviceBackend
 
-    return SounddeviceBackend(enable_asio=enable_asio)
+    return SounddeviceBackend(enable_asio=enable_asio, list_loopback=list_loopback)

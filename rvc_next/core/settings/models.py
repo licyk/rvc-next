@@ -104,9 +104,10 @@ class LiveSettings(Record):
     show_meters: bool = True
     enable_asio: bool = False
     show_all_devices: bool = False
-    """List every device in both the input and the output menus, whatever its direction, for routing
-    audio into an input device (a virtual cable's recording side, say). Off: each menu lists only the
-    devices with channels in its direction."""
+    """List output devices in the input menu too, recorded as loopback inputs: what an output plays
+    becomes Live's input (WASAPI loopback on Windows, a PulseAudio/PipeWire monitor on Linux; macOS
+    needs a loopback driver such as BlackHole). Nothing can play into an input device, so the output
+    menu never lists inputs."""
 
 
 class Settings(Record):

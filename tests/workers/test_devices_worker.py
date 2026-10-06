@@ -50,6 +50,8 @@ def test_enumerate(tmp_path: Path) -> None:
         "is_default",
         "is_virtual",
         "portaudio_index",
+        "loopback_of",
+        "loopback_source",
     }
 
 
@@ -73,6 +75,19 @@ def test_check_reports_a_refused_rate(tmp_path: Path) -> None:
         tmp_path, {"action": "check", "backend": "fake", "fake": fake, "output": {"portaudio_index": wasapi_out["index"], "sample_rate": 44100}, "input": None, "monitor": None}
     )
     assert bad == {"ok": False, "reason": "format", "message": "Speakers (Realtek(R) Audio) does not support 44100 Hz", "role": "output", "sample_rate": 44100, "topology": "split"}
+
+
+def test_enumerate_and_check_a_loopback_input(tmp_path: Path) -> None:
+    fake = windows()
+    assert not any(p["is_loopback"] for p in run(tmp_path, {"action": "enumerate", "backend": "fake", "platform": "win32", "fake": fake})["inputs"])
+    data = run(tmp_path, {"action": "enumerate", "backend": "fake", "platform": "win32", "loopback": True, "fake": fake})
+    speakers = next(p for p in data["inputs"] if p["is_loopback"] and p["name"] == "Speakers (Realtek(R) Audio)")
+    variant = speakers["variants"][0]
+    assert speakers["key"] == "loopback:speakers (realtek(r) audio)" and len(speakers["variants"]) == 1
+    assert variant["host_api"] == "loopback" and variant["loopback_of"] == "Speakers (Realtek(R) Audio)" and variant["portaudio_index"] < 0
+    selection = {"portaudio_index": variant["portaudio_index"], "host_api": "loopback", "device_id": variant["id"], "loopback_source": variant["loopback_source"]}
+    ok = run(tmp_path, {"action": "check", "backend": "fake", "fake": fake, "loopback": True, "input": selection, "output": None, "monitor": None})
+    assert ok["ok"] and ok["topology"] == "input"
 
 
 def test_check_opens_a_stereo_only_microphone(tmp_path: Path) -> None:

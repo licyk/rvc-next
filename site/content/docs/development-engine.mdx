@@ -327,6 +327,14 @@ PyAV 用的 libavformat/libswresample 正是原版通过 `ffmpeg` 命令调用�
 
 `SounddeviceBackend` 用 PortAudio（`latency="low"`，WASAPI 经 `WasapiSettings`：选了独占就独占，否则共享模式加 `auto_convert`，由 Windows 转换声道数和采样率——PortAudio 自己只做单声道 ↔ 立体声的转换）；`enable_asio` 设置 `SD_ENABLE_ASIO=1`，选用 sounddevice 0.5.1 起在 Windows 上附带的 ASIO 版 PortAudio。`fake.py:FakeBackend` 模拟设备：每个流一个线程按设备自己的时钟（`1 + ppm·1e-6` 倍标称速率）调用回调，`lose(index)` 模拟拔出 USB 设备，`refuse` 让打开失败，输出被录下来供断言。测试和 worker 请求里的 `backend: "fake"` 都走它（`backend_from_request`）。`tone.py:chime()` 是“测试”按钮播放的提示音。
 
+### 录制输出设备（`capture.py`）
+
+PortAudio 无法录制渲染端点：输出设备没有输入声道，按输入打开会报 `Invalid number of channels [PaErrorCode -9998]`。PortAudio 的 WASAPI 宿主 API 在 2022 年才加入环回设备（每个输出再以 `<输出名> [Loopback]` 的名字列为输入，用 `AUDCLNT_STREAMFLAGS_LOOPBACK` 打开），晚于 sounddevice 附带的 19.7.0 DLL；它的 ALSA 宿主 API 也无法指定 PulseAudio 监视器。因此由一个环回提供者负责录制：`SoundcardLoopback` 基于 [SoundCard](https://github.com/bastibe/SoundCard)（≥ 0.4.3，没有声音播放时返回静音而不是阻塞），Windows 上用 WASAPI 环回，PulseAudio/PipeWire 上用监视器源。macOS 没有提供者（Core Audio 的进程 tap 不在 PortAudio 之内），`loopback_provider()` 会说明这一点，消息进入 `DeviceList.errors`。
+
+- **列出**：打开 `live.show_all_devices` 时，枚举会请求环回源（`"loopback": true`）。`add_loopback_sources` 把它们作为 `Loopback` 宿主 API 下的输入设备追加进去，索引为负，带 `loopback_source`（提供者的 id）和 `loopback_of`（输出的名称）。本身就是环回的 PortAudio 设备（`[Loopback]`、`Monitor of …`，见 `devices.loopback_target`）直接使用，不再询问提供者。环回输入的物理设备键以 `loopback:` 开头，不会和同名麦克风合并；设置关闭时核心层会隐藏环回输入。
+- **打开**：`SounddeviceBackend.open_input` 和 `check` 把带 `loopback_source` 的端点交给提供者。`CaptureStream` 在自己的线程里打开、读取（`record(None)`，到了多少取多少）并关闭录制器（Windows 上处于 COM 多线程单元），等待打开完成，因此拒绝会表现为 `DeviceOpenError`；`start()` 之后才调用输入回调，录制器中途失效时报告设备丢失。提供者会转换任意采样率和声道数；`choose_topology` 总是用 `split`。
+- **回授**：输入的 `loopback_of` 正是输出或监听设备时，核心层拒绝（`feedback`，在检查、开始、运行中换设备和监听自己时）；按名称比较，在 Windows 上是精确的。
+
 ## Live worker 与控制协议
 
 [`workers/live.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/workers/live.py) 是一个长期运行的进程，拥有音频设备和实时线程，与服务器的事件循环、GIL 竞争和崩溃隔离。它用 `multiprocessing.connection.Client` 连回核心层（地址和随机 authkey 在请求文件里，`protocol/live.py:WorkerRequest`），收发 `protocol/live.py` 定义的 JSON 消息。

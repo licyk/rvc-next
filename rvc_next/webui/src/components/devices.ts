@@ -9,9 +9,8 @@ export interface DeviceLabels {
   default: string;
   virtual: string;
   notConnected: string;
-  /** Badges for a device listed in the other direction's menu (``live.show_all_devices``). */
-  inputDevice?: string;
-  outputDevice?: string;
+  /** Badge for an output device recorded as an input (listed with ``live.show_all_devices``). */
+  loopback?: string;
 }
 
 /**
@@ -19,19 +18,16 @@ export interface DeviceLabels {
  * then the rest alphabetically; virtual devices badged; a saved device that is not in the list is
  * kept, greyed, as "not connected". A physical device is chosen by its key.
  */
-export function deviceOptions(devices: PhysicalDevice[], saved: DeviceSelection | null | undefined, labels: DeviceLabels, direction?: 'input' | 'output'): DeviceOption[] {
-  // A device of the other direction (the server lists them with live.show_all_devices) comes after
-  // the menu's own devices and says what it is.
-  const foreign = (d: PhysicalDevice) => direction !== undefined && d.direction !== direction;
+export function deviceOptions(devices: PhysicalDevice[], saved: DeviceSelection | null | undefined, labels: DeviceLabels): DeviceOption[] {
+  // An output device recorded as an input (a loopback) comes after the real inputs and says what it is.
   const sorted = [...devices].sort(
-    (a, b) => Number(foreign(a)) - Number(foreign(b)) || (a.is_default === b.is_default ? a.name.localeCompare(b.name) : a.is_default ? -1 : 1),
+    (a, b) => Number(a.is_loopback) - Number(b.is_loopback) || (a.is_default === b.is_default ? a.name.localeCompare(b.name) : a.is_default ? -1 : 1),
   );
   const options: DeviceOption[] = [{ value: DEFAULT_VALUE, label: labels.systemDefault }];
   for (const d of sorted) {
     const badges: DeviceOption['badges'] = [];
-    const other = foreign(d) ? (d.direction === 'input' ? labels.inputDevice : labels.outputDevice) : undefined;
-    if (other) badges.push({ text: other, tone: 'warning' });
-    if (d.is_default && !foreign(d)) badges.push({ text: labels.default, tone: 'primary' });
+    if (d.is_loopback && labels.loopback) badges.push({ text: labels.loopback, tone: 'neutral' });
+    if (d.is_default) badges.push({ text: labels.default, tone: 'primary' });
     if (d.is_virtual) badges.push({ text: labels.virtual, tone: 'neutral' });
     options.push({ value: d.key, label: d.name, badges });
   }

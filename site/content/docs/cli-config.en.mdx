@@ -198,7 +198,7 @@ Defaults used for new experiments; existing experiments store their settings in 
 | `live.last_params` | Object | Same as `convert.default_params`, but `index_rate` and `rms_mix_rate` are `0` | Last voice parameters used (initial values from the original live GUI) |
 | `live.auto_reconnect` | bool | `true` | Automatically reconnect lost devices |
 | `live.show_meters` | bool | `true` | Show input levels while stopped |
-| `live.show_all_devices` | bool | `false` | List every device in both the input and the output menus (no filtering by direction), for routing audio into an input device |
+| `live.show_all_devices` | bool | `false` | Also list output devices in the input menu, recorded as loopback inputs: what an output plays becomes the input (WASAPI loopback on Windows, PulseAudio/PipeWire monitors on Linux; not on macOS) |
 | `live.enable_asio` | bool | `false` | Enable the ASIO driver (Windows) |
 
 A "device selection" is an object: `device_id` (empty follows the system default), `physical_key`, `name`, `host_api`, `channels` (input channels to mix down to mono, numbered from 1; output channels to write to; empty uses the first input channel and first two output channels), `sample_rate`, and `exclusive` (WASAPI exclusive mode). These are usually selected in the Web UI's device panel or written by `rvc-next live run --input/--output`; manual editing is unnecessary.

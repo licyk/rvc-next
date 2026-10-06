@@ -37,7 +37,6 @@ from rvc_next.core.live.models import (
     LiveDevices,
     LiveState,
     LiveStats,
-    PhysicalDevice,
     ResolvedDevice,
     TestToneRequest,
 )
@@ -231,7 +230,14 @@ class LiveService:
         from rvc_next.protocol.jsonl import parse_line
         from rvc_next.protocol.messages import ErrorEvent, ResultEvent
 
-        full = {"enable_asio": self._settings.settings.live.enable_asio, "backend": self.backend, **({"fake": self.fake} if self.fake is not None else {}), **request}
+        live = self._settings.settings.live
+        full = {
+            "enable_asio": live.enable_asio,
+            "loopback": live.show_all_devices,
+            "backend": self.backend,
+            **({"fake": self.fake} if self.fake is not None else {}),
+            **request,
+        }
         fd, name = tempfile.mkstemp(prefix="rvc-next-devices-", suffix=".json")
         with open(fd, "w", encoding="utf-8") as f:
             json.dump(full, f)
@@ -264,8 +270,8 @@ class LiveService:
         return result
 
     def devices(self, refresh: bool = False, max_age: float | None = None) -> DeviceList:
-        """The audio devices, as the menus and device resolution see them (``live.show_all_devices``
-        merges the two directions; the enumeration itself is cached as PortAudio reports it).
+        """The audio devices, as the menus and device resolution see them (with ``live.show_all_devices``
+        the inputs include output devices recorded as loopback inputs; without it they are left out).
 
         ``refresh`` enumerates again; ``max_age`` enumerates again only when the cached list is
         older than that many seconds (an enumeration is a subprocess, most of a second)."""
@@ -284,18 +290,25 @@ class LiveService:
         return self._view(fresh)
 
     def _view(self, listing: DeviceList) -> DeviceList:
-        if not self._settings.settings.live.show_all_devices:
+        # Loopback sources from the provider are enumerated only with the setting on; a PortAudio
+        # build's own loopback devices (``[Loopback]``, ``Monitor of``) are always there and hidden here.
+        if self._settings.settings.live.show_all_devices:
             return listing
-        return listing.model_copy(update={"inputs": _with_others(listing.inputs, listing.outputs), "outputs": _with_others(listing.outputs, listing.inputs)})
+        return listing.model_copy(update={"inputs": [p for p in listing.inputs if not p.is_loopback]})
 
     def _on_settings_keys(self, keys: list[str]) -> None:
         if any(k.startswith(("live.devices", "live.stream")) for k in keys):
             self._sync_latency_test()
         if "live.show_all_devices" in keys:
-            with self._lock:
-                cached = self._devices
-            if cached is not None:
-                self._events.publish(DevicesChangedEvent(devices=self._view(cached)))
+            # The loopback sources are listed (or not) by the enumeration itself: list again, off the
+            # caller's thread; a changed list goes out as devices_changed.
+            threading.Thread(target=self._relist, name="rvc-live-relist", daemon=True).start()
+
+    def _relist(self) -> None:
+        try:
+            self.devices(refresh=True)
+        except RvcNextError as e:
+            logger.warning("Live: listing the audio devices failed: %s", e.message)
 
     def backend_info(self) -> dict[str, Any]:
         """For ``doctor``: the sounddevice version and what PortAudio sees."""
@@ -364,12 +377,15 @@ class LiveService:
             elif r.status == "default_fallback":
                 problems.append(DeviceProblem(role=r.role, reason="fallback", message=r.message or "Using the system default", action="choose"))
         by_role = {r.role: r for r in resolved}
+        feedback = _feedback(resolved)
+        if feedback is not None:
+            problems.append(feedback)
 
         def sel(role: str, selection: DeviceSelection | None) -> dict[str, Any] | None:
             return _probe_selection(selection, by_role.get(role))
 
         topology = sample_rate = None
-        if not any(p.reason == "missing" for p in problems):
+        if not any(p.reason in ("missing", "feedback") for p in problems):
             result = self._run_devices(
                 {"action": "check", "input": sel("input", devices.input), "output": sel("output", devices.output), "monitor": sel("monitor", devices.monitor)}
             )
@@ -604,6 +620,7 @@ class LiveService:
         for r in resolved:
             if r.status == "missing":
                 raise DeviceError(r.message or f"No {r.role} device", "missing", {"role": r.role})
+        _refuse_feedback(resolved)
         out = by_role["output"]
         if out.status == "default_fallback" and not config.allow_output_fallback:
             raise DeviceError(
@@ -693,6 +710,7 @@ class LiveService:
                 for r in resolved:
                     if r.status == "missing":
                         raise DeviceError(r.message or f"No {r.role} device", "missing", {"role": r.role})
+                _refuse_feedback(resolved)
                 self._supervisor.send(P.SetDevices(devices=self._worker_devices(devices, resolved)))
                 config = current.config.model_copy(update={"devices": devices}) if current.config else None
                 self._set_state(resolved=resolved, config=config)
@@ -715,12 +733,13 @@ class LiveService:
         return self._set_state(meter=on)
 
     def passthrough(self, on: bool) -> LiveState:
+        devices = self._settings.settings.live.devices
+        resolved = self.resolve(devices, self.devices()) if on else []
+        _refuse_feedback(resolved)
         if not self._supervisor.running:
             if not on:
                 return self._set_state(passthrough=False)
-            devices = self._settings.settings.live.devices
             self._supervisor.ensure(self._worker_request(), env=self._worker_env())
-            resolved = self.resolve(devices, self.devices())
             self._supervisor.send(P.SetDevices(devices=self._worker_devices(devices, resolved)))
         self._supervisor.send(P.Passthrough(on=on))
         return self._set_state(passthrough=on)
@@ -777,14 +796,34 @@ def _probe_selection(selection: DeviceSelection | None, resolved: ResolvedDevice
     if selection is None or resolved is None or resolved.device is None:
         return None
     d = resolved.device
-    return {**selection.model_dump(), "device_id": d.id, "host_api": d.host_api, "portaudio_index": d.portaudio_index}
+    return {**selection.model_dump(), "device_id": d.id, "host_api": d.host_api, "portaudio_index": d.portaudio_index, "loopback_source": d.loopback_source}
 
 
-def _with_others(own: list[PhysicalDevice], others: list[PhysicalDevice]) -> list[PhysicalDevice]:
-    """``own`` followed by the devices of the other direction it does not already list; those keep
-    their own ``direction``, which the menus show as a badge."""
-    keys = {p.key for p in own}
-    return [*own, *(p for p in others if p.key not in keys)]
+def _feedback(resolved: list[ResolvedDevice]) -> DeviceProblem | None:
+    """A loopback input that records the output (or monitor) the converted voice plays on: it would
+    hear itself, louder each round. Matched by name, which is exact on Windows (the loopback is the
+    output endpoint itself); a PulseAudio sink's name rarely matches PortAudio's ALSA names."""
+    from rvc_next.engine.audio_io.devices import normalize_name
+
+    by_role = {r.role: r for r in resolved}
+    inp = by_role.get("input")
+    recorded = inp.device.loopback_of if inp is not None and inp.device is not None else None
+    if not recorded:
+        return None
+    for role in ("output", "monitor"):
+        r = by_role.get(role)
+        if r is not None and r.device is not None and normalize_name(r.device.name) == normalize_name(recorded):
+            return DeviceProblem(
+                role="input", reason="feedback", message=f"The input records {r.device.name}, which plays the {role}: the converted voice would feed back into it", action="choose"
+            )
+    return None
+
+
+def _refuse_feedback(resolved: list[ResolvedDevice]) -> None:
+    """Raise ``DeviceError`` (reason ``feedback``) before a session, a device change or passthrough would loop."""
+    problem = _feedback(resolved)
+    if problem is not None:
+        raise DeviceError(problem.message, "feedback", {"role": "input"})
 
 
 def _signature(listing: DeviceList) -> str:

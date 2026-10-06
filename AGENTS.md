@@ -57,7 +57,7 @@ site/         the website: home page and docs (Fumadocs on TanStack Start, from 
   (`create_app`, `webui --api-prefix`) moves API, socket, docs and UI under one path; the UI derives
   its base from its script URL. `tests/api/test_embed.py`; docs `advanced-embed`.
 - **Layer rule** (`tests/test_architecture.py`): `engine` imports no `rvc_next.core/api/cli/workers`
-  and no web/CLI framework or pydantic; `sounddevice` only under `engine/audio_io/`, `pymss` only
+  and no web/CLI framework or pydantic; `sounddevice` and `soundcard` only under `engine/audio_io/`, `pymss` only
   under `engine/separate/`; `protocol` is standard library only; `workers` import `engine` and
   `protocol`; `core` imports neither a framework nor torch directly (torch only through engine
   functions, lazily); `api`/`cli` never import `engine`. A second test fails if importing
@@ -194,6 +194,14 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   `devices.probe_device` records `channel_counts` when a device refuses some, `Endpoint.open_channels`
   opens the next accepted count up, and rates are probed at it. WASAPI shared streams use
   `auto_convert`. `-9998` is the `channels` reason, never `format` (whose fix is "Use 48 kHz").
+- **Recording an output device** (`engine/audio_io/capture.py`): PortAudio cannot open an output as
+  an input (-9998, it has no input channels), and the 19.7.0 DLL sounddevice bundles predates
+  PortAudio's WASAPI `[Loopback]` devices. `SoundcardLoopback` (SoundCard ≥ 0.4.3, Windows and
+  Linux only; `soundcard` only under `engine/audio_io/`) records WASAPI loopback / Pulse monitors
+  on a `CaptureStream` thread; PortAudio's own loopback devices win when present. Listed only with
+  `live.show_all_devices` (keys `loopback:<output>`, negative indexes, `loopback_source`,
+  `loopback_of`); a loopback of the output or monitor is refused as `feedback`. That setting no
+  longer cross-lists devices (an input can never be played into).
 - `StreamEngine` calls `remove_weight_norm()` on its voice's net, as the original does; it runs
   in the live worker's own runtime, never the server's.
 

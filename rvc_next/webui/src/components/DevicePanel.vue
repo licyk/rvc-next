@@ -36,12 +36,11 @@ const labels = computed(() => ({
   default: t('devices.default'),
   virtual: t('devices.virtual'),
   notConnected: t('devices.notConnected'),
-  inputDevice: t('devices.inputDevice'),
-  outputDevice: t('devices.outputDevice'),
+  loopback: t('devices.loopback'),
 }));
-const inputOptions = computed(() => deviceOptions(inputs.value, model.value.input, labels.value, 'input'));
-const outputOptions = computed(() => deviceOptions(outputs.value, model.value.output, labels.value, 'output'));
-const monitorOptions = computed(() => [{ value: '__none__', label: t('devices.monitorNone') }, ...deviceOptions(outputs.value, model.value.monitor, labels.value, 'output')]);
+const inputOptions = computed(() => deviceOptions(inputs.value, model.value.input, labels.value));
+const outputOptions = computed(() => deviceOptions(outputs.value, model.value.output, labels.value));
+const monitorOptions = computed(() => [{ value: '__none__', label: t('devices.monitorNone') }, ...deviceOptions(outputs.value, model.value.monitor, labels.value)]);
 const host = computed(() => list.data.value?.host || meta.data.value?.host || '');
 
 function commit(next: LiveDevices) {
@@ -159,6 +158,8 @@ const inLevels = computed(() => (live.stats ? { rms: live.stats.input_rms_db, pe
     <p v-if="meta.data.value && !meta.data.value.local" class="type-body-small muted">{{ t('devices.remoteNote') }}</p>
     <ErrorNotice v-if="list.error.value" :error="list.error.value" />
     <template v-else>
+      <!-- What the enumeration could not do (no ASIO driver, no way to record an output here), as the server words it. -->
+      <p v-for="e in deviceList?.errors ?? []" :key="e" class="type-body-small warn">{{ e }}</p>
       <!-- One group per role; on a wide page they stand side by side. -->
       <div class="roles">
         <div class="group">

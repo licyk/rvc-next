@@ -42,15 +42,23 @@ class AudioDevice(Record):
     is_default: bool
     is_virtual: bool
     portaudio_index: int
-    """Valid for this enumeration only; never stored."""
+    """Valid for this enumeration only; never stored. Negative for a loopback source PortAudio does not list."""
+    loopback_of: str | None = None
+    """An input that records an output device ("loopback"): that output's name. None for a real input."""
+    loopback_source: str | None = None
+    """For a loopback recorded through the provider rather than PortAudio: its id (a Windows endpoint
+    id, a PulseAudio monitor source). Stable across enumerations."""
 
 
 class PhysicalDevice(Record):
     key: str
+    """Its normalised name; a loopback input's starts with ``loopback:``, so it never joins a microphone."""
     name: str
     direction: Direction
     is_default: bool
     is_virtual: bool
+    is_loopback: bool = False
+    """Records an output device; listed only with ``live.show_all_devices``."""
     variants: list[AudioDevice]
     recommended_id: str
 
@@ -183,7 +191,7 @@ class LiveState(Record):
 
 class DeviceProblem(Record):
     role: Literal["input", "output", "monitor"]
-    reason: Literal["missing", "busy", "channels", "format", "permission", "fallback"]
+    reason: Literal["missing", "busy", "channels", "format", "permission", "fallback", "feedback"]
     message: str
     action: str | None = None
     """A suggested fix the picker shows as a button: "choose", "use_48k", "disable_exclusive", "grant_permission"."""

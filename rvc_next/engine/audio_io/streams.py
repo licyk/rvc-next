@@ -108,6 +108,11 @@ class Endpoint:
         return None if self.device is None else self.device.get("host_api")
 
     @property
+    def loopback_source(self) -> str | None:
+        """The loopback provider's id when this input records an output device through it (``capture.py``)."""
+        return None if self.device is None else self.device.get("loopback_source")
+
+    @property
     def max_channels(self) -> int:
         return 2 if self.device is None else int(self.device.get("channels", 2))
 
@@ -161,8 +166,8 @@ def choose_topology(input: Endpoint, output: Endpoint | None, rate: int) -> str:
         return "input"
     if input.device is None and output.device is None:
         return "duplex"
-    if input.device is None or output.device is None:
-        return "split"
+    if input.device is None or output.device is None or input.loopback_source is not None:
+        return "split"  # a loopback recorder is its own stream, whatever it records
     if input.host_api != output.host_api:
         return "split"
     if not (input.supports(rate) and output.supports(rate)):
@@ -230,21 +235,52 @@ class _SdHandle:
 
 
 class SounddeviceBackend:
-    """PortAudio through ``sounddevice``. ``enable_asio`` selects the ASIO-enabled DLL on Windows (0.5.1+)."""
+    """PortAudio through ``sounddevice``. ``enable_asio`` selects the ASIO-enabled DLL on Windows (0.5.1+).
+
+    An input with a ``loopback_source`` records an output device through the loopback provider
+    (``capture.py``) instead; ``list_loopback`` adds the provider's sources to ``query``, and
+    ``loopback_error`` then says why there are none.
+    """
 
     name = "sounddevice"
 
-    def __init__(self, enable_asio: bool = False) -> None:
+    def __init__(self, enable_asio: bool = False, list_loopback: bool = False) -> None:
         if enable_asio:
             os.environ["SD_ENABLE_ASIO"] = "1"
         import sounddevice as sd
 
         self.sd = sd
+        self.list_loopback = list_loopback
+        self.loopback_error: str | None = None
+        self._provider: Any = None
 
     def query(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
-        from rvc_next.engine.audio_io.devices import enumerate_raw
+        from rvc_next.engine.audio_io.devices import enumerate_raw, loopback_target
 
-        return enumerate_raw()
+        hostapis, devices, default_api = enumerate_raw()
+        self.loopback_error = None
+        native = any(int(d.get("max_input_channels", 0) or 0) > 0 and loopback_target(str(d.get("name", ""))) for d in devices)
+        if self.list_loopback and not native:
+            from rvc_next.engine.audio_io.capture import add_loopback_sources
+
+            try:
+                add_loopback_sources(hostapis, devices, self._loopback().sources())
+            except DeviceOpenError as e:
+                self.loopback_error = e.message
+            except Exception as e:
+                self.loopback_error = f"Output devices cannot be listed for recording: {e}"
+        return hostapis, devices, default_api
+
+    def _loopback(self) -> Any:
+        """The loopback provider, made once; ``DeviceOpenError`` when this system has none."""
+        if self._provider is None:
+            from rvc_next.engine.audio_io.capture import loopback_provider
+
+            provider, why = loopback_provider()
+            if provider is None:
+                raise DeviceOpenError(why or "Output devices cannot be recorded on this system", "missing", "input")
+            self._provider = provider
+        return self._provider
 
     def _extra(self, ep: Endpoint | None) -> Any:
         """WASAPI: exclusive when chosen; otherwise shared with Windows converting channels and rate, so
@@ -262,6 +298,15 @@ class SounddeviceBackend:
         return StatusFlags(bool(getattr(status, "input_overflow", False)), bool(getattr(status, "output_underflow", False)))
 
     def check(self, ep: Endpoint, direction: str, channels: int, rate: int) -> None:
+        if ep.loopback_source is not None:
+            from rvc_next.engine.audio_io.capture import check_capture
+
+            try:
+                provider = self._loopback()
+            except DeviceOpenError as e:
+                raise DeviceOpenError(e.message, e.reason, "input", ep.device_id) from e
+            check_capture(provider, ep.loopback_source, ep.device_id)
+            return
         try:
             if direction == "input":
                 self.sd.check_input_settings(device=ep.index, channels=channels, samplerate=rate, dtype="float32", extra_settings=self._extra(ep))
@@ -293,6 +338,14 @@ class SounddeviceBackend:
         return _SdHandle(stream, True, "duplex")
 
     def open_input(self, ep: Endpoint, rate: int, block: int, channels: int, callback: InputCallback, finished: FinishedCallback) -> StreamHandle:
+        if ep.loopback_source is not None:
+            from rvc_next.engine.audio_io.capture import open_capture
+
+            try:
+                provider = self._loopback()
+            except DeviceOpenError as e:
+                raise DeviceOpenError(e.message, e.reason, "input", ep.device_id) from e
+            return open_capture(provider, ep.loopback_source, rate, channels, callback, finished, ep.device_id)
         flags = self._flags
 
         def cb(indata: Any, frames: int, _time: Any, status: Any) -> None:

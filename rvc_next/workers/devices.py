@@ -4,9 +4,10 @@
 a running stream, and needs none of the private re-initialisation calls the original used.
 
 Request: ``{"action": "enumerate" | "check" | "test_tone" | "measure_latency", "enable_asio": bool,
-"platform"?: str, "backend"?: "sounddevice" | "fake", "fake"?: {...}}``. ``check`` also takes
-``input``, ``output`` and ``monitor`` (each a ``DeviceSelection`` dict plus ``portaudio_index``, or
-null) and ``sample_rate``; ``test_tone`` takes ``device`` (the same shape, or null for the default
+"loopback"?: bool, "platform"?: str, "backend"?: "sounddevice" | "fake", "fake"?: {...}}``.
+``loopback`` lists output devices as loopback inputs too (``engine/audio_io/capture.py``). ``check``
+also takes ``input``, ``output`` and ``monitor`` (each a ``DeviceSelection`` dict plus
+``portaudio_index`` and, for a loopback input, ``loopback_source``, or null) and ``sample_rate``; ``test_tone`` takes ``device`` (the same shape, or null for the default
 output); ``measure_latency`` takes ``input``, ``output``, ``block_ms`` and ``level_db`` and runs a
 loopback measurement (``engine/audio_io/loopback.py``). One ``ResultEvent`` carries the answer.
 """
@@ -30,9 +31,14 @@ def endpoint_from_selection(selection: dict[str, Any] | None, raw_devices: list[
     if not selection:
         return None
     index = selection.get("portaudio_index")
+    source = selection.get("loopback_source")
     device: dict[str, Any] | None = None
     if index is not None:
-        raw = next((d for d in raw_devices if int(d.get("index", -1)) == int(index)), None)
+        # A loopback source is found by its provider id: its index is only a position in the list.
+        if source is not None:
+            raw = next((d for d in raw_devices if d.get("loopback_source") == source), None)
+        else:
+            raw = next((d for d in raw_devices if int(d.get("index", -1)) == int(index)), None)
         key = "max_input_channels" if direction == "input" else "max_output_channels"
         device = {
             "id": selection.get("device_id"),
@@ -40,6 +46,7 @@ def endpoint_from_selection(selection: dict[str, Any] | None, raw_devices: list[
             "host_api": selection.get("host_api"),
             "channels": int(raw.get(key, 2)) if raw else 2,
             "channel_counts": list(raw.get(f"{direction}_channel_counts") or []) if raw else [],
+            "loopback_source": source,
             "default_sample_rate": int(round(float(raw.get("default_samplerate", 48000)))) if raw else 48000,
             "supported_rates": list(raw.get("supported_rates", [])) if raw else [],
         }
@@ -112,11 +119,11 @@ def measure_latency(backend: Any, request: dict[str, Any]) -> dict[str, Any]:
 def main(request: dict[str, Any], emitter: Emitter) -> None:
     action = request.get("action", "enumerate")
     enable_asio = bool(request.get("enable_asio", False))
-    backend = backend_from_request(request.get("backend", "sounddevice"), enable_asio, request.get("fake"))
+    backend = backend_from_request(request.get("backend", "sounddevice"), enable_asio, request.get("fake"), bool(request.get("loopback", False)))
     if action == "enumerate":
         hostapis, devices, default_api = backend.query()
         platform = request.get("platform") or sys.platform
-        errors = []
+        errors = [backend.loopback_error] if getattr(backend, "loopback_error", None) else []
         if enable_asio and platform.startswith("win") and not any("asio" in str(h.get("name", "")).lower() for h in hostapis):
             errors.append("ASIO was requested, but no ASIO driver is installed")
         data = device_list(hostapis, devices, platform, default_api, errors)

@@ -27,7 +27,7 @@ ENGINE_THIRD_PARTY = {
 
 # layer -> (allowed rvc_next subpackages, allowed third-party top-level modules)
 RULES: dict[str, tuple[set[str], set[str]]] = {
-    "engine": ({"engine"}, ENGINE_THIRD_PARTY | {"sounddevice", "pymss", "pymss_core", "yaml"}),
+    "engine": ({"engine"}, ENGINE_THIRD_PARTY | {"sounddevice", "soundcard", "pymss", "pymss_core", "yaml"}),
     "protocol": ({"protocol"}, set()),
     "workers": ({"engine", "protocol", "workers"}, ENGINE_THIRD_PARTY | {"sounddevice", "pymss", "yaml"}),
     "core": ({"core", "engine", "protocol", "version", "logger"}, {"pydantic", "httpx", "tomli", "tomli_w", "send2trash", "numpy", "typing_extensions"}),
@@ -36,7 +36,7 @@ RULES: dict[str, tuple[set[str], set[str]]] = {
 }
 
 # Narrower rules inside the engine: device access and separation stay in their own folders.
-ENGINE_ONLY_IN = {"sounddevice": "engine/audio_io", "pymss": "engine/separate", "pymss_core": "engine/separate"}
+ENGINE_ONLY_IN = {"sounddevice": "engine/audio_io", "soundcard": "engine/audio_io", "pymss": "engine/separate", "pymss_core": "engine/separate"}
 
 
 def _stdlib() -> set[str]:

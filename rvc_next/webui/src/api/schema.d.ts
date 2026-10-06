@@ -1775,6 +1775,10 @@ export interface components {
             is_virtual: boolean;
             /** Portaudio Index */
             portaudio_index: number;
+            /** Loopback Of */
+            loopback_of: string | null;
+            /** Loopback Source */
+            loopback_source: string | null;
         };
         /** AudioFile */
         AudioFile: {
@@ -2263,7 +2267,7 @@ export interface components {
              * Reason
              * @enum {string}
              */
-            reason: "missing" | "busy" | "channels" | "format" | "permission" | "fallback";
+            reason: "missing" | "busy" | "channels" | "format" | "permission" | "fallback" | "feedback";
             /** Message */
             message: string;
             /** Action */
@@ -3488,6 +3492,11 @@ export interface components {
             is_default: boolean;
             /** Is Virtual */
             is_virtual: boolean;
+            /**
+             * Is Loopback
+             * @default false
+             */
+            is_loopback: boolean;
             /** Variants */
             variants: components["schemas"]["AudioDevice"][];
             /** Recommended Id */
