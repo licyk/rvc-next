@@ -275,7 +275,7 @@ export default {
     },
     measureClipped: '输入削波了，请调低输入增益',
     statuses: { exact: '', matched: '在另一个驱动下找到了 {name}。', default_fallback: '未找到 {name}：使用系统默认设备。', missing: '{name} 未连接。' },
-    reasons: { missing: '未连接', busy: '被其他程序占用', format: '不支持此格式', permission: '麦克风权限被拒绝', fallback: '回退到默认设备' },
+    reasons: { missing: '未连接', busy: '被其他程序占用', channels: '不支持此声道数', format: '不支持此格式', permission: '麦克风权限被拒绝', fallback: '回退到默认设备' },
     actions: { choose: '选择其他设备', use_48k: '使用 48 kHz', disable_exclusive: '关闭独占模式', grant_permission: '如何授予权限' },
     unavailable: '音频设备不可用：{message}',
   },

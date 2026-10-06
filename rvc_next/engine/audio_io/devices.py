@@ -14,11 +14,15 @@ import hashlib
 import re
 import socket
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
 COMMON_RATES = (44100, 48000, 88200, 96000)
+
+CHANNEL_PROBE_LIMIT = 8
+"""Counts between 2 and the maximum are probed up to this; a wider device is asked only for its maximum above it."""
 
 HOST_API_IDS: tuple[tuple[str, str], ...] = (
     ("wasapi", "wasapi"),
@@ -106,8 +110,9 @@ def group_devices(raw_hostapis: list[dict[str, Any]], raw_devices: list[dict[str
     """Group raw PortAudio devices into physical devices.
 
     Returns ``{"host_apis", "inputs", "outputs", "errors"}`` shaped like the core's ``DeviceList``
-    without ``host`` and ``enumerated_at``. A raw device may carry ``supported_rates`` (from
-    ``enumerate_raw``); without it the default rate is assumed supported. ``default_hostapi`` is
+    without ``host`` and ``enumerated_at``. A raw device may carry ``supported_rates`` and
+    ``<direction>_channel_counts`` (from ``probe_device``); without them the default rate is assumed
+    supported and any channel count up to the maximum. ``default_hostapi`` is
     PortAudio's default host API, whose default devices are the system defaults.
     """
     plat = platform_key(platform)
@@ -145,6 +150,7 @@ def _variants(raw_hostapis: list[dict[str, Any]], raw_devices: list[dict[str, An
         pa_index = int(raw.get("index", idx))
         default_rate = int(round(float(raw.get("default_samplerate", 48000) or 48000)))
         rates = sorted({int(r) for r in raw.get("supported_rates", [default_rate])})
+        counts = sorted({int(c) for c in raw.get(f"{direction}_channel_counts") or []})
         variants.append(
             {
                 "id": device_id(aid, raw_name, direction, ordinal),
@@ -154,6 +160,7 @@ def _variants(raw_hostapis: list[dict[str, Any]], raw_devices: list[dict[str, An
                 "host_api": aid,
                 "direction": direction,
                 "channels": channels,
+                "channel_counts": counts,
                 "default_sample_rate": default_rate,
                 "supported_rates": rates,
                 "latency_ms": _latency(raw, direction),
@@ -227,8 +234,52 @@ def _group_direction(
     return out
 
 
+def preferred_channels(direction: str, max_channels: int) -> int:
+    """What a stream opens with when no channel is chosen: mono in, stereo (or fewer) out."""
+    return 1 if direction == "input" else max(1, min(2, max_channels))
+
+
+def accepted_channels(wanted: int, counts: list[int] | None) -> int:
+    """``wanted``, raised to the next count the device opens with (else its widest); empty ``counts`` restrict nothing."""
+    if not counts or wanted in counts:
+        return wanted
+    return min((c for c in counts if c >= wanted), default=max(counts))
+
+
+def _probe_counts(max_channels: int, opens: Callable[[int], bool]) -> list[int]:
+    ends = sorted({1, min(2, max_channels), max_channels})
+    ok = [n for n in ends if opens(n)]
+    if ok == ends:
+        return []
+    middle = range(3, min(max_channels - 1, CHANNEL_PROBE_LIMIT) + 1)
+    return sorted({*ok, *(n for n in middle if opens(n))})
+
+
+def probe_device(device: dict[str, Any], check: Callable[[str, int, int], bool], rates: tuple[int, ...] = COMMON_RATES) -> None:
+    """Add the channel counts and the common rates a raw device opens with; ``check(direction, channels, rate)`` asks the driver.
+
+    PortAudio reports only the widest count, and some drivers open nothing narrower than the
+    device's own (a WDM-KS pin, a WASAPI mix format the stream cannot convert from, a stereo-only
+    ASIO card), so mono input is not a given. Counts are tried at the default rate: 1, 2 and the
+    maximum, and when one of those fails, every count up to ``CHANNEL_PROBE_LIMIT``. They are stored
+    as ``<direction>_channel_counts`` only when the device refuses some; empty means any count opens
+    (or none did, and nothing is known). Rates are then tried at the count a stream opens by default.
+    """
+    default_rate = int(round(float(device.get("default_samplerate", 0) or 0)))
+    opens: dict[str, int] = {}
+    for direction in ("input", "output"):
+        max_channels = int(device.get(f"max_{direction}_channels", 0) or 0)
+        if max_channels <= 0:
+            continue
+        counts = _probe_counts(max_channels, lambda n, d=direction: check(d, n, default_rate or 48000))
+        device[f"{direction}_channel_counts"] = counts
+        opens[direction] = accepted_channels(preferred_channels(direction, max_channels), counts)
+    supported = {rate for rate in sorted({*rates, default_rate} - {0}) if opens and all(check(d, n, rate) for d, n in opens.items())}
+    device["supported_rates"] = sorted(supported or {default_rate or 48000})
+
+
 def enumerate_raw(enable_asio: bool = False, rates: tuple[int, ...] = COMMON_RATES) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
-    """Query PortAudio once: host APIs, devices with their supported common rates, and the default host API."""
+    """Query PortAudio once: host APIs, devices with the channel counts and common rates they open with, and the default host API."""
     import os
 
     if enable_asio:
@@ -239,22 +290,20 @@ def enumerate_raw(enable_asio: bool = False, rates: tuple[int, ...] = COMMON_RAT
     devices = [dict(d) for d in sd.query_devices()]
     for d in devices:
         idx = int(d.get("index", devices.index(d)))
-        supported: set[int] = set()
-        default_rate = int(round(float(d.get("default_samplerate", 0) or 0)))
-        for rate in sorted({*rates, default_rate} - {0}):
-            ok = False
+        hi = int(d.get("hostapi", 0))
+        wasapi = 0 <= hi < len(hostapis) and host_api_id(str(hostapis[hi].get("name", ""))) == "wasapi"
+        # As streams open in shared mode (``SounddeviceBackend._extra``).
+        extra = sd.WasapiSettings(auto_convert=True) if wasapi else None
+
+        def check(direction: str, channels: int, rate: int, idx: int = idx, extra: Any = extra) -> bool:
+            settings = sd.check_input_settings if direction == "input" else sd.check_output_settings
             try:
-                if int(d.get("max_input_channels", 0)) > 0:
-                    sd.check_input_settings(device=idx, channels=1, samplerate=rate, dtype="float32")
-                    ok = True
-                if int(d.get("max_output_channels", 0)) > 0:
-                    sd.check_output_settings(device=idx, channels=1, samplerate=rate, dtype="float32")
-                    ok = True
+                settings(device=idx, channels=channels, samplerate=rate, dtype="float32", extra_settings=extra)
             except Exception:
-                ok = False
-            if ok:
-                supported.add(rate)
-        d["supported_rates"] = sorted(supported or {default_rate or 48000})
+                return False
+            return True
+
+        probe_device(d, check, rates)
     try:
         default_api = int(sd.default.hostapi)
     except Exception:

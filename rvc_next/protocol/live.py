@@ -157,7 +157,7 @@ class DeviceLost:
     """input, output or monitor."""
     device_id: str | None
     reason: str
-    """missing, busy, format or permission."""
+    """missing, busy, channels, format or permission."""
     message: str = ""
     type: str = "device_lost"
 

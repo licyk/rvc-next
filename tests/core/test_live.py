@@ -42,6 +42,14 @@ def test_devices_and_check(live):
     assert not result.ok and result.problems[0].reason == "fallback"
 
 
+def test_check_suggests_another_device_for_a_refused_channel_count(live):
+    mic = next(d for d in live.fake["devices"] if d["name"] == "Fake Microphone")
+    live.fake["refuse"] = {mic["index"]: "channels"}
+    result = live.check(LiveDevices())
+    assert not result.ok
+    assert [(p.role, p.reason, p.action) for p in result.problems] == [("input", "channels", "choose")]
+
+
 def test_session(live, services, tiny_voice_file):
     voice = services.models.import_paths([tiny_voice_file]).voices[0]
     stats: list = []

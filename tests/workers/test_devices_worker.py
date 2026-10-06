@@ -43,6 +43,7 @@ def test_enumerate(tmp_path: Path) -> None:
         "host_api",
         "direction",
         "channels",
+        "channel_counts",
         "default_sample_rate",
         "supported_rates",
         "latency_ms",
@@ -72,6 +73,16 @@ def test_check_reports_a_refused_rate(tmp_path: Path) -> None:
         tmp_path, {"action": "check", "backend": "fake", "fake": fake, "output": {"portaudio_index": wasapi_out["index"], "sample_rate": 44100}, "input": None, "monitor": None}
     )
     assert bad == {"ok": False, "reason": "format", "message": "Speakers (Realtek(R) Audio) does not support 44100 Hz", "role": "output", "sample_rate": 44100, "topology": "split"}
+
+
+def test_check_opens_a_stereo_only_microphone(tmp_path: Path) -> None:
+    fake = windows()
+    wdmks_in = next(d for d in fake["devices"] if d["name"] == "Microphone (Realtek HD Audio Mic input)")
+    wdmks_in["input_channel_counts"] = [2]
+    request = {"action": "check", "backend": "fake", "fake": fake, "input": {"portaudio_index": wdmks_in["index"], "host_api": "wdm-ks"}, "output": None, "monitor": None}
+    assert run(tmp_path, request)["ok"]
+    variant = next(p for p in run(tmp_path, {"action": "enumerate", "backend": "fake", "platform": "win32", "fake": fake})["inputs"] if p["name"] == wdmks_in["name"])
+    assert variant["variants"][0]["channel_counts"] == [2]
 
 
 def test_test_tone(tmp_path: Path) -> None:

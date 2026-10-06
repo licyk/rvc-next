@@ -1761,6 +1761,8 @@ export interface components {
             direction: "input" | "output";
             /** Channels */
             channels: number;
+            /** Channel Counts */
+            channel_counts: number[];
             /** Default Sample Rate */
             default_sample_rate: number;
             /** Supported Rates */
@@ -2261,7 +2263,7 @@ export interface components {
              * Reason
              * @enum {string}
              */
-            reason: "missing" | "busy" | "format" | "permission" | "fallback";
+            reason: "missing" | "busy" | "channels" | "format" | "permission" | "fallback";
             /** Message */
             message: string;
             /** Action */

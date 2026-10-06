@@ -32,6 +32,9 @@ class AudioDevice(Record):
     host_api: str
     direction: Direction
     channels: int
+    channel_counts: list[int] = Field(default_factory=list)
+    """The channel counts the device opens with, when its driver refuses some (a WDM-KS pin, a
+    stereo-only card); empty when any count up to ``channels`` opens. A stream opens the next one up."""
     default_sample_rate: int
     supported_rates: list[int]
     latency_ms: list[float]
@@ -180,7 +183,7 @@ class LiveState(Record):
 
 class DeviceProblem(Record):
     role: Literal["input", "output", "monitor"]
-    reason: Literal["missing", "busy", "format", "permission", "fallback"]
+    reason: Literal["missing", "busy", "channels", "format", "permission", "fallback"]
     message: str
     action: str | None = None
     """A suggested fix the picker shows as a button: "choose", "use_48k", "disable_exclusive", "grant_permission"."""

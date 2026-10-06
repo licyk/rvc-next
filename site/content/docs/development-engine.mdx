@@ -316,16 +316,16 @@ PyAV 用的 libavformat/libswresample 正是原版通过 `ffmpeg` 命令调用�
 
 - **引擎采样率**（`engine_rate`）：输出端选定的采样率；否则输出设备默认采样率（若支持）；否则 48 kHz。这取代了原版用户难以判断的 `sr_model`/`sr_device` 开关。
 - **拓扑**（`choose_topology`）：输入输出同一驱动且都支持该采样率时用一个双工流（`duplex`，延迟最低）；否则输入流 + 输出流（`split`），中间的环形缓冲带漂移校正。输入设备不支持引擎采样率时以自己的默认采样率打开，用 `LinearResampler` 线性插值转换——引擎反正要再重采样到 16 kHz，这里线性插值的代价很小。监听输出永远是独立的输出流，由处理线程分出一路（`monitor_source`：`converted`、`input` 或 `both`）。
-- **声道**：输入打开到所选最高声道，回调里把所选声道混成单声道；输出把单声道写到所选声道（默认前两个）。
+- **声道**：输入打开到所选最高声道（默认单声道），回调里把所选声道混成单声道；输出把单声道写到所选声道（默认前两个）。有些驱动不接受比设备本身更少的声道（WDM-KS 的 pin、只支持立体声的声卡），以单声道打开会报 `Invalid number of channels [PaErrorCode -9998]`。所以枚举时也探测声道数（`probe_device`：在默认采样率下试 1、2 和最大值，其中有失败时再逐个试到 8），设备拒绝某些声道数时记为 `channel_counts`。打开流时取不小于所需的下一个可用声道数（`accepted_channels`），多出的声道不用；支持的采样率也按这个声道数探测。
 - **回调只搬数据和计数**，不碰 torch、不写日志、不分配大对象。输出环形缓冲启动时预填一块静音（`split` 时两块）。
-- **设备丢失**：流的 `finished_callback` 意外触发，或看门狗发现某个角色超过 `max(0.5 s, 3 块)` 没有回调，即报告丢失（`on_device_lost(role, device_id, reason, message)`），只报一次。PortAudio 错误文本由 `classify_portaudio_error()` 归入 `missing`、`busy`、`format`、`permission`。
+- **设备丢失**：流的 `finished_callback` 意外触发，或看门狗发现某个角色超过 `max(0.5 s, 3 块)` 没有回调，即报告丢失（`on_device_lost(role, device_id, reason, message)`），只报一次。PortAudio 错误文本由 `classify_portaudio_error()` 归入 `missing`、`busy`、`channels`（-9998，单独列出：换采样率解决不了）、`format`、`permission`。
 - **统计**：输入/输出峰值与 RMS、推理耗时 p50/p95（最近 50 块）、欠载/过载计数、`split` 时的漂移 ppm。
 
 `Ring`（`rings.py`）是单生产者单消费者的 float32 环形缓冲，锁只覆盖索引运算和两次切片拷贝，所以音频回调等待处理线程的时间不超过一次拷贝；写满算一次过载，读空算欠载。
 
 `DriftCorrector`（`drift.py`）解决两个设备时钟永远不完全同步的问题：读端对环形缓冲的填充量做指数平滑；偏离目标超过半块时，每 10 ms 删除或复制一个采样（选在每段 10 ms 中最安静的位置），直到回到目标的 1/8 块以内。目标填充量在前 1 秒后取实测值，因为两个回调的相位决定了填充量稳定在哪里，任何常数都猜不准。真实时钟的漂移是几十 ppm，相当于每秒几个采样，听不出来。
 
-`SounddeviceBackend` 用 PortAudio（`latency="low"`，WASAPI 独占模式经 `WasapiSettings`）；`enable_asio` 设置 `SD_ENABLE_ASIO=1`，选用 sounddevice 0.5.1 起在 Windows 上附带的 ASIO 版 PortAudio。`fake.py:FakeBackend` 模拟设备：每个流一个线程按设备自己的时钟（`1 + ppm·1e-6` 倍标称速率）调用回调，`lose(index)` 模拟拔出 USB 设备，`refuse` 让打开失败，输出被录下来供断言。测试和 worker 请求里的 `backend: "fake"` 都走它（`backend_from_request`）。`tone.py:chime()` 是“测试”按钮播放的提示音。
+`SounddeviceBackend` 用 PortAudio（`latency="low"`，WASAPI 经 `WasapiSettings`：选了独占就独占，否则共享模式加 `auto_convert`，由 Windows 转换声道数和采样率——PortAudio 自己只做单声道 ↔ 立体声的转换）；`enable_asio` 设置 `SD_ENABLE_ASIO=1`，选用 sounddevice 0.5.1 起在 Windows 上附带的 ASIO 版 PortAudio。`fake.py:FakeBackend` 模拟设备：每个流一个线程按设备自己的时钟（`1 + ppm·1e-6` 倍标称速率）调用回调，`lose(index)` 模拟拔出 USB 设备，`refuse` 让打开失败，输出被录下来供断言。测试和 worker 请求里的 `backend: "fake"` 都走它（`backend_from_request`）。`tone.py:chime()` 是“测试”按钮播放的提示音。
 
 ## Live worker 与控制协议
 

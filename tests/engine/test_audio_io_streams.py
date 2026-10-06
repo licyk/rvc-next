@@ -1,6 +1,6 @@
 import threading
 import time
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -10,7 +10,17 @@ from rvc_next.engine.audio_io.devices import group_devices
 from rvc_next.engine.audio_io.drift import DriftCorrector
 from rvc_next.engine.audio_io.fake import FakeBackend
 from rvc_next.engine.audio_io.rings import Ring
-from rvc_next.engine.audio_io.streams import AudioSession, Endpoint, LinearResampler, SessionConfig, choose_topology, engine_rate
+from rvc_next.engine.audio_io.streams import (
+    AudioSession,
+    DeviceOpenError,
+    Endpoint,
+    LinearResampler,
+    SessionConfig,
+    SounddeviceBackend,
+    choose_topology,
+    classify_portaudio_error,
+    engine_rate,
+)
 
 # -- ring ---------------------------------------------------------------------------------------------
 
@@ -301,8 +311,6 @@ def test_device_loss_is_reported() -> None:
 
 
 def test_refused_format_raises_with_role() -> None:
-    from rvc_next.engine.audio_io.streams import DeviceOpenError
-
     backend = FakeBackend(*fake_machine(), time_scale=4.0)
     eps = endpoints()
     cfg = SessionConfig(input=Endpoint(eps["Mic"]), output=Endpoint(eps["Headphones"], sample_rate=48000))
@@ -320,3 +328,70 @@ def test_meter_only_session() -> None:
         assert _wait(lambda: session.input_levels.peak_db > -20)
     finally:
         session.stop()
+
+
+# -- channel counts ------------------------------------------------------------------------------------
+
+
+def test_endpoint_opens_a_count_the_device_accepts() -> None:
+    stereo_only = {"portaudio_index": 0, "channels": 2, "channel_counts": [2]}
+    mic = Endpoint(stereo_only)
+    assert mic.open_channels("input") == 2 and mic.selected("input") == [0]
+    assert Endpoint(stereo_only, channels=[2]).selected("input") == [1]
+    assert Endpoint(stereo_only, channels=[1, 2]).selected("input") == [0, 1]
+    # Opened wider than wanted, an output still writes only the first two channels.
+    surround = Endpoint({"portaudio_index": 1, "channels": 8, "channel_counts": [1, 6, 8]})
+    assert surround.open_channels("output") == 6 and surround.selected("output") == [0, 1]
+    # Unprobed devices open what they always did.
+    assert Endpoint({"portaudio_index": 0, "channels": 2}).open_channels("input") == 1
+    assert Endpoint({"portaudio_index": 1, "channels": 8}).open_channels("output") == 2
+    assert Endpoint().open_channels("output") == 2
+    # A saved channel the device lacks falls back to the first instead of mixing nothing.
+    assert Endpoint({"portaudio_index": 0, "channels": 2}, channels=[3]).selected("input") == [0]
+
+
+@pytest.mark.parametrize(
+    ("message", "reason"),
+    [
+        ("Error opening InputStream: Invalid number of channels [PaErrorCode -9998]", "channels"),
+        ("Error opening OutputStream: Invalid sample rate [PaErrorCode -9997]", "format"),
+        ("Error opening InputStream: Sample format not supported [PaErrorCode -9994]", "format"),
+        ("Error opening InputStream: Device unavailable [PaErrorCode -9985]", "busy"),
+        ("Error querying device -1: Invalid device [PaErrorCode -9996]", "missing"),
+    ],
+)
+def test_classify_portaudio_error(message: str, reason: str) -> None:
+    assert classify_portaudio_error(message) == reason
+
+
+def test_a_stereo_only_microphone_opens_in_stereo() -> None:
+    hostapis, devices = fake_machine()
+    devices[0]["input_channel_counts"] = [2]
+    backend = FakeBackend(hostapis, devices, time_scale=4.0)
+    mic = next(v for p in group_devices(hostapis, devices, "linux")["inputs"] for v in p["variants"] if v["raw_name"] == "Mic")
+    session = AudioSession(backend, SessionConfig(input=Endpoint(mic)), 800, 16000)
+    session.start()
+    try:
+        assert [s.in_ch for s in backend.streams] == [2]
+        assert _wait(lambda: session.input_levels.peak_db > -20)
+    finally:
+        session.stop()
+    # Opened in mono, as before, the driver refuses it: a channel problem, which another rate cannot fix.
+    mono = Endpoint({k: v for k, v in mic.items() if k != "channel_counts"})
+    with pytest.raises(DeviceOpenError) as info:
+        AudioSession(backend, SessionConfig(input=mono), 800, 16000).start()
+    assert info.value.reason == "channels" and info.value.role == "input"
+
+
+def test_wasapi_shared_streams_let_windows_convert() -> None:
+    class WasapiSettings:
+        def __init__(self, exclusive: bool = False, auto_convert: bool = False) -> None:
+            self.exclusive, self.auto_convert = exclusive, auto_convert
+
+    backend = SounddeviceBackend.__new__(SounddeviceBackend)
+    backend.sd = cast(Any, type("sd", (), {"WasapiSettings": WasapiSettings}))
+    wasapi = {"portaudio_index": 3, "host_api": "wasapi", "channels": 2}
+    shared, exclusive = backend._extra(Endpoint(wasapi)), backend._extra(Endpoint(wasapi, exclusive=True))
+    assert (shared.exclusive, shared.auto_convert) == (False, True)
+    assert (exclusive.exclusive, exclusive.auto_convert) == (True, False)
+    assert backend._extra(Endpoint({**wasapi, "host_api": "wdm-ks"})) is None and backend._extra(Endpoint()) is None

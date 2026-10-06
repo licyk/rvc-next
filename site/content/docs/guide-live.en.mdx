@@ -96,7 +96,8 @@ Whenever you change devices, rvc-next actually tries to open them with the curre
 | --- | --- | --- |
 | **Not connected** | The device cannot be found | **Choose another**: select a different device in the menu |
 | **In use by another program** | Another program is using the device | If exclusive mode is on, a **Turn off exclusive mode** button appears; otherwise, **Choose another** is suggested |
-| **Refuses this format** | The device rejects the current sample rate or channels | Click **Use 48 kHz** |
+| **Refuses this channel count** | The driver will not open the device with this many channels (rvc-next already picks a count the device reported accepting, so this usually means exclusive mode or a device that changed) | If exclusive mode is on, a **Turn off exclusive mode** button appears; otherwise, **Choose another** is suggested (another driver of the same device usually works) |
+| **Refuses this format** | The device rejects the current sample rate | Click **Use 48 kHz** |
 | **Microphone permission denied** | The system has not granted microphone access | **How to grant access**: allow it in the system's privacy settings |
 | **Falling back to the default** | The saved device is missing, so the system default will be used | **Choose another** is suggested |
 

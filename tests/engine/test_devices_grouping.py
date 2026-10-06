@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from rvc_next.engine.audio_io.devices import group_devices, is_virtual, normalize_name, resolve_selection
+from rvc_next.engine.audio_io.devices import accepted_channels, group_devices, is_virtual, normalize_name, probe_device, resolve_selection
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "devices"
 
@@ -110,3 +110,63 @@ def test_resolve_exact_matched_fallback_missing() -> None:
     empty = {"inputs": [], "outputs": []}
     assert resolve_selection({"name": "x"}, empty, "input")[0] == "missing"
     assert resolve_selection(None, empty, "input")[0] == "missing"
+
+
+# -- channel counts ------------------------------------------------------------------------------------
+
+
+def driver(accepts: dict[str, set[int]], rates: set[int]) -> tuple[Any, list[tuple[str, int, int]]]:
+    """A driver's format check that opens only ``accepts`` channel counts at ``rates``, and the calls it got."""
+    calls: list[tuple[str, int, int]] = []
+
+    def check(direction: str, channels: int, rate: int) -> bool:
+        calls.append((direction, channels, rate))
+        return channels in accepts.get(direction, set()) and rate in rates
+
+    return check, calls
+
+
+def test_probe_finds_a_stereo_only_microphone() -> None:
+    # A WDM-KS pin, say: mono is refused (paInvalidChannelCount), so a mono probe would lose every rate too.
+    mic = {"max_input_channels": 2, "max_output_channels": 0, "default_samplerate": 48000.0}
+    check, calls = driver({"input": {2}}, {44100, 48000, 96000})
+    probe_device(mic, check)
+    assert mic["input_channel_counts"] == [2] and "output_channel_counts" not in mic
+    assert mic["supported_rates"] == [44100, 48000, 96000]
+    assert {ch for _, ch, rate in calls if rate != 48000} == {2}
+
+
+def test_probe_records_nothing_when_every_count_opens() -> None:
+    card = {"max_input_channels": 64, "max_output_channels": 64, "default_samplerate": 44100.0}
+    check, calls = driver({"input": set(range(1, 65)), "output": set(range(1, 65))}, {44100, 48000})
+    probe_device(card, check)
+    assert card["input_channel_counts"] == card["output_channel_counts"] == []
+    assert card["supported_rates"] == [44100, 48000]
+    assert sorted({ch for _, ch, rate in calls if rate == 44100}) == [1, 2, 64]
+
+
+def test_probe_tries_every_count_when_one_end_fails() -> None:
+    # A 7.1 mix format that only converts to mono: stereo is refused.
+    surround = {"max_input_channels": 0, "max_output_channels": 8, "default_samplerate": 48000.0}
+    check, _ = driver({"output": {1, 6, 8}}, {48000})
+    probe_device(surround, check)
+    assert surround["output_channel_counts"] == [1, 6, 8]
+    assert surround["supported_rates"] == [48000]
+    # Nothing opens (the device is busy): nothing is known, and the default rate stands.
+    busy = {"max_input_channels": 2, "max_output_channels": 0, "default_samplerate": 44100.0}
+    probe_device(busy, driver({}, set())[0])
+    assert busy["input_channel_counts"] == [] and busy["supported_rates"] == [44100]
+
+
+@pytest.mark.parametrize(("wanted", "counts", "opened"), [(1, [], 1), (1, [2], 2), (2, [1, 6, 8], 6), (2, [1, 2], 2), (4, [2], 2)])
+def test_accepted_channels(wanted: int, counts: list[int], opened: int) -> None:
+    assert accepted_channels(wanted, counts) == opened
+
+
+def test_variants_carry_the_channel_counts() -> None:
+    hostapis = [{"name": "Windows WDM-KS", "default_input_device": 0, "default_output_device": -1}]
+    devices = [{"name": "Microphone (Realtek HD Audio Mic input)", "index": 0, "hostapi": 0, "max_input_channels": 2, "max_output_channels": 0, "input_channel_counts": [2]}]
+    grouped = group_devices(hostapis, devices, "win32")
+    assert grouped["inputs"][0]["variants"][0]["channel_counts"] == [2]
+    del devices[0]["input_channel_counts"]
+    assert group_devices(hostapis, devices, "win32")["inputs"][0]["variants"][0]["channel_counts"] == []

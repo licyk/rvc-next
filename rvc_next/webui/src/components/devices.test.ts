@@ -4,7 +4,7 @@ import { DEFAULT_VALUE, channelOptions, deviceOptions, driverOptions, selectionF
 
 const variant = (id: string, host: string, name: string): AudioDevice => ({
   id, physical_key: name.toLowerCase(), name, raw_name: name.slice(0, 31), host_api: host, direction: 'input', channels: 2, default_sample_rate: 48000,
-  supported_rates: [44100, 48000], latency_ms: [10, 40], is_default: false, is_virtual: false, portaudio_index: 1,
+  channel_counts: [], supported_rates: [44100, 48000], latency_ms: [10, 40], is_default: false, is_virtual: false, portaudio_index: 1,
 });
 const phys = (name: string, extra: Partial<PhysicalDevice> = {}): PhysicalDevice => {
   const variants = [variant(`${name}-wasapi`, 'wasapi', name), variant(`${name}-mme`, 'mme', name)];

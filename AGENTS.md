@@ -189,6 +189,11 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   a rebuffer or a new rate. A hot voice swap cannot be prewarmed beside the running block (a CUDA
   Graph capture on another thread breaks its GPU work), so its first block is left out of the
   timings (`skip_timing`). Load is p95 of 50 blocks, the median until 10; the UI shows ">100%".
+- **Channel counts:** PortAudio reports only a device's widest count, and some drivers refuse
+  narrower streams (WDM-KS pins, stereo-only cards: `PaErrorCode -9998` on the mono input).
+  `devices.probe_device` records `channel_counts` when a device refuses some, `Endpoint.open_channels`
+  opens the next accepted count up, and rates are probed at it. WASAPI shared streams use
+  `auto_convert`. `-9998` is the `channels` reason, never `format` (whose fix is "Use 48 kHz").
 - `StreamEngine` calls `remove_weight_norm()` on its voice's net, as the original does; it runs
   in the live worker's own runtime, never the server's.
 

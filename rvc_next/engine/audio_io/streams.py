@@ -32,6 +32,7 @@ from typing import Any, Protocol
 import numpy as np
 
 from rvc_next.engine.audio.dsp import db_to_gain, peak_db, rms_db
+from rvc_next.engine.audio_io.devices import accepted_channels, preferred_channels
 from rvc_next.engine.audio_io.drift import DriftCorrector
 from rvc_next.engine.audio_io.rings import Ring
 
@@ -44,7 +45,7 @@ BACKLOG_WRITES = 3
 
 
 class DeviceOpenError(Exception):
-    """A device refused to open or was lost. ``reason`` is missing, busy, format or permission."""
+    """A device refused to open or was lost. ``reason`` is missing, busy, channels, format or permission."""
 
     def __init__(self, message: str, reason: str = "busy", role: str | None = None, device_id: str | None = None) -> None:
         super().__init__(message)
@@ -55,9 +56,15 @@ class DeviceOpenError(Exception):
 
 
 def classify_portaudio_error(message: str) -> str:
-    """Map a PortAudio error text to a ``DeviceError`` reason."""
+    """Map a PortAudio error text to a ``DeviceError`` reason.
+
+    ``channels`` (paInvalidChannelCount, -9998) is kept apart from ``format`` (a rate or sample
+    format the device refuses): another rate cannot fix it.
+    """
     low = message.lower()
-    if any(s in low for s in ("sample rate", "samplerate", "channel", "sample format", "format")):
+    if "-9998" in low or "channel" in low:
+        return "channels"
+    if any(s in low for s in ("sample rate", "samplerate", "sample format", "format")):
         return "format"
     if any(s in low for s in ("invalid device", "device unavailable", "no such device", "not found", "-9996", "-9985")):
         return "missing" if "unavailable" not in low else "busy"
@@ -110,18 +117,28 @@ class Endpoint:
         rates = self.device.get("supported_rates") or [self.device.get("default_sample_rate")]
         return rate in rates
 
-    def open_channels(self, direction: str) -> int:
-        """How many channels to open: enough for the highest selected one."""
+    @property
+    def channel_counts(self) -> list[int]:
+        """The counts the device opens with, when it refuses some (``devices.probe_device``); empty restricts nothing."""
+        return [] if self.device is None else [int(c) for c in self.device.get("channel_counts") or []]
+
+    def _wanted(self, direction: str) -> int:
         if self.channels:
             return max(1, min(max(self.channels), self.max_channels))
-        return 1 if direction == "input" else min(2, self.max_channels)
+        return preferred_channels(direction, self.max_channels)
+
+    def open_channels(self, direction: str) -> int:
+        """How many channels to open: enough for the highest selected one, raised to a count the device opens with."""
+        return accepted_channels(self._wanted(direction), self.channel_counts)
 
     def selected(self, direction: str) -> list[int]:
-        """0-based channel indexes to mix (input) or write (output)."""
+        """0-based channel indexes to mix (input) or write (output); a wider stream leaves the rest out (silent)."""
         n = self.open_channels(direction)
         if self.channels:
-            return [c - 1 for c in self.channels if 1 <= c <= n]
-        return [0] if direction == "input" else list(range(n))
+            chosen = [c - 1 for c in self.channels if 1 <= c <= n]
+            if chosen:
+                return chosen
+        return [0] if direction == "input" else list(range(min(self._wanted(direction), n)))
 
 
 def engine_rate(output: Endpoint | None, input: Endpoint | None = None) -> int:
@@ -230,9 +247,11 @@ class SounddeviceBackend:
         return enumerate_raw()
 
     def _extra(self, ep: Endpoint | None) -> Any:
-        if ep is not None and ep.exclusive and ep.host_api == "wasapi":
-            return self.sd.WasapiSettings(exclusive=True)
-        return None
+        """WASAPI: exclusive when chosen; otherwise shared with Windows converting channels and rate, so
+        a stream need not match the device's mix format (PortAudio alone converts only mono ↔ stereo)."""
+        if ep is None or ep.host_api != "wasapi":
+            return None
+        return self.sd.WasapiSettings(exclusive=True) if ep.exclusive else self.sd.WasapiSettings(auto_convert=True)
 
     def _error(self, e: Exception, role: str, ep: Endpoint | None) -> DeviceOpenError:
         message = str(e)

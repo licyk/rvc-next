@@ -6,7 +6,9 @@ function; outputs are recorded per device. ``lose(index)`` stalls a device's str
 unplugged USB device does; ``refuse`` makes opening fail with a reason. ``loopback`` wires an
 output back into every input, as a cable would: input sample ``n`` is output sample
 ``n − block − delay`` (in each stream's own count; a block played during one callback is captured
-by the next, as on a real device), times ``gain``, plus ``noise``.
+by the next, as on a real device), times ``gain``, plus ``noise``. A device's
+``<direction>_channel_counts``, when given, are the only counts it opens with (a WDM-KS pin, say);
+``probe_device`` over ``check`` finds them again.
 """
 
 from __future__ import annotations
@@ -223,8 +225,9 @@ class FakeBackend:
     def check(self, ep: Endpoint, direction: str, channels: int, rate: int) -> None:
         d = self._device(ep, direction)
         max_ch = int(d["max_input_channels" if direction == "input" else "max_output_channels"])
-        if channels > max_ch or max_ch == 0:
-            raise DeviceOpenError(f"{d['name']} has {max_ch} {direction} channels", "format", direction, ep.device_id)
+        counts = d.get(f"{direction}_channel_counts") or range(1, max_ch + 1)
+        if channels > max_ch or max_ch == 0 or channels not in counts:
+            raise DeviceOpenError(f"{d['name']}: Invalid number of channels ({channels}) [PaErrorCode -9998]", "channels", direction, ep.device_id)
         if rate not in d.get("supported_rates", [int(d["default_samplerate"])]):
             raise DeviceOpenError(f"{d['name']} does not support {rate} Hz", "format", direction, ep.device_id)
 

@@ -377,9 +377,11 @@ class LiveService:
             sample_rate = result.get("sample_rate")
             if not result.get("ok"):
                 reason = result.get("reason") or "format"
+                exclusive = any(s and s.exclusive for s in (devices.input, devices.output))
                 action = {
                     "format": "use_48k",
-                    "busy": "disable_exclusive" if any(s and s.exclusive for s in (devices.input, devices.output)) else "choose",
+                    "channels": "disable_exclusive" if exclusive else "choose",
+                    "busy": "disable_exclusive" if exclusive else "choose",
                     "permission": "grant_permission",
                 }.get(reason, "choose")
                 problems.append(DeviceProblem(role=result.get("role") or "output", reason=reason, message=result.get("message") or "The device refused the format", action=action))

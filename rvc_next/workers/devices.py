@@ -39,6 +39,7 @@ def endpoint_from_selection(selection: dict[str, Any] | None, raw_devices: list[
             "portaudio_index": int(index),
             "host_api": selection.get("host_api"),
             "channels": int(raw.get(key, 2)) if raw else 2,
+            "channel_counts": list(raw.get(f"{direction}_channel_counts") or []) if raw else [],
             "default_sample_rate": int(round(float(raw.get("default_samplerate", 48000)))) if raw else 48000,
             "supported_rates": list(raw.get("supported_rates", [])) if raw else [],
         }
