@@ -9,6 +9,8 @@ from rvc_next.core.record import Record
 
 Direction = Literal["input", "output"]
 LiveStateName = Literal["stopped", "starting", "loading", "prewarming", "running", "stopping", "error", "reconnecting"]
+LiveStage = Literal["devices", "worker", "runtime", "voice", "index", "hubert", "pitch"]
+"""The step under way while ``starting`` (devices, worker: the server) or ``loading`` (the rest: the live worker)."""
 ResolutionStatus = Literal["exact", "matched", "default_fallback", "missing"]
 
 
@@ -166,6 +168,11 @@ class LiveState(Record):
     passthrough: bool = False
     error: dict | None = None
     started_at: str | None = None
+    stage: LiveStage | None = None
+    """While starting or loading, the step under way: checking the audio devices, starting the live
+    process, importing torch and opening the compute device (runtime), then the voice, its index,
+    HuBERT and the pitch model. Steps with nothing to do (a worker already running, models already
+    loaded) are skipped."""
     latency_test: LatencyMeasurement | None = None
     """The last latency measurement, while it still applies: cleared when the input, the output or
     the block length changes; recomputed when the crossfade or input denoise does."""

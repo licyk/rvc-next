@@ -52,6 +52,9 @@ logger = logging.getLogger(__name__)
 
 DEVICES_WORKER = "rvc_next.workers.devices"
 RECONNECT_INTERVAL = 2.0
+START_LIST_MAX_AGE = 10.0
+"""Seconds a device list stays good enough for Start. PortAudio's indexes hold only while no device
+is added or removed; the Live page re-enumerates every 5 s, so Start from it rarely enumerates."""
 METER_SETTLE = 0.3
 """Seconds for the live worker to close the input meter before a measurement opens the input."""
 ACTIVE = ("starting", "loading", "prewarming", "running", "reconnecting")
@@ -74,6 +77,8 @@ class LiveService:
         self._state = LiveState()
         self._stats = LiveStats()
         self._devices: DeviceList | None = None
+        self._devices_at = 0.0
+        """``time.monotonic()`` of the enumeration ``_devices`` came from."""
         self._lost: set[str] = set()
         self._reconnect: threading.Thread | None = None
         self._closing = False
@@ -161,7 +166,7 @@ class LiveService:
                 if state == "stopped":
                     return
                 self._awaiting_start = False
-        changes: dict[str, Any] = {"state": state, "meter": message.meter, "passthrough": message.passthrough}
+        changes: dict[str, Any] = {"state": state, "meter": message.meter, "passthrough": message.passthrough, "stage": message.stage}
         if message.topology is not None:
             changes["topology"] = message.topology
         if message.sample_rate is not None:
@@ -258,18 +263,22 @@ class LiveService:
             raise DeviceError(f"Audio devices are not available: {detail[0]}", "missing")
         return result
 
-    def devices(self, refresh: bool = False) -> DeviceList:
+    def devices(self, refresh: bool = False, max_age: float | None = None) -> DeviceList:
         """The audio devices, as the menus and device resolution see them (``live.show_all_devices``
-        merges the two directions; the enumeration itself is cached as PortAudio reports it)."""
+        merges the two directions; the enumeration itself is cached as PortAudio reports it).
+
+        ``refresh`` enumerates again; ``max_age`` enumerates again only when the cached list is
+        older than that many seconds (an enumeration is a subprocess, most of a second)."""
         with self._lock:
-            cached = self._devices
-        if cached is not None and not refresh:
+            cached, age = self._devices, time.monotonic() - self._devices_at
+        if cached is not None and not refresh and (max_age is None or age <= max_age):
             return self._view(cached)
         data = self._run_devices({"action": "enumerate"})
         fresh = DeviceList.model_validate(data)
         changed = cached is None or _signature(cached) != _signature(fresh)
         with self._lock:
             self._devices = fresh
+            self._devices_at = time.monotonic()
         if changed and cached is not None:
             self._events.publish(DevicesChangedEvent(devices=self._view(fresh)))
         return self._view(fresh)
@@ -562,40 +571,61 @@ class LiveService:
             if config.params.speaker_id >= max(voice.speaker_slots, 1):
                 raise ValidationError(f"Speaker {config.params.speaker_id} is outside this voice's 0–{voice.speaker_slots - 1}")
             self._require_assets(config.voice_id, config.params)
-            resolved = self.resolve(config.devices, self.devices(refresh=True))
-            by_role = {r.role: r for r in resolved}
-            for r in resolved:
-                if r.status == "missing":
-                    raise DeviceError(r.message or f"No {r.role} device", "missing", {"role": r.role})
-            out = by_role["output"]
-            if out.status == "default_fallback" and not config.allow_output_fallback:
-                raise DeviceError(
-                    f"{out.message}. Confirm to send converted audio to {out.device.name if out.device else 'the default output'}.", "missing", {"role": "output", "fallback": True}
-                )
-            voice_path, index_path = self._voice_paths(config.voice_id, config.params.speaker_id)
-            self._supervisor.ensure(self._worker_request(), env=self._worker_env())
-            if self._settings.settings.compute.device != "cpu":
-                self._compute.acquire_live()
-                self._jobs.notify()
+            # The checks above are instant; what follows takes seconds (a device enumeration in a
+            # subprocess, then starting the live worker, which imports its libraries before it
+            # connects). Say so at once, so the screen does not sit unchanged after the click.
+            before = self.state()
             with self._lock:
+                # Until Start reaches the worker, a "stopped" from it (a new worker announces itself so,
+                # an idle one answers the meter so) must not undo "starting".
                 self._awaiting_start = True
-            self._set_state(state="starting", voice_id=config.voice_id, config=config, resolved=resolved, error=None, meter=False, passthrough=False)
-            self._supervisor.send(
-                P.Start(
-                    config={
-                        "voice_path": voice_path,
-                        "index_path": index_path,
-                        "params": config.params.model_dump(),
-                        "stream": config.stream.model_dump(),
-                        "devices": self._worker_devices(config.devices, resolved),
-                    }
-                )
-            )
+            self._set_state(state="starting", stage="devices", voice_id=config.voice_id, config=config, error=None)
+            try:
+                self._launch(config)
+            except BaseException:
+                # Nothing reached the worker: back to how things were, with the error raised to the caller.
+                with self._lock:
+                    self._awaiting_start = False
+                self._set_state(state=before.state, stage=None, voice_id=before.voice_id, config=before.config, error=before.error)
+                raise
             self._settings.update(
                 {"live": {"devices": config.devices.model_dump(), "stream": config.stream.model_dump(), "last_voice": config.voice_id, "last_params": config.params.model_dump()}}
             )
             self._sync_latency_test()
             return self.state()
+
+    def _launch(self, config: LiveConfig) -> None:
+        """The slow part of ``start``: resolve the devices against a fresh list, start the worker
+        unless it runs, take the GPU lease and send Start. The state already says ``starting``."""
+        resolved = self.resolve(config.devices, self.devices(max_age=START_LIST_MAX_AGE))
+        by_role = {r.role: r for r in resolved}
+        for r in resolved:
+            if r.status == "missing":
+                raise DeviceError(r.message or f"No {r.role} device", "missing", {"role": r.role})
+        out = by_role["output"]
+        if out.status == "default_fallback" and not config.allow_output_fallback:
+            raise DeviceError(
+                f"{out.message}. Confirm to send converted audio to {out.device.name if out.device else 'the default output'}.", "missing", {"role": "output", "fallback": True}
+            )
+        voice_path, index_path = self._voice_paths(config.voice_id, config.params.speaker_id)
+        if not self._supervisor.running:
+            self._set_state(stage="worker", resolved=resolved)
+        self._supervisor.ensure(self._worker_request(), env=self._worker_env())
+        if self._settings.settings.compute.device != "cpu":
+            self._compute.acquire_live()
+            self._jobs.notify()
+        self._set_state(state="starting", stage=None, resolved=resolved, error=None, meter=False, passthrough=False)
+        self._supervisor.send(
+            P.Start(
+                config={
+                    "voice_path": voice_path,
+                    "index_path": index_path,
+                    "params": config.params.model_dump(),
+                    "stream": config.stream.model_dump(),
+                    "devices": self._worker_devices(config.devices, resolved),
+                }
+            )
+        )
 
     def stop(self) -> LiveState:
         with self._lock:

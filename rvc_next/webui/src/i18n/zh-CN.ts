@@ -213,6 +213,7 @@ export default {
     title: '实时',
     start: '开始',
     stop: '停止',
+    stages: { devices: '正在检查音频设备…', worker: '正在启动实时进程…', runtime: '正在加载 PyTorch 和计算设备…', voice: '正在加载音色…', index: '正在加载索引…', hubert: '正在加载 HuBERT…', pitch: '正在加载音高模型…' },
     states: { stopped: '已停止', starting: '正在启动…', loading: '正在加载音色…', prewarming: '正在预热…', running: '运行中', stopping: '正在停止…', error: '因错误停止', reconnecting: '正在重新连接设备…' },
     noVoice: '选择一个音色以开始。',
     unavailable: '此服务器暂不支持实时转换。',

@@ -108,7 +108,13 @@ function start(allowFallback = false) {
     },
   );
 }
-const buttonText = computed(() => (live.busy ? tOr(`live.states.${live.state.state}`, live.state.state) : running.value ? t('live.stop') : t('live.start')));
+// Between the click and the server's first state the request is under way: say so at once.
+const requested = computed(() => control.start.isPending.value && !live.active);
+const buttonText = computed(() => {
+  if (live.busy) return tOr(live.statusKey, live.state.state);
+  if (requested.value) return t('live.states.starting');
+  return running.value ? t('live.stop') : t('live.start');
+});
 function toggle() {
   if (running.value) control.stop.mutate();
   else start();
@@ -136,7 +142,7 @@ function toggle() {
         <ErrorNotice v-else-if="live.state.error" :error="live.state.error" />
         <div class="bar">
           <AssetGate :assets="required">
-            <AppButton class="start" :icon="running ? icons.Square : icons.Mic" :loading="live.busy" :disabled="!voiceId && !running" @click="toggle">{{ buttonText }}</AppButton>
+            <AppButton class="start" :icon="running ? icons.Square : icons.Mic" :loading="live.busy || requested" :disabled="!voiceId && !running" @click="toggle">{{ buttonText }}</AppButton>
           </AssetGate>
           <span v-if="!voiceId && !running" class="type-body-small muted">{{ t('live.noVoice') }}</span>
           <LiveStatsBar class="stats" @increase-block="increaseBlock" />

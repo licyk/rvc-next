@@ -296,7 +296,13 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   the request file carries the address) and turns its messages into `live_state`/`live_stats`.
   Devices come from `workers.devices` (a short subprocess); selections are resolved (§7.6) before
   every start and change; an output that would fall back to the default needs
-  `allow_output_fallback`. Device loss → `reconnecting`, re-enumeration every 2 s, reopen on
+  `allow_output_fallback`.
+  Start publishes `starting` with `LiveState.stage` before its slow steps (`devices`: the
+  enumeration subprocess, skipped when the cached list is under 10 s old, `START_LIST_MAX_AGE`, as
+  the Live page re-enumerates every 5 s; `worker`: spawning the worker, ~0.1 s of imports since
+  `scipy.signal` loads lazily in `engine/audio/dsp.py`) and rolls back if they fail; the worker then reports `loading` stages (`runtime`:
+  torch/transformers import and the device, `voice`, `index`, `hubert`, `pitch`), skipping what is
+  already loaded. The UI's Start button shows the stage, and "Starting…" while the request is out. Device loss → `reconnecting`, re-enumeration every 2 s, reopen on
   `exact`/`matched`. The worker's first `stopped` after connecting is ignored until Start lands.
   A voice switch while a session is active is a hot swap: the worker loads the new voice beside the
   old one (HuBERT and F0 stay) and swaps between two blocks. Start and the hot updates run under

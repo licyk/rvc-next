@@ -126,6 +126,9 @@ class State:
     voice_path: str | None = None
     """Set only in answer to ``SetVoice`` during a session: the voice now converting, which is the
     previous one when the new one could not be loaded (``error.detail.reason == "voice_load"``)."""
+    stage: str | None = None
+    """While ``loading``, the step under way: runtime (importing torch and transformers, opening the
+    compute device), voice, index, hubert or pitch. None otherwise."""
     type: str = "state"
 
 

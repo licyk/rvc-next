@@ -17,7 +17,7 @@ This means `sounddevice` (the Python wrapper for PortAudio) is not installed in 
 2. In **Audio devices**, select **Input** (microphone) and **Output** (headphones or a virtual audio device). Speak into the microphone: the **Input level** meter should move. Click **Test** beside **Output**; you should hear a tone.
 3. Choose a voice in the **Voice** picker and adjust **Voice parameters** as needed (for example, set **Pitch** to about +12 for a male-to-female voice conversion).
 4. On first use, the start button may be replaced by **Needs …** and a **Download (size)** button. Live voice conversion always needs HuBERT. If the voice has pitch guidance and the pitch method is RMVPE or FCPE, it also needs that model (pm needs no extra download). Click download; the button returns when it finishes.
-5. Click **Start** at the bottom. The button shows **Starting…**, **Loading the voice…**, then **Warming up…**. Once it shows **Running**, you can start speaking.
+5. Click **Start** at the bottom. The button shows each step as it happens (checking the audio devices, loading PyTorch, the voice and the models, then **Warming up…**). Once it shows **Running**, you can start speaking.
 6. Click **Stop** when finished.
 
 The next time you open the page, your previous devices, voice, parameters and buffer settings are restored automatically. Just click **Start**.
@@ -142,7 +142,7 @@ Buffer changes made while stopped are saved directly to settings. Changes made w
 
 A bar stays fixed at the bottom of the page:
 
-- The **Start / Stop** button. While starting or stopping, it shows the current state: **Starting…**, **Loading the voice…**, **Warming up…**, **Stopping…**. With no voice selected, it is disabled and says **Choose a voice to start.**
+- The **Start / Stop** button. From the moment you click it, it shows each step of starting: **Checking the audio devices…**, **Starting the live process…** (first start only), **Loading PyTorch and the compute device…** (first start only), **Loading the voice…**, **Loading the index…**, **Loading HuBERT…**, **Loading the pitch model…**, **Warming up…**; steps with nothing to do are skipped. While stopping it shows **Stopping…**. With no voice selected, it is disabled and says **Choose a voice to start.**
 - On error, an explanation appears above the button (**Stopped by an error**).
 
 The status bar updates 10 times per second and includes:

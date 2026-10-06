@@ -213,6 +213,7 @@ export default {
     title: 'Live',
     start: 'Start',
     stop: 'Stop',
+    stages: { devices: 'Checking the audio devices…', worker: 'Starting the live process…', runtime: 'Loading PyTorch and the compute device…', voice: 'Loading the voice…', index: 'Loading the index…', hubert: 'Loading HuBERT…', pitch: 'Loading the pitch model…' },
     states: { stopped: 'Stopped', starting: 'Starting…', loading: 'Loading the voice…', prewarming: 'Warming up…', running: 'Running', stopping: 'Stopping…', error: 'Stopped by an error', reconnecting: 'Reconnecting the device…' },
     noVoice: 'Choose a voice to start.',
     unavailable: 'Live is not available on this server yet.',

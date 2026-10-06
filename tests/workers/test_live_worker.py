@@ -119,7 +119,12 @@ def test_start_update_swap_stop(worker) -> None:
     voice = make_tiny_voice(tmp / "a.pth")
     client.send(P.Start(config=start_config(voice)))
     assert client.wait_state("running")
-    assert client.states()[:5] == ["stopped", "starting", "loading", "prewarming", "running"]
+    states = [x for i, x in enumerate(client.states()) if i == 0 or x != client.states()[i - 1]]
+    assert states[:5] == ["stopped", "starting", "loading", "prewarming", "running"]
+    # Each loading step is announced, in order; the runtime was handed in, so it is not "runtime".
+    stages = [m.stage for m in client.of(P.State) if m.state == "loading"]
+    assert stages[0] == "voice" and stages == sorted(stages, key=["runtime", "voice", "index", "hubert", "pitch"].index)
+    assert all(m.stage is None for m in client.of(P.State) if m.state != "loading")
     running = client.of(P.State)[-1]
     assert running.topology == "duplex" and running.sample_rate == 16000
     assert client.wait(lambda: len(client.of(P.Stats)) >= 3 and client.of(P.Stats)[-1].infer_ms_p50 > 0 and client.of(P.Stats)[-1].input_peak_db > -30)

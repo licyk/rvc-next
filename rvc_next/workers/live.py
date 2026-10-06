@@ -111,7 +111,7 @@ class LiveWorker:
         getattr(logger, level, logger.info)(message)
         self.send(P.Log(level=level, message=message))
 
-    def set_state(self, state: str, error: dict[str, Any] | None = None, voice_path: str | None = None) -> None:
+    def set_state(self, state: str, error: dict[str, Any] | None = None, voice_path: str | None = None, stage: str | None = None) -> None:
         self.state = state
         self._last_error = error
         session = self.session
@@ -126,6 +126,7 @@ class LiveWorker:
                 passthrough=self.passthrough,
                 cached=self.runtime.cached() if self.runtime is not None else [],
                 voice_path=voice_path,
+                stage=stage,
             )
         )
 
@@ -139,12 +140,31 @@ class LiveWorker:
             self.runtime = Runtime(Path(r.assets_dir), device=r.device, precision=r.precision, cuda_graph=r.cuda_graph)
         return self.runtime
 
-    def _load_voice(self, voice_path: str, index_path: str | None) -> tuple[Any, Any]:
+    def _load_voice(self, voice_path: str, index_path: str | None, report: bool = False) -> tuple[Any, Any]:
+        """Load the voice, its index, HuBERT and the pitch model. With ``report`` (a start), each step
+        that has real work to do is announced as a ``loading`` stage; a hot swap stays ``running``."""
+
+        def stage(name: str) -> None:
+            if report:
+                self.set_state("loading", stage=name)
+
+        if self.runtime is None:
+            stage("runtime")  # the first use imports torch and transformers and opens the device
         rt = self._runtime()
+        stage("voice")
         voice = rt.voice(voice_path)
-        index = rt.index(index_path) if index_path else None
+        if index_path:
+            stage("index")
+            index = rt.index(index_path)
+        else:
+            index = None
+        cached = rt.cached()
+        if "hubert" not in cached:
+            stage("hubert")
         rt.hubert()
         if voice.if_f0:
+            if f"f0:{self.params.f0_method}" not in cached:
+                stage("pitch")
             rt.f0(self.params.f0_method)
         return voice, index
 
@@ -209,9 +229,8 @@ class LiveWorker:
         self.stream = _dataclass(StreamParams, config.get("stream"))
         self.devices = dict(config.get("devices") or {})
         self.set_state("starting")
-        self.set_state("loading")
         try:
-            voice, index = self._load_voice(self.voice_path, self.index_path)
+            voice, index = self._load_voice(self.voice_path, self.index_path, report=True)
         except MissingAssetError as e:
             self.set_state("error", _error("asset_missing", str(e), assets=e.assets))
             return

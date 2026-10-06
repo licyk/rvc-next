@@ -1,6 +1,34 @@
+<div align="center">
+
 # rvc-next
 
+<p align="center">
+  <a href="https://github.com/licyk/rvc-next/stargazers">
+    <img src="https://img.shields.io/github/stars/licyk/rvc-next?style=flat&logo=github&logoColor=silver&color=bluegreen&labelColor=grey" alt="Stars">
+  </a>
+  <a href="https://github.com/licyk/rvc-next/issues">
+    <img src="https://img.shields.io/github/issues/licyk/rvc-next?style=flat&logo=github&logoColor=silver&color=bluegreen&labelColor=grey" alt="Issues">
+  </a>
+  <a href="https://github.com/licyk/rvc-next/commits/main">
+    <img src="https://flat.badgen.net/github/last-commit/licyk/rvc-next/main?icon=github&color=green&label=last%20main%20commit" alt="Last main commit">
+  </a>
+  <a href="https://github.com/licyk/rvc-next/actions/workflows/ci.yml">
+    <img src="https://github.com/licyk/rvc-next/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
+  <a href="https://github.com/licyk/rvc-next/actions/workflows/release.yml">
+    <img src="https://github.com/licyk/rvc-next/actions/workflows/release.yml/badge.svg" alt="Release">
+  </a>
+  <a href="https://pypi.org/project/rvc-next/">
+    <img src="https://img.shields.io/pypi/v/rvc-next?style=flat&logo=pypi&logoColor=silver&color=bluegreen&labelColor=grey" alt="PyPI version">
+  </a>
+  <a href="https://pypi.org/project/rvc-next/">
+    <img src="https://img.shields.io/pypi/pyversions/rvc-next?style=flat&logo=python&logoColor=silver&color=bluegreen&labelColor=grey" alt="Python versions">
+  </a>
+</p>
+
 English | [简体中文](https://github.com/licyk/rvc-next/blob/main/README.zh-CN.md)
+
+</div>
 
 Retrieval-based voice conversion, rewritten as one application: **convert** files, convert
 **live** through your audio devices, **separate** vocals from music, **train** your own voices,

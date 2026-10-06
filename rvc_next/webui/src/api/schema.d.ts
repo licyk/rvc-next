@@ -3251,6 +3251,8 @@ export interface components {
             } | null;
             /** Started At */
             started_at: string | null;
+            /** Stage */
+            stage: ("devices" | "worker" | "runtime" | "voice" | "index" | "hubert" | "pitch") | null;
             latency_test: components["schemas"]["LatencyMeasurement"] | null;
         };
         /** LiveStateEvent */

@@ -2,15 +2,28 @@
 
 from __future__ import annotations
 
-import numpy as np
-from scipy import signal
+from functools import cache
 
-# 48 Hz fifth-order Butterworth high-pass at 16 kHz, applied before feature extraction.
-HIGHPASS_B, HIGHPASS_A = signal.butter(N=5, Wn=48, btype="high", fs=16000)
+import numpy as np
+
+
+@cache
+def _highpass() -> tuple[np.ndarray, np.ndarray]:
+    """48 Hz fifth-order Butterworth high-pass at 16 kHz, applied before feature extraction.
+
+    Designed on first use: scipy.signal takes half a second to import, and the live worker, which
+    imports this module for its level meters, must connect quickly.
+    """
+    from scipy import signal
+
+    b, a = signal.butter(N=5, Wn=48, btype="high", fs=16000)
+    return b, a
 
 
 def highpass_16k(audio: np.ndarray) -> np.ndarray:
-    return signal.filtfilt(HIGHPASS_B, HIGHPASS_A, audio)
+    from scipy import signal
+
+    return signal.filtfilt(*_highpass(), audio)
 
 
 def change_rms(data1: np.ndarray, sr1: int, data2: np.ndarray, sr2: int, rate: float) -> np.ndarray:

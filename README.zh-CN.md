@@ -1,6 +1,34 @@
+<div align="center">
+
 # rvc-next
 
+<p align="center">
+  <a href="https://github.com/licyk/rvc-next/stargazers">
+    <img src="https://img.shields.io/github/stars/licyk/rvc-next?style=flat&logo=github&logoColor=silver&color=bluegreen&labelColor=grey" alt="Stars">
+  </a>
+  <a href="https://github.com/licyk/rvc-next/issues">
+    <img src="https://img.shields.io/github/issues/licyk/rvc-next?style=flat&logo=github&logoColor=silver&color=bluegreen&labelColor=grey" alt="Issues">
+  </a>
+  <a href="https://github.com/licyk/rvc-next/commits/main">
+    <img src="https://flat.badgen.net/github/last-commit/licyk/rvc-next/main?icon=github&color=green&label=last%20main%20commit" alt="Last main commit">
+  </a>
+  <a href="https://github.com/licyk/rvc-next/actions/workflows/ci.yml">
+    <img src="https://github.com/licyk/rvc-next/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
+  <a href="https://github.com/licyk/rvc-next/actions/workflows/release.yml">
+    <img src="https://github.com/licyk/rvc-next/actions/workflows/release.yml/badge.svg" alt="Release">
+  </a>
+  <a href="https://pypi.org/project/rvc-next/">
+    <img src="https://img.shields.io/pypi/v/rvc-next?style=flat&logo=pypi&logoColor=silver&color=bluegreen&labelColor=grey" alt="PyPI version">
+  </a>
+  <a href="https://pypi.org/project/rvc-next/">
+    <img src="https://img.shields.io/pypi/pyversions/rvc-next?style=flat&logo=python&logoColor=silver&color=bluegreen&labelColor=grey" alt="Python versions">
+  </a>
+</p>
+
 [English](README.md) | 简体中文
+
+</div>
 
 基于检索的语音转换（RVC），重写为一个完整的应用：**转换**音频文件、通过声卡**实时**变声、从音乐中**分离**人声、**训练**自己的音色，并在同一个**模型库**中管理它们，网页界面和命令行都能完成。
 

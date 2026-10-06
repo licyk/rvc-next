@@ -5,7 +5,7 @@ import time
 import pytest
 
 from rvc_next.core.errors import DeviceError
-from rvc_next.core.events.models import LiveStatsEvent
+from rvc_next.core.events.models import LiveStateEvent, LiveStatsEvent
 from rvc_next.core.live.models import DeviceSelection, LiveConfig, LiveDevices
 from rvc_next.core.params import StreamParamsModel, VoiceParamsModel
 
@@ -170,3 +170,53 @@ def test_latency_measurement(live, services):
     live.fake = {k: v for k, v in live.fake.items() if k != "loopback"}
     m = live.measure_latency(LatencyTestRequest(stream=stream))
     assert not m.ok and m.reason == "no_signal" and m.latency_ms is None and m.engine_ms == 60.0
+
+
+def test_start_reports_every_step(live, services, tiny_voice_file):
+    """The state says "starting" before the slow steps (device check, worker start), then follows the
+    worker through each loading step; a failed check puts the state back as it was."""
+    voice = services.models.import_paths([tiny_voice_file]).voices[0]
+    seen: list[tuple[str, str | None]] = []
+    services.events.subscribe(lambda e: seen.append((e.state.state, e.state.stage)) if isinstance(e, LiveStateEvent) else None)
+
+    gone = DeviceSelection(device_id="nope", physical_key="usb out", name="USB Out")
+    with pytest.raises(DeviceError):
+        live.start(LiveConfig(voice_id=voice.id, devices=LiveDevices(output=gone)))
+    assert seen == [("starting", "devices"), ("stopped", None)]
+    assert live.state().state == "stopped" and live.state().stage is None and live.state().error is None
+
+    seen.clear()
+    params = VoiceParamsModel(f0_method="pm", index_rate=0, rms_mix_rate=0)
+    live.start(LiveConfig(voice_id=voice.id, params=params, stream=StreamParamsModel(block_ms=200, context_ms=500)))
+    assert wait_for(lambda: live.state().state == "running"), live.state()
+    assert seen[:3] == [("starting", "devices"), ("starting", "worker"), ("starting", None)]
+    loading = [stage for state, stage in seen if state == "loading"]
+    assert loading[:2] == ["runtime", "voice"] and "hubert" in loading and "pitch" in loading
+    assert seen[-1] == ("running", None)
+    live.stop()
+    assert wait_for(lambda: live.state().state == "stopped")
+
+
+def test_start_reuses_a_recent_device_list(live, services, tiny_voice_file, monkeypatch):
+    """Start resolves against a list enumerated in the last 10 s (the Live page refreshes every 5 s)
+    and enumerates again only when the list is older."""
+    voice = services.models.import_paths([tiny_voice_file]).voices[0]
+    actions: list[str] = []
+    real = live._run_devices
+    monkeypatch.setattr(live, "_run_devices", lambda request, **kw: actions.append(request["action"]) or real(request, **kw))
+    config = LiveConfig(voice_id=voice.id, params=VoiceParamsModel(f0_method="pm"), stream=StreamParamsModel(block_ms=200, context_ms=500))
+
+    live.devices(refresh=True)  # what the Live page's poll does
+    actions.clear()
+    live.start(config)
+    assert wait_for(lambda: live.state().state == "running")
+    assert "enumerate" not in actions
+    live.stop()
+    assert wait_for(lambda: live.state().state == "stopped")
+
+    live._devices_at -= 60  # a list a minute old
+    live.start(config)
+    assert wait_for(lambda: live.state().state == "running")
+    assert actions.count("enumerate") == 1
+    live.stop()
+    assert wait_for(lambda: live.state().state == "stopped")
