@@ -44,27 +44,41 @@ rvc-next 是 [Retrieval-based-Voice-Conversion-WebUI](https://github.com/RVC-Pro
 
 ## 安装
 
-请使用全新的虚拟环境（或独立的 Python）：rvc-next 把依赖固定在测试过的版本范围内，不适合与其他应用共用环境。先按硬件安装 PyTorch（2.7.1 或更新；不需要 torchaudio）：
+rvc-next 应运行在独立的虚拟环境（或独立的 Python）中：它把依赖固定在测试过的版本范围内，不适合与其他应用共用环境。
+
+1. 创建并激活虚拟环境（Python 3.10 或更新）：
+
+   ```bash
+   python -m venv .venv
+   . .venv/bin/activate              # Windows：.venv\Scripts\activate
+   ```
+
+2. 按硬件安装 PyTorch（2.7.1 或更新；不需要 torchaudio）：
+
+   ```bash
+   # Windows / Linux，NVIDIA 显卡
+   python -m pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cu130
+   # Windows / Linux，AMD 显卡（AMD 发布的 ROCm 构建；显卡显示为 cuda:N）
+   python -m pip install "torch[device-all]==2.13.0+rocm10.0.0" --index-url https://stable.repo.amd.com/rocm/whl-next
+   # Windows / Linux，Intel 显卡（显卡显示为 xpu:N）
+   python -m pip install torch==2.14.0+xpu --index-url https://download.pytorch.org/whl/xpu
+   # macOS（Apple 芯片；Metal 支持为实验性）
+   python -m pip install torch==2.14.0
+   # 没有 GPU
+   python -m pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu
+   ```
+
+3. 安装 rvc-next：
+
+   ```bash
+   python -m pip install rvc-next
+   ```
+
+   在 Windows 上，ROCm 和 XPU 构建不支持的 AMD 和 Intel 显卡可以使用 DirectML：第 2 步安装 CPU 版 PyTorch，再运行 `python -m pip install "rvc-next[directml]"`。
+
+然后下载必需的模型并启动网页界面：
 
 ```bash
-# Windows / Linux，NVIDIA 显卡
-python -m pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cu130
-# Windows / Linux，AMD 显卡（AMD 发布的 ROCm 构建；显卡显示为 cuda:N）
-python -m pip install "torch[device-all]==2.13.0+rocm10.0.0" --index-url https://stable.repo.amd.com/rocm/whl-next
-# Windows / Linux，Intel 显卡（显卡显示为 xpu:N）
-python -m pip install torch==2.14.0+xpu --index-url https://download.pytorch.org/whl/xpu
-# macOS（Apple 芯片；Metal 支持为实验性）
-python -m pip install torch==2.14.0
-```
-
-没有 GPU 时使用 CPU 版（`--index-url https://download.pytorch.org/whl/cpu`）。在 Windows 上，ROCm 和 XPU 构建不支持的 AMD 和 Intel 显卡可以使用 DirectML：安装 CPU 版 PyTorch，再运行 `pip install "rvc-next[directml]"`。
-
-然后，以 NVIDIA 显卡为例：
-
-```bash
-python -m venv .venv && . .venv/bin/activate
-python -m pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cu130
-python -m pip install rvc-next
 rvc-next assets download          # HuBERT 及音高模型 RMVPE、FCPE（约 400 MB）
 rvc-next model download --all     # 可选：RVC 官方演示音色
 rvc-next webui                    # http://127.0.0.1:7868

@@ -9,7 +9,7 @@ import { useSiteCopy } from "@/lib/site-copy";
 /** The README's install path; the guide covers other platforms and hardware. */
 const COMMANDS: readonly (readonly [command: string, comment: string])[] = [
   ["python -m venv .venv && . .venv/bin/activate", ""],
-  ["pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128", "# PyTorch"],
+  ["pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cu130", "# PyTorch"],
   ["pip install rvc-next", ""],
   ["rvc-next assets download", "# HuBERT, RMVPE, FCPE"],
   ["rvc-next webui", "# http://127.0.0.1:7868"],
