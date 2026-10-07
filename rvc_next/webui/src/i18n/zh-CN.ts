@@ -330,6 +330,7 @@ export default {
     queued: '分离已加入队列',
   },
   train: {
+    baseCommunity: '社区底模，在“模型”中下载',
     slicing: '切片',
     slicingHint: '录音如何被切成训练片段；默认值与原版相同。',
     cut: '切分方式',
@@ -431,6 +432,10 @@ export default {
     deleteConfirm: '将 {name} 移到回收站？',
     deleteDownloaded: '删除 {name}？其文件将被移除，之后可重新下载。',
     base: {
+      community: '社区底模',
+      communityHint: '由 RVC 用户用比官方更多或不同的数据训练（Applio 维护的列表）；从作者自己的仓库下载，每个约 1.3 GB。分享训练结果之前请先确认许可。',
+      licence: '许可：{licence}',
+      noLicence: '未声明许可',
       hint: '训练从底模开始。可在下方下载官方底模，或导入你自己的 G（和 D）；采样率、版本和音高引导从权重中读取。',
       import: '导入底模',
       importHint: '拖入 G 和 D 的 .pth 文件，或 .zip',

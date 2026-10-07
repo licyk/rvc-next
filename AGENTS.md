@@ -330,8 +330,9 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   host's addresses and the connected peer must be public (`allow_private` only from the CLI; the
   API never, since a reverse proxy makes remote browsers look local; peer check skipped behind an
   environment proxy).
-- **Base models** (`core/models/base.py`): official ones from the assets plus imported G (+ D)
-  pairs; `GET /models/base?sample_rate&version&pitch_guidance` lists only those that fit, and
+- **Base models** (`core/models/base.py`): official ones from the assets, community ones (the
+  catalog's `community` group, each from its author's repository: an `upstream` repository pinned to
+  a commit, never a Settings choice, not in `--group all`), plus imported G (+ D) pairs; `GET /models/base?sample_rate&version&pitch_guidance` lists only those that fit, and
   `FitSettings.base_model` (`train run --base`) picks one; `check_fits` rejects a mismatch.
 - **Applio voices** (`engine/models/checkpoint.py`): Applio's HiFi-GAN voices are RVC v2 voices
   with extra keys. A `vocoder` other than HiFi-GAN (or MRF/RefineGAN decoder keys), or an

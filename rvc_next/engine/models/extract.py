@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from rvc_next.engine.errors import ModelFormatError
-from rvc_next.engine.models.checkpoint import SmallModel, is_g_checkpoint, normalize_speaker_info, torch_load, write_small_model
+from rvc_next.engine.models.checkpoint import SmallModel, is_g_checkpoint, legacy_weight_norm, normalize_speaker_info, torch_load, write_small_model
 
 _RES = [[1, 3, 5], [1, 3, 5], [1, 3, 5]]
 
@@ -46,9 +46,9 @@ def extract_small_model(
 ) -> SmallModel:
     data = torch_load(checkpoint)
     if is_g_checkpoint(data):
-        state = data["model"]
+        state = legacy_weight_norm(data["model"])
     elif isinstance(data, dict) and any(k.startswith("dec.") for k in data):
-        state = data
+        state = legacy_weight_norm(data)
     else:
         raise ModelFormatError(f"{Path(checkpoint).name} is not a G checkpoint")
     weight = OrderedDict((k, v.half()) for k, v in state.items() if "enc_q" not in k)

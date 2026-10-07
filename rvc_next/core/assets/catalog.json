@@ -9,6 +9,96 @@
       "repo": "lj1995/VoiceConversionWebUI",
       "revision": "main",
       "title": "The official RVC repository (no demo voices)"
+    },
+    "hf:Loren85/IMA-TEST-V1": {
+      "repo": "Loren85/IMA-TEST-V1",
+      "revision": "affa58d5270246c331100ab283d4c35ded356e13",
+      "title": "Loren85/IMA-TEST-V1 (a community base model's own repository)",
+      "upstream": true
+    },
+    "hf:MUSTAR/RIN_E3": {
+      "repo": "MUSTAR/RIN_E3",
+      "revision": "330cbd77a2ad6128e4afc13f0b88a98e11698880",
+      "title": "MUSTAR/RIN_E3 (a community base model's own repository)",
+      "upstream": true
+    },
+    "hf:MUSTAR/Rigel-rvc-base-pretrained-model": {
+      "repo": "MUSTAR/Rigel-rvc-base-pretrained-model",
+      "revision": "fc3181adef5ab7cdf86e287a31ad468d797bca77",
+      "title": "MUSTAR/Rigel-rvc-base-pretrained-model (a community base model's own repository)",
+      "upstream": true
+    },
+    "hf:MUSTAR/SnowieV3.1-32k": {
+      "repo": "MUSTAR/SnowieV3.1-32k",
+      "revision": "b1aef1b35b4333fb0b95e148b0be2bec03e4b42f",
+      "title": "MUSTAR/SnowieV3.1-32k (a community base model's own repository)",
+      "upstream": true
+    },
+    "hf:MUSTAR/SnowieV3.1-40k": {
+      "repo": "MUSTAR/SnowieV3.1-40k",
+      "revision": "81774d77ad846c7bd6b723326de7ea8c2279deb8",
+      "title": "MUSTAR/SnowieV3.1-40k (a community base model's own repository)",
+      "upstream": true
+    },
+    "hf:MUSTAR/SnowieV3.1-48k": {
+      "repo": "MUSTAR/SnowieV3.1-48k",
+      "revision": "7fa3e589797329be57040e1039c5dc3f96127bd5",
+      "title": "MUSTAR/SnowieV3.1-48k (a community base model's own repository)",
+      "upstream": true
+    },
+    "hf:MUSTAR/SnowieV3.1-X-RinE3-40K": {
+      "repo": "MUSTAR/SnowieV3.1-X-RinE3-40K",
+      "revision": "eb7a380e49bab902497dcb5ba51c58e40f902e7a",
+      "title": "MUSTAR/SnowieV3.1-X-RinE3-40K (a community base model's own repository)",
+      "upstream": true
+    },
+    "hf:ORVC/Ov2Super": {
+      "repo": "ORVC/Ov2Super",
+      "revision": "425f8006582161af571e0d7f5ce646a535a14b65",
+      "title": "ORVC/Ov2Super (a community base model's own repository)",
+      "upstream": true
+    },
+    "hf:Plasmati/Pretrains": {
+      "repo": "Plasmati/Pretrains",
+      "revision": "5f5c85b767fb60525bc7d53e3d079ac1f5be1a95",
+      "title": "Plasmati/Pretrains (a community base model's own repository)",
+      "upstream": true
+    },
+    "hf:SeoulStreamingStation/KLM49_HFG": {
+      "repo": "SeoulStreamingStation/KLM49_HFG",
+      "revision": "714382e0d5bc5587bc380ea2fbcb655a87b1c39d",
+      "title": "SeoulStreamingStation/KLM49_HFG (a community base model's own repository)",
+      "upstream": true
+    },
+    "hf:SeoulStreamingStation/KLM_BEATMASTER": {
+      "repo": "SeoulStreamingStation/KLM_BEATMASTER",
+      "revision": "48ec1fb2e8a37f6b2c593fb49158a13abe6b054d",
+      "title": "SeoulStreamingStation/KLM_BEATMASTER (a community base model's own repository)",
+      "upstream": true
+    },
+    "hf:Sztef/SingerPreTrained": {
+      "repo": "Sztef/SingerPreTrained",
+      "revision": "c74999e0ebab5c540944310d4ebbff7c4d3ba472",
+      "title": "Sztef/SingerPreTrained (a community base model's own repository)",
+      "upstream": true
+    },
+    "hf:TheStinger/itaila": {
+      "repo": "TheStinger/itaila",
+      "revision": "50122cc2ad0884688f7a11b9777055775ab52e38",
+      "title": "TheStinger/itaila (a community base model's own repository)",
+      "upstream": true
+    },
+    "hf:blaise-tk/TITAN": {
+      "repo": "blaise-tk/TITAN",
+      "revision": "cb72bb5bb05a85f07b17a33b014b694eaa9525f7",
+      "title": "blaise-tk/TITAN (a community base model's own repository)",
+      "upstream": true
+    },
+    "hf:shiromiya/nanashi-pretrain": {
+      "repo": "shiromiya/nanashi-pretrain",
+      "revision": "3112c49d1d8dc05033536580ddd7d404aa966678",
+      "title": "shiromiya/nanashi-pretrain (a community base model's own repository)",
+      "upstream": true
     }
   },
   "assets": [
@@ -477,6 +567,678 @@
           }
         }
       ]
+    },
+    {
+      "id": "community-beatz-forge-32k",
+      "title": "Beatz Forge 32k",
+      "description": "Community base model for v2 voices with pitch at 32k, from huggingface.co/SeoulStreamingStation/KLM_BEATMASTER",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/beatz-forge/32k/G.pth",
+          "size": 443240793,
+          "sha256": "78f44fc9cab6ab47ed6782f30107783cc5b1764689b02b80e0f5380a2c2507e9",
+          "sources": {
+            "hf:SeoulStreamingStation/KLM_BEATMASTER": "G_BeatzForge_V2_32k.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/beatz-forge/32k/D.pth",
+          "size": 857124697,
+          "sha256": "3d13e149d290d4d317b445b009e4d96f8ac202622697d7c721c14e90688c9ff2",
+          "sources": {
+            "hf:SeoulStreamingStation/KLM_BEATMASTER": "D_BeatzForge_V2_32k.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "Beatz Forge",
+        "sample_rate": "32k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": null,
+        "homepage": "https://huggingface.co/SeoulStreamingStation/KLM_BEATMASTER"
+      }
+    },
+    {
+      "id": "community-ima-v1-32k",
+      "title": "IMA V1 32k",
+      "description": "Community base model for v2 voices with pitch at 32k, from huggingface.co/Loren85/IMA-TEST-V1",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/ima-v1/32k/G.pth",
+          "size": 443246162,
+          "sha256": "927ad0d58a0de835dee9599c9d755dcfd18f481b08f80f827172694e2ffcc30d",
+          "sources": {
+            "hf:Loren85/IMA-TEST-V1": "G_2333333.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/ima-v1/32k/D.pth",
+          "size": 857126906,
+          "sha256": "09654c3f1a6b2eb8f50febef8f49ba7160204cf1b3f8222f9709bfe1ba3d16f3",
+          "sources": {
+            "hf:Loren85/IMA-TEST-V1": "D_2333333.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "IMA V1",
+        "sample_rate": "32k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": "OpenRAIL",
+        "homepage": "https://huggingface.co/Loren85/IMA-TEST-V1"
+      }
+    },
+    {
+      "id": "community-italia-32k",
+      "title": "Italia 32k",
+      "description": "Community base model for v2 voices with pitch at 32k, from huggingface.co/TheStinger/itaila",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/italia/32k/G.pth",
+          "size": 443246162,
+          "sha256": "40d0025d374f53c834db3ce7202e3658cc91d902045f31e1b9fae956807d7db0",
+          "sources": {
+            "hf:TheStinger/itaila": "ItaIla_32k_G.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/italia/32k/D.pth",
+          "size": 857126906,
+          "sha256": "af16d3e390dfbb99194139098baba6cfef1fcbb9ff749e32470dd39d9c6e4971",
+          "sources": {
+            "hf:TheStinger/itaila": "ItaIla_32k_D.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "Italia",
+        "sample_rate": "32k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": null,
+        "homepage": "https://huggingface.co/TheStinger/itaila"
+      }
+    },
+    {
+      "id": "community-klm4-32k",
+      "title": "KLM4 32k",
+      "description": "Community base model for v2 voices with pitch at 32k, from huggingface.co/SeoulStreamingStation/KLM49_HFG",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/klm4/32k/G.pth",
+          "size": 443226058,
+          "sha256": "a5213640dd849048cbe34ec3eba1b5725efae078b83a9fa42b94721a239ea223",
+          "sources": {
+            "hf:SeoulStreamingStation/KLM49_HFG": "G_KLM_HFG_32k.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/klm4/32k/D.pth",
+          "size": 857121610,
+          "sha256": "7bd28c690e52ec5db5d92c67815a077c77cd60d9bbcfdda45f903e7fb5c75dfc",
+          "sources": {
+            "hf:SeoulStreamingStation/KLM49_HFG": "D_KLM_HFG_32k.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "KLM4",
+        "sample_rate": "32k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": null,
+        "homepage": "https://huggingface.co/SeoulStreamingStation/KLM49_HFG"
+      }
+    },
+    {
+      "id": "community-klm4-40k",
+      "title": "KLM4 40k",
+      "description": "Community base model for v2 voices with pitch at 40k, from huggingface.co/SeoulStreamingStation/KLM49_HFG",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/klm4/40k/G.pth",
+          "size": 438163402,
+          "sha256": "3322483d01cdfe817053ec772064444941a00ba13bea80587710e4599dff8d85",
+          "sources": {
+            "hf:SeoulStreamingStation/KLM49_HFG": "G_KLM_HFG_40k.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/klm4/40k/D.pth",
+          "size": 857121610,
+          "sha256": "aad06c8ff1684c7c0de1eb51a5ff967b767d35b3fe12edd103952dbcf6dbcab7",
+          "sources": {
+            "hf:SeoulStreamingStation/KLM49_HFG": "D_KLM_HFG_40k.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "KLM4",
+        "sample_rate": "40k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": null,
+        "homepage": "https://huggingface.co/SeoulStreamingStation/KLM49_HFG"
+      }
+    },
+    {
+      "id": "community-klm4-48k",
+      "title": "KLM4 48k",
+      "description": "Community base model for v2 voices with pitch at 48k, from huggingface.co/SeoulStreamingStation/KLM49_HFG",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/klm4/48k/G.pth",
+          "size": 452319178,
+          "sha256": "a2f57843189e90b891ef632e29c22a2275ff98799fbd7a564b4bc4bf3576564d",
+          "sources": {
+            "hf:SeoulStreamingStation/KLM49_HFG": "G_KLM_HFG_48k.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/klm4/48k/D.pth",
+          "size": 857121610,
+          "sha256": "3b5498f81394633e14c48219d3fee370461cc7c3b747a2a006e25e9877ad62c0",
+          "sources": {
+            "hf:SeoulStreamingStation/KLM49_HFG": "D_KLM_HFG_48k.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "KLM4",
+        "sample_rate": "48k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": null,
+        "homepage": "https://huggingface.co/SeoulStreamingStation/KLM49_HFG"
+      }
+    },
+    {
+      "id": "community-nanashi-v1-7-32k",
+      "title": "Nanashi v1.7 32k",
+      "description": "Community base model for v2 voices with pitch at 32k, from huggingface.co/shiromiya/nanashi-pretrain",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/nanashi-v1-7/32k/G.pth",
+          "size": 443246162,
+          "sha256": "ca61d1b581da98caab9909f26b3339be65301b74d2744d331f030a338c2044df",
+          "sources": {
+            "hf:shiromiya/nanashi-pretrain": "v1.7/G_nanashi_v1_7.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/nanashi-v1-7/32k/D.pth",
+          "size": 857126906,
+          "sha256": "a3987c51682fe91dfa4cdebabfc09b4438488d4210f6982f8decdf54e79d7b19",
+          "sources": {
+            "hf:shiromiya/nanashi-pretrain": "v1.7/D_nanashi_v1_7.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "Nanashi v1.7",
+        "sample_rate": "32k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": null,
+        "homepage": "https://huggingface.co/shiromiya/nanashi-pretrain"
+      }
+    },
+    {
+      "id": "community-ov2super-32k",
+      "title": "Ov2Super 32k",
+      "description": "Community base model for v2 voices with pitch at 32k, from huggingface.co/ORVC/Ov2Super",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/ov2super/32k/G.pth",
+          "size": 443282322,
+          "sha256": "377272acbb7d6ec494c5964a0469e0b57189988cdba734e1bfcbeaaa923b7bc2",
+          "sources": {
+            "hf:ORVC/Ov2Super": "f0Ov2Super32kG.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/ov2super/32k/D.pth",
+          "size": 857141306,
+          "sha256": "ff8731f4e11655454e53746fbcd0245a65eedb41e2e34db67f6b06d363a66b78",
+          "sources": {
+            "hf:ORVC/Ov2Super": "f0Ov2Super32kD.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "Ov2Super",
+        "sample_rate": "32k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": "MIT",
+        "homepage": "https://huggingface.co/ORVC/Ov2Super"
+      }
+    },
+    {
+      "id": "community-ov2super-40k",
+      "title": "Ov2Super 40k",
+      "description": "Community base model for v2 voices with pitch at 40k, from huggingface.co/ORVC/Ov2Super",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/ov2super/40k/G.pth",
+          "size": 438183069,
+          "sha256": "0562bdf6fa73197a503ceddf376a79f33727d64e19b1c6371ebfd6872bceccbf",
+          "sources": {
+            "hf:ORVC/Ov2Super": "f0Ov2Super40kG.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/ov2super/40k/D.pth",
+          "size": 857126469,
+          "sha256": "e319e21eb26137803c62847857202bc43f833c0696be72bec395a74b3c2178aa",
+          "sources": {
+            "hf:ORVC/Ov2Super": "f0Ov2Super40kD.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "Ov2Super",
+        "sample_rate": "40k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": "MIT",
+        "homepage": "https://huggingface.co/ORVC/Ov2Super"
+      }
+    },
+    {
+      "id": "community-rigel-base-32k",
+      "title": "Rigel Base 32k",
+      "description": "Community base model for v2 voices with pitch at 32k, from huggingface.co/MUSTAR/Rigel-rvc-base-pretrained-model",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/rigel-base/32k/G.pth",
+          "size": 443245725,
+          "sha256": "0ed872fa036e3b0416f2a37428b626a5935d833b08192551b1d5b52fc26e3c98",
+          "sources": {
+            "hf:MUSTAR/Rigel-rvc-base-pretrained-model": "Rigel_32k_Base_and_FineTuned/Base-model_32k_fp32/G_Rigel_32k_3890220.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/rigel-base/32k/D.pth",
+          "size": 857126469,
+          "sha256": "85cd05920d233c9574f1f38b03735728ed199de78120e4a147a94c553a851d76",
+          "sources": {
+            "hf:MUSTAR/Rigel-rvc-base-pretrained-model": "Rigel_32k_Base_and_FineTuned/Base-model_32k_fp32/D_Rigel_32k_3890220.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "Rigel Base",
+        "sample_rate": "32k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": null,
+        "homepage": "https://huggingface.co/MUSTAR/Rigel-rvc-base-pretrained-model"
+      }
+    },
+    {
+      "id": "community-rigel-finetuned-32k",
+      "title": "Rigel FineTuned 32k",
+      "description": "Community base model for v2 voices with pitch at 32k, from huggingface.co/MUSTAR/Rigel-rvc-base-pretrained-model",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/rigel-finetuned/32k/G.pth",
+          "size": 443245725,
+          "sha256": "5bdf95bce445a08aa9e51c41c524e860c028bb498a5051410d1bc0575eb6d9c0",
+          "sources": {
+            "hf:MUSTAR/Rigel-rvc-base-pretrained-model": "Rigel_32k_Base_and_FineTuned/FineTuned-model_32k_fp32/G_Rigel_32k_fp32_2854856.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/rigel-finetuned/32k/D.pth",
+          "size": 857126469,
+          "sha256": "3bf507e13d86225b28798f9a85d3817f6c0b728a63c5f958f2d46b2c80dcf37a",
+          "sources": {
+            "hf:MUSTAR/Rigel-rvc-base-pretrained-model": "Rigel_32k_Base_and_FineTuned/FineTuned-model_32k_fp32/D_Rigel_32k_fp32_2854856.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "Rigel FineTuned",
+        "sample_rate": "32k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": null,
+        "homepage": "https://huggingface.co/MUSTAR/Rigel-rvc-base-pretrained-model"
+      }
+    },
+    {
+      "id": "community-rin-e3-40k",
+      "title": "RIN_E3 40k",
+      "description": "Community base model for v2 voices with pitch at 40k, from huggingface.co/MUSTAR/RIN_E3",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/rin-e3/40k/G.pth",
+          "size": 438183069,
+          "sha256": "814de985f6dc638f0ee6270b0e153cdf63e1c78424d210f12efe03bdb4ea62a7",
+          "sources": {
+            "hf:MUSTAR/RIN_E3": "RIN_E3_G.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/rin-e3/40k/D.pth",
+          "size": 857126469,
+          "sha256": "e0dbe352663c7cd58a131a4516a95066a139474c6304e87dc4d385a8222e6253",
+          "sources": {
+            "hf:MUSTAR/RIN_E3": "RIN_E3_D.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "RIN_E3",
+        "sample_rate": "40k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": null,
+        "homepage": "https://huggingface.co/MUSTAR/RIN_E3"
+      }
+    },
+    {
+      "id": "community-singerpretrain-32k",
+      "title": "SingerPreTrain 32k",
+      "description": "Community base model for v2 voices with pitch at 32k, from huggingface.co/Sztef/SingerPreTrained",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/singerpretrain/32k/G.pth",
+          "size": 443246162,
+          "sha256": "cb44af3ceb12fc67026864be453e6312e3aea951cc74624190b35d45d3892cd9",
+          "sources": {
+            "hf:Sztef/SingerPreTrained": "update/f0G_SingerPreTrain.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/singerpretrain/32k/D.pth",
+          "size": 857126906,
+          "sha256": "5205b49596ad477e0596120159ce3cfab2e4d3c4d970baa709cb797dc092a2d0",
+          "sources": {
+            "hf:Sztef/SingerPreTrained": "update/f0D_SingerPreTrain.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "SingerPreTrain",
+        "sample_rate": "32k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": "OpenRAIL",
+        "homepage": "https://huggingface.co/Sztef/SingerPreTrained"
+      }
+    },
+    {
+      "id": "community-snowie-32k",
+      "title": "Snowie 32k",
+      "description": "Community base model for v2 voices with pitch at 32k, from huggingface.co/MUSTAR/SnowieV3.1-32k",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/snowie/32k/G.pth",
+          "size": 443230526,
+          "sha256": "94f8172dc7d975fae748a40e0a4ad09148a40166fb01a9c9aecadacedbad246a",
+          "sources": {
+            "hf:MUSTAR/SnowieV3.1-32k": "G_SnowieV3.1_32k.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/snowie/32k/D.pth",
+          "size": 857123266,
+          "sha256": "fd0e6067e06aee2962dd1600d0a7cb9ed3ab4da858003595feaed10b544c811e",
+          "sources": {
+            "hf:MUSTAR/SnowieV3.1-32k": "D_SnowieV3.1_32k.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "Snowie",
+        "sample_rate": "32k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": null,
+        "homepage": "https://huggingface.co/MUSTAR/SnowieV3.1-32k"
+      }
+    },
+    {
+      "id": "community-snowie-40k",
+      "title": "Snowie 40k",
+      "description": "Community base model for v2 voices with pitch at 40k, from huggingface.co/MUSTAR/SnowieV3.1-40k",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/snowie/40k/G.pth",
+          "size": 438167870,
+          "sha256": "95aeacf9ac4c39830fc19bec5f11d780734f73bd53ce681d7f21b891f7da69e7",
+          "sources": {
+            "hf:MUSTAR/SnowieV3.1-40k": "G_SnowieV3.1_40k.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/snowie/40k/D.pth",
+          "size": 857123266,
+          "sha256": "33eb0b69d2eb1980105b044d7381d2c317652f011f7fa685a599aee846a68592",
+          "sources": {
+            "hf:MUSTAR/SnowieV3.1-40k": "D_SnowieV3.1_40k.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "Snowie",
+        "sample_rate": "40k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": null,
+        "homepage": "https://huggingface.co/MUSTAR/SnowieV3.1-40k"
+      }
+    },
+    {
+      "id": "community-snowie-48k",
+      "title": "Snowie 48k",
+      "description": "Community base model for v2 voices with pitch at 48k, from huggingface.co/MUSTAR/SnowieV3.1-48k",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/snowie/48k/G.pth",
+          "size": 452323646,
+          "sha256": "6883d5b2fe92f78e10ac7e87fed24a7d9ef53826835ebb908b2428003f0d1f92",
+          "sources": {
+            "hf:MUSTAR/SnowieV3.1-48k": "G_SnowieV3.1_48k.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/snowie/48k/D.pth",
+          "size": 857123266,
+          "sha256": "342c48ce64c691aeeec10be25e9821c42e9d81e64af454f58c4493807ae8530b",
+          "sources": {
+            "hf:MUSTAR/SnowieV3.1-48k": "D_SnowieV3.1_48k.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "Snowie",
+        "sample_rate": "48k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": null,
+        "homepage": "https://huggingface.co/MUSTAR/SnowieV3.1-48k"
+      }
+    },
+    {
+      "id": "community-snowie-x-rine3-40k",
+      "title": "Snowie-X-RinE3 40k",
+      "description": "Community base model for v2 voices with pitch at 40k, from huggingface.co/MUSTAR/SnowieV3.1-X-RinE3-40K",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/snowie-x-rine3/40k/G.pth",
+          "size": 438176910,
+          "sha256": "bf70da2f59cff4a414d3b10607cab15a3ab5d706e06e9b3bd1d653e6abe0f2d9",
+          "sources": {
+            "hf:MUSTAR/SnowieV3.1-X-RinE3-40K": "G_Snowie-X-Rin_40k.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/snowie-x-rine3/40k/D.pth",
+          "size": 857125986,
+          "sha256": "61f831b0150fb99b61d92873535fd44ac6d9e76df2da4d7fefc4390e5c3b94e6",
+          "sources": {
+            "hf:MUSTAR/SnowieV3.1-X-RinE3-40K": "D_Snowie-X-Rin_40k.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "Snowie-X-RinE3",
+        "sample_rate": "40k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": null,
+        "homepage": "https://huggingface.co/MUSTAR/SnowieV3.1-X-RinE3-40K"
+      }
+    },
+    {
+      "id": "community-titan-32k",
+      "title": "Titan 32k",
+      "description": "Community base model for v2 voices with pitch at 32k, from huggingface.co/blaise-tk/TITAN",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/titan/32k/G.pth",
+          "size": 443219306,
+          "sha256": "0f445603cc79b77ee1f40bd0f28c31760251ae40073abcb662ba9a544d4780b1",
+          "sources": {
+            "hf:blaise-tk/TITAN": "models/medium/32k/pretrained/G-f032k-TITAN-Medium.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/titan/32k/D.pth",
+          "size": 857119946,
+          "sha256": "520dc7236ce87842a6c285e48d88ea0b92344e3654bab1e96c60fda5dcd12a59",
+          "sources": {
+            "hf:blaise-tk/TITAN": "models/medium/32k/pretrained/D-f032k-TITAN-Medium.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "Titan",
+        "sample_rate": "32k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": "Apache-2.0",
+        "homepage": "https://huggingface.co/blaise-tk/TITAN"
+      }
+    },
+    {
+      "id": "community-titan-40k",
+      "title": "Titan 40k",
+      "description": "Community base model for v2 voices with pitch at 40k, from huggingface.co/blaise-tk/TITAN",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/titan/40k/G.pth",
+          "size": 438156650,
+          "sha256": "217de2fd349f48856aa6a6d9d1257b07a0addccde7b69fc7b22097f1fee5924d",
+          "sources": {
+            "hf:blaise-tk/TITAN": "models/medium/40k/pretrained/G-f040k-TITAN-Medium.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/titan/40k/D.pth",
+          "size": 857119946,
+          "sha256": "bc804da752ba9cb8e3aaa90ad102edc0a6e7f033c90db53bfcce135f100d5ad1",
+          "sources": {
+            "hf:blaise-tk/TITAN": "models/medium/40k/pretrained/D-f040k-TITAN-Medium.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "Titan",
+        "sample_rate": "40k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": "Apache-2.0",
+        "homepage": "https://huggingface.co/blaise-tk/TITAN"
+      }
+    },
+    {
+      "id": "community-titan-48k",
+      "title": "Titan 48k",
+      "description": "Community base model for v2 voices with pitch at 48k, from huggingface.co/blaise-tk/TITAN",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/titan/48k/G.pth",
+          "size": 452338845,
+          "sha256": "51a6dc93687f7e1a6051be3dec958289958c9c738d5c520e4fa956e7886ee153",
+          "sources": {
+            "hf:blaise-tk/TITAN": "models/medium/48k/pretrained/G-f048k-TITAN-Medium.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/titan/48k/D.pth",
+          "size": 857126469,
+          "sha256": "4999a5b66aec0a9ab7e845063eeb242e47a611ab0e6260fb0b5ca44a7c5bbc44",
+          "sources": {
+            "hf:blaise-tk/TITAN": "models/medium/48k/pretrained/D-f048k-TITAN-Medium.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "Titan",
+        "sample_rate": "48k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": "Apache-2.0",
+        "homepage": "https://huggingface.co/blaise-tk/TITAN"
+      }
+    },
+    {
+      "id": "community-uka-32k",
+      "title": "UKA 32k",
+      "description": "Community base model for v2 voices with pitch at 32k, from huggingface.co/Plasmati/Pretrains",
+      "group": "community",
+      "files": [
+        {
+          "path": "pretrained_community/uka/32k/G.pth",
+          "size": 443246162,
+          "sha256": "ff7103389b61eb842f7e001891c929f1a778ffa9f75d82b4efcd9a60901b2c54",
+          "sources": {
+            "hf:Plasmati/Pretrains": "UKA-Pretrain-G.pth"
+          }
+        },
+        {
+          "path": "pretrained_community/uka/32k/D.pth",
+          "size": 857126906,
+          "sha256": "74f8c3e8374e24b3e64ce6fdf2e63fe4d330758bc6118005a6eb878cb496d43b",
+          "sources": {
+            "hf:Plasmati/Pretrains": "UKA-Pretrain-D.pth"
+          }
+        }
+      ],
+      "base_model": {
+        "name": "UKA",
+        "sample_rate": "32k",
+        "version": "v2",
+        "pitch_guidance": true,
+        "license": null,
+        "homepage": "https://huggingface.co/Plasmati/Pretrains"
+      }
     }
   ],
   "voices": [

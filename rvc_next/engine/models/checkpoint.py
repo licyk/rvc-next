@@ -27,6 +27,22 @@ HIFIGAN = "HiFi-GAN"
 CONTENTVEC = "contentvec"
 
 
+def legacy_weight_norm(state: dict[str, Any]) -> dict[str, Any]:
+    """``state`` with PyTorch's newer weight-norm names (``….parametrizations.weight.original0`` and
+    ``original1``, which newer trainers such as Applio may save) as RVC's ``weight_g`` and ``weight_v``.
+    Returns ``state`` itself when nothing needs renaming."""
+    if not any(".parametrizations.weight.original" in k for k in state):
+        return state
+    out: dict[str, Any] = OrderedDict()
+    for k, v in state.items():
+        if k.endswith(".parametrizations.weight.original0"):
+            k = k[: -len(".parametrizations.weight.original0")] + ".weight_g"
+        elif k.endswith(".parametrizations.weight.original1"):
+            k = k[: -len(".parametrizations.weight.original1")] + ".weight_v"
+        out[k] = v
+    return out
+
+
 def foreign_vocoder(state: dict[str, Any], declared: Any = None) -> str | None:
     """The vocoder a state dict was trained with, when it is not RVC's NSF HiFi-GAN; else None."""
     if declared not in (None, "", HIFIGAN):
@@ -148,6 +164,7 @@ def _parse_small(data: Any, name: str) -> SmallModel:
     weight = data["weight"]
     if not isinstance(weight, dict) or "emb_g.weight" not in weight:
         raise ModelFormatError(f"{name} has no speaker embedding (weight/emb_g.weight)")
+    weight = legacy_weight_norm(weight)
     config = list(data["config"])
     if len(config) != 18:
         raise ModelFormatError(f"{name} has a config of {len(config)} values, not 18")
@@ -198,7 +215,7 @@ def summarize(path: Path | str) -> CheckpointSummary:
     path = Path(path)
     data = torch_load(path)
     if is_g_checkpoint(data):
-        model = data["model"]
+        model = legacy_weight_norm(data["model"])
         emb = model.get("emb_g.weight")
         has_f0 = any(k.startswith("dec.m_source") for k in model)
         enc_dim = model.get("enc_p.emb_phone.weight")
@@ -244,9 +261,9 @@ class CheckpointInspection:
 
 def _state(data: Any) -> dict[str, Any] | None:
     if isinstance(data, dict) and isinstance(data.get("model"), dict):
-        return data["model"]
+        return legacy_weight_norm(data["model"])
     if isinstance(data, dict) and data and all(isinstance(k, str) for k in data) and any(k.startswith(("dec.", "discriminators.")) for k in data):
-        return data
+        return legacy_weight_norm(data)
     return None
 
 

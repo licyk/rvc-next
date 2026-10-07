@@ -148,8 +148,10 @@ def load_checkpoint(checkpoint_path: str, model: Any, optimizer: Any = None, loa
     import torch
 
     assert os.path.isfile(checkpoint_path)
+    from rvc_next.engine.models.checkpoint import legacy_weight_norm
+
     checkpoint_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
-    saved_state_dict = checkpoint_dict["model"]
+    saved_state_dict = legacy_weight_norm(checkpoint_dict["model"])
     target = model.module if hasattr(model, "module") else model
     state_dict = target.state_dict()
     new_state_dict = {}
@@ -203,8 +205,10 @@ def load_pretrained_generator(model: Any, path: str, fresh_rows: list[int] | Non
     """
     import torch
 
+    from rvc_next.engine.models.checkpoint import legacy_weight_norm
+
     target = model.module if hasattr(model, "module") else model
-    saved_state = torch.load(path, map_location="cpu", weights_only=True)["model"]
+    saved_state = dict(legacy_weight_norm(torch.load(path, map_location="cpu", weights_only=True)["model"]))
     current_state = target.state_dict()
     key = "emb_g.weight"
     if key in saved_state and key in current_state and saved_state[key].shape != current_state[key].shape:
@@ -479,7 +483,9 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
             if rank == 0:
                 sink.log(f"Base discriminator: {hps.pretrainD}")
             target: Any = net_d.module if hasattr(net_d, "module") else net_d
-            target.load_state_dict(torch.load(hps.pretrainD, map_location="cpu", weights_only=True)["model"])
+            from rvc_next.engine.models.checkpoint import legacy_weight_norm
+
+            target.load_state_dict(legacy_weight_norm(torch.load(hps.pretrainD, map_location="cpu", weights_only=True)["model"]))
     for opt in (optim_g, optim_d):
         for group in opt.param_groups:
             group.setdefault("initial_lr", hps.train.learning_rate)

@@ -330,6 +330,7 @@ export default {
     queued: 'Separation queued',
   },
   train: {
+    baseCommunity: 'community, download in Models',
     slicing: 'Slicing',
     slicingHint: 'How the recordings are cut into training pieces; the defaults are the original’s.',
     cut: 'Cut',
@@ -431,6 +432,10 @@ export default {
     deleteConfirm: 'Move {name} to the trash?',
     deleteDownloaded: 'Delete {name}? Its files are removed; you can download it again.',
     base: {
+      community: 'Community base models',
+      communityHint: 'Trained by RVC users on more or different data than the official ones (a list Applio keeps); a training run downloads about 1.3 GB from the author’s own repository. Check the licence before you share what you train.',
+      licence: 'licence: {licence}',
+      noLicence: 'no licence stated',
       hint: 'Training starts from a base model. Download the official ones below, or import your own G (and D); their rate, version and pitch guidance are read from the weights.',
       import: 'Import base models',
       importHint: 'Drop G and D .pth files, or a .zip',

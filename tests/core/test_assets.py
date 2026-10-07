@@ -174,3 +174,19 @@ def test_download_reports_speed_and_eta(services):
     assert 250 < measured.bytes_per_second < 400 and 2 < measured.eta_seconds < 4
     assert restarted.bytes_per_second is None and restarted.eta_seconds is None
     assert job.transfer is None
+
+
+def test_community_base_models(services):
+    from rvc_next.core.errors import AssetMissingError
+
+    community = [b for b in services.base_models.list_base(sample_rate="40k", version="v2", pitch_guidance=True) if b.source == "community"]
+    assert community and all(not b.installed and b.has_discriminator for b in community)
+    snowie = next(b for b in community if b.id == "community-snowie-40k")
+    spec = services.assets.spec(snowie.id)
+    assert spec.base_model and spec.base_model.homepage.startswith("https://huggingface.co/MUSTAR/")
+    # Fetched from the author's repository, pinned to a revision; never offered as a download mirror.
+    assert services.assets.url(spec.files[0]).startswith("https://huggingface.co/MUSTAR/SnowieV3.1-40k/resolve/")
+    assert {r.id for r in services.assets.repositories()} == {"rvc-model", "official"}
+    assert snowie.id not in services.assets.ids_for_group("all")
+    with pytest.raises(AssetMissingError):
+        services.base_models.paths(snowie.id)

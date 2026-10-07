@@ -1808,7 +1808,7 @@ export interface components {
              * Group
              * @enum {string}
              */
-            group: "inference" | "training" | "separation";
+            group: "inference" | "training" | "separation" | "community";
             /** Size */
             size: number;
             /** Installed Bytes */
@@ -1824,6 +1824,7 @@ export interface components {
             job_id: string | null;
             /** Missing Files */
             missing_files: string[];
+            base_model: components["schemas"]["CommunityBase"] | null;
         };
         /** AssetsChangedEvent */
         AssetsChangedEvent: {
@@ -1936,7 +1937,7 @@ export interface components {
              * Source
              * @enum {string}
              */
-            source: "official" | "imported";
+            source: "official" | "community" | "imported";
             /**
              * Sample Rate
              * @enum {string}
@@ -2117,6 +2118,30 @@ export interface components {
         ClearedJobs: {
             /** Ids */
             ids: string[];
+        };
+        /**
+         * CommunityBase
+         * @description What a community base model is: its own repository's details, shown before it is downloaded.
+         */
+        CommunityBase: {
+            /** Name */
+            name: string;
+            /**
+             * Sample Rate
+             * @enum {string}
+             */
+            sample_rate: "32k" | "40k" | "48k";
+            /**
+             * Version
+             * @enum {string}
+             */
+            version: "v1" | "v2";
+            /** Pitch Guidance */
+            pitch_guidance: boolean;
+            /** License */
+            license: string | null;
+            /** Homepage */
+            homepage: string;
         };
         /** ComputeChangedEvent */
         ComputeChangedEvent: {
@@ -3791,11 +3816,8 @@ export interface components {
         };
         /** Repository */
         Repository: {
-            /**
-             * Id
-             * @enum {string}
-             */
-            id: "rvc-model" | "official";
+            /** Id */
+            id: string;
             /** Repo */
             repo: string;
             /** Revision */
@@ -3807,6 +3829,11 @@ export interface components {
              * @default false
              */
             selected: boolean;
+            /**
+             * Upstream
+             * @default false
+             */
+            upstream: boolean;
         };
         /** ResolvePathRequest */
         ResolvePathRequest: {

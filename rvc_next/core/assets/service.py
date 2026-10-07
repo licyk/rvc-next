@@ -138,6 +138,7 @@ class AssetService:
             verified=verified_flag,
             job_id=self._downloading.get(asset_id),
             missing_files=missing,
+            base_model=spec.base_model,
         )
 
     def list_assets(self) -> list[AssetStatus]:
@@ -190,9 +191,10 @@ class AssetService:
         self._emit()
 
     def ids_for_group(self, group: str) -> list[str]:
-        """The assets of a catalog group (``all``: every one). The ONNX RMVPE is only for DirectML and is
-        left out; ``inference`` is HuBERT and every pitch model (RMVPE, FCPE), the default download."""
-        return [i for i, s in self._specs.items() if s.id != "rmvpe-onnx" and (group == "all" or s.group == group)]
+        """The assets of a catalog group (``all``: every one but the community base models, a gigabyte
+        or more each, fetched one by one). The ONNX RMVPE is only for DirectML and is left out;
+        ``inference`` is HuBERT and every pitch model, the default download."""
+        return [i for i, s in self._specs.items() if s.id != "rmvpe-onnx" and (s.group == group or (group == "all" and s.group != "community"))]
 
     # -- downloads -------------------------------------------------------------
 
@@ -208,8 +210,9 @@ class AssetService:
     # -- repositories ------------------------------------------------------------
 
     def repositories(self) -> list[Repository]:
+        """The repositories to choose from in Settings (the community models' own are not)."""
         chosen = self._settings.settings.downloads.repository
-        return [r.model_copy(update={"selected": r.id == chosen}) for r in self._repos]
+        return [r.model_copy(update={"selected": r.id == chosen}) for r in self._repos if not r.upstream]
 
     def _repo(self, repo_id: str) -> Repository:
         return next(r for r in self._repos if r.id == repo_id)

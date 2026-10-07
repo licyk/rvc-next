@@ -85,6 +85,8 @@ Two settings determine download URLs (`AssetService.url()`):
 
 The resulting URL is `<endpoint>/<repo>/resolve/<revision>/<sources[repository]>`. Both repositories currently use `main` as `revision`.
 
+**Community base models** (group `community`, 21 assets `community-<name>-<rate>`) come from their authors' own repositories: each such repository is in `repositories` with `"upstream": true` and a pinned revision (a commit), its files have only that source, and `repositories()` leaves upstream ones out of the Settings choice. The list is the one Applio keeps (`IAHispano/Applio/pretrains.json`), every G checked to be a v2 pitch generator of the stated rate and every file's SHA-256 taken from the Hub's LFS metadata at that revision; DMR, whose repository is no longer public, is left out. An asset's `base_model` gives the name, rate, version, pitch guidance, the licence the repository states (often none) and its page; `BaseModelService` lists them as `source: "community"`. They are full training checkpoints (G about 440 MB, D 860 MB, with optimizer state), so `assets download --group all` leaves them out. Checkpoints saved with PyTorch's newer weight-norm names (`parametrizations.weight.original0/1`, as Ov2Super's 32k) are renamed to RVC's `weight_g`/`weight_v` on reading (`checkpoint.legacy_weight_norm`).
+
 Why rvc-model exists: the official repository retains an early flat layout, mixing code, Windows executables, and tens of GB of distributions; some models (demo voices) exist only inside `.7z` distributions and cannot be downloaded individually (see below). rvc-model copies the required files unchanged into categories, making each file available separately.
 
 ### rvc-model layout

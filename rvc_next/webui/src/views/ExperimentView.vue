@@ -169,6 +169,7 @@ const baseModels = useBaseModels(baseFilter);
 const baseOptions = computed(() => [
   { value: '', label: t('train.baseDefault') },
   ...(baseModels.data.value ?? []).filter((b) => b.source === 'imported').map((b) => ({ value: b.id, label: b.has_discriminator ? b.name : `${b.name} · ${t('train.baseNoD')}` })),
+  ...(baseModels.data.value ?? []).filter((b) => b.source === 'community').map((b) => ({ value: b.id, label: `${b.name} · ${t('train.baseCommunity')}` })),
 ]);
 watch(
   () => baseModels.data.value,
@@ -178,10 +179,11 @@ watch(
   },
 );
 const importedBase = computed(() => !!settingsForm.value?.fit.base_model && !settingsForm.value.fit.base_model.startsWith('official-'));
+const communityBase = computed(() => settingsForm.value?.fit.base_model?.startsWith('community-') ? [settingsForm.value.fit.base_model] : []);
 const baseAssets = computed(() => {
   const f = settingsForm.value;
   if (!f) return [];
-  return [...(importedBase.value ? [] : [`pretrained-${f.version}-${f.sample_rate}`]), 'hubert', ...pitchAssets(f.pitch_guidance, f.f0_method)];
+  return [...(importedBase.value ? communityBase.value : [`pretrained-${f.version}-${f.sample_rate}`]), 'hubert', ...pitchAssets(f.pitch_guidance, f.f0_method)];
 });
 const smallCheckpoints = computed(() => (checkpoints.data.value ?? []).filter((c) => c.kind !== 'D'));
 const stageTone = (status?: string) => (({ done: 'primary', running: 'primary', failed: 'error', stale: 'warning' }) as Record<string, 'primary' | 'error' | 'warning'>)[status ?? ''] ?? 'neutral';

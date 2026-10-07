@@ -98,6 +98,13 @@ const baseModels = useBaseModels();
 const baseM = useBaseModelMutations();
 const officialBase = computed(() => (baseModels.data.value ?? []).filter((b) => b.source === 'official'));
 const importedBase = computed(() => (baseModels.data.value ?? []).filter((b) => b.source === 'imported'));
+const communityBase = computed(() => (baseModels.data.value ?? []).filter((b) => b.source === 'community'));
+/** A community base model: its licence and repository, from the catalog. */
+function describeCommunity(b: BaseModel) {
+  const info = b.asset_id ? assetById.value[b.asset_id]?.base_model : null;
+  const licence = info?.license ? t('models.base.licence', { licence: info.license }) : t('models.base.noLicence');
+  return [describeBase(b), licence, info?.homepage.replace('https://', '') ?? ''].filter(Boolean).join(' · ');
+}
 const describeBase = (b: BaseModel) => [b.version, b.sample_rate, b.pitch_guidance ? t('voice.pitchGuidance') : t('voice.noPitchGuidance'), b.has_discriminator ? 'G + D' : t('models.base.noD'), ...(b.size ? [formatBytes(b.size)] : [])].join(' · ');
 const renaming = ref<{ kind: 'base'; id: string; name: string } | null>(null);
 function rename() {
@@ -266,6 +273,21 @@ function extract() {
               deletable
               @download="b.asset_id && fetchAssets([b.asset_id])"
               @delete="removing = { kind: 'base', id: b.id, name: b.name }"
+            />
+          </section>
+          <section v-if="communityBase.length" class="group">
+            <h2 class="type-title-small title">{{ t('models.base.community') }}</h2>
+            <p class="type-body-small muted">{{ t('models.base.communityHint') }}</p>
+            <ResourceRow
+              v-for="b in communityBase"
+              :key="b.id"
+              :title="b.name"
+              :details="describeCommunity(b)"
+              :state="baseState(b)"
+              :job-id="b.asset_id ? assetById[b.asset_id]?.job_id : null"
+              deletable
+              @download="b.asset_id && fetchAssets([b.asset_id])"
+              @delete="removing = { kind: 'asset', id: b.id, name: b.name }"
             />
           </section>
         </section>

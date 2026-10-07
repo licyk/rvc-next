@@ -32,9 +32,9 @@ RATES = ("32k", "40k", "48k")
 
 class BaseModel(Record):
     id: str
-    """``official-<v>-<rate>[-f0]`` or the slug of an imported one."""
+    """``official-<v>-<rate>[-f0]``, a community asset id (``community-…``) or the slug of an imported one."""
     name: str
-    source: Literal["official", "imported"]
+    source: Literal["official", "community", "imported"]
     sample_rate: Literal["32k", "40k", "48k"]
     version: Literal["v1", "v2"]
     pitch_guidance: bool
@@ -95,6 +95,30 @@ class BaseModelService:
         prefix = "f0" if f0 else ""
         return folder / f"{prefix}G{rate}.pth", folder / f"{prefix}D{rate}.pth"
 
+    def _community(self) -> list[BaseModel]:
+        """The community base models of the catalog (each its own asset, from its own repository)."""
+        out = []
+        for spec in self._assets.specs():
+            info = spec.base_model
+            if spec.group != "community" or info is None:
+                continue
+            g, d = (self._assets.root / f.path for f in spec.files)
+            out.append(
+                BaseModel(
+                    id=spec.id,
+                    name=spec.title,
+                    source="community",
+                    sample_rate=info.sample_rate,
+                    version=info.version,
+                    pitch_guidance=info.pitch_guidance,
+                    has_discriminator=True,
+                    installed=g.is_file() and d.is_file(),
+                    asset_id=spec.id,
+                    size=sum(f.size for f in spec.files),
+                )
+            )
+        return out
+
     def _imported(self) -> list[BaseModel]:
         if not self.root.is_dir():
             return []
@@ -123,8 +147,8 @@ class BaseModelService:
         return out
 
     def list_base(self, sample_rate: str | None = None, version: str | None = None, pitch_guidance: bool | None = None) -> list[BaseModel]:
-        """Official and imported base models, filtered to those that fit when filters are given."""
-        items = self._official() + self._imported()
+        """Official, community and imported base models, filtered to those that fit when filters are given."""
+        items = self._official() + self._community() + self._imported()
         return [
             b
             for b in items
@@ -146,6 +170,10 @@ class BaseModelService:
             self._assets.require([b.asset_id or ""], "Training with this base model")
             g, d = self._official_paths(b.version, b.sample_rate, b.pitch_guidance)
             return g, d if d.is_file() else None
+        if b.source == "community":
+            self._assets.require([base_id], "Training with this base model")
+            g, d = (self._assets.root / f.path for f in self._assets.spec(base_id).files)
+            return g, d
         folder = self.root / base_id
         d = folder / "D.pth"
         return folder / "G.pth", d if d.is_file() else None
