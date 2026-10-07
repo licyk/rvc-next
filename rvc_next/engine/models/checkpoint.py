@@ -326,11 +326,30 @@ def change_info(src: Path | str, dst: Path | str, info: str | None = None, speak
 
 
 def save_small_from_state(
-    state_dict: dict[str, Any], config: list[Any], path: Path | str, *, sr: str, pitch_guidance: bool, version: str, info: str, speaker_info: Any = None
+    state_dict: dict[str, Any],
+    config: list[Any],
+    path: Path | str,
+    *,
+    sr: str,
+    pitch_guidance: bool,
+    version: str,
+    info: str,
+    speaker_info: Any = None,
+    extra: dict[str, Any] | None = None,
 ) -> None:
-    """Write a small model from a training state dict (the original's ``savee``)."""
+    """Write a small model from a training state dict (the original's ``savee``); ``extra`` adds keys
+    (the provenance ones: author, epoch, step, creation_date) that RVC's loader ignores."""
     weight = OrderedDict((k, v.half()) for k, v in state_dict.items() if "enc_q" not in k)
-    model = SmallModel(weight=weight, config=list(config), info=info, sr=sr, pitch_guidance=pitch_guidance, version=version, speaker_info=normalize_speaker_info(speaker_info))
+    model = SmallModel(
+        weight=weight,
+        config=list(config),
+        info=info,
+        sr=sr,
+        pitch_guidance=pitch_guidance,
+        version=version,
+        speaker_info=normalize_speaker_info(speaker_info),
+        extra=dict(extra or {}),
+    )
     write_small_model(model, path)
 
 

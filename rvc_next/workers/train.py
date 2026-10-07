@@ -91,8 +91,11 @@ def _run(stage: str, request: dict[str, Any], progress: Any, log: Any, emitter: 
         def metric(item: dict[str, Any]) -> None:
             emitter.emit(MetricEvent(epoch=int(item["epoch"]), step=int(item["step"]), values=dict(item["losses"]), lr=item.get("lr")))
 
-        def output(path: str, kind: str) -> None:
-            emitter.emit(OutputEvent(path=path, label=kind, kind="small" if kind == "small" else "checkpoint"))
+        def output(path: str, kind: str, label: str = "", source: str | None = None) -> None:
+            if kind == "preview":
+                emitter.emit(OutputEvent(path=path, label=label, kind="preview", source=source))
+            else:
+                emitter.emit(OutputEvent(path=path, label=kind, kind="small" if kind == "small" else "checkpoint"))
 
         return loop.run(build_request(loop.TrainRequest, request), progress, log, None, metric, output)
     from rvc_next.engine.index import build

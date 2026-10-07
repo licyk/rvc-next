@@ -80,7 +80,7 @@ class TrainingSettings(Record):
     sample_rate: Literal["32k", "40k", "48k"] = "40k"
     version: Literal["v1", "v2"] = "v2"
     pitch_guidance: bool = True
-    f0_method: Literal["auto", "pm", "rmvpe"] = "auto"
+    f0_method: Literal["auto", "pm", "rmvpe", "fcpe", "crepe", "crepe-tiny", "swift"] = "auto"
     """auto: rmvpe on a GPU, pm otherwise."""
     epochs: int = Field(default=20, ge=1, le=10000)
     save_every: int = Field(default=5, ge=1)
@@ -92,6 +92,8 @@ class TrainingSettings(Record):
     """None: the CPU count divided by 1.5."""
     gpus: str = "auto"
     """auto, cpu, or GPU indexes joined by '-', as the original ("0-1")."""
+    author: str = ""
+    """Written into the voices you train (with the epoch, step and date)."""
 
 
 class LiveSettings(Record):

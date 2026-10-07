@@ -169,13 +169,14 @@ Defaults used for new experiments; existing experiments store their settings in 
 | `training.sample_rate` | `32k`/`40k`/`48k` | `40k` | Sample rate |
 | `training.version` | `v1`/`v2` | `v2` | Model version |
 | `training.pitch_guidance` | bool | `true` | Pitch guidance |
-| `training.f0_method` | `auto`/`pm`/`rmvpe` | `auto` | `auto`: rmvpe with a GPU, otherwise pm |
+| `training.f0_method` | `auto`/`pm`/`rmvpe`/`fcpe`/`crepe`/`crepe-tiny`/`swift` | `auto` | `auto`: rmvpe with a GPU, otherwise pm |
 | `training.epochs` | int | `20` | Epochs, `[1, 10000]` |
 | `training.save_every` | int | `5` | Save every N epochs |
 | `training.batch_size` | int? | Empty | Batch size `[1, 256]`; empty means automatic (half the smallest GPU's memory in GiB, as in the original) |
 | `training.cache_in_gpu` | bool | `false` | Cache the dataset in GPU memory |
 | `training.save_small_every` | bool | `false` | Save a voice (small model) at every save point |
 | `training.cpu_workers` | int? | Empty | CPU process count; empty means CPU core count divided by 1.5 |
+| `training.author` | str | Empty | Written into the voices you train, with the epoch, step and date |
 | `training.gpus` | str | `auto` | GPUs for new experiments: `auto`, `cpu`, or GPU IDs joined by `-` (e.g. `0-1`), as in the original; training selects GPUs using each experiment's own settings |
 
 ### `live`: live voice conversion

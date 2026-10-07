@@ -571,7 +571,7 @@ rvc-next train new [OPTIONS] NAME
 | `--sr <str>` | `32k`, `40k`, or `48k` | `training.sample_rate` (`40k`) |
 | `--version <str>` | `v1` or `v2` | `training.version` (`v2`) |
 | `--no-pitch` | Train without pitch guidance | Use pitch guidance |
-| `--f0 <str>` | `pm` or `rmvpe` | `training.f0_method` (`auto`: rmvpe with a GPU, otherwise pm) |
+| `--f0 <str>` | `pm`, `rmvpe`, `fcpe`, `crepe`, `crepe-tiny` or `swift` | `training.f0_method` (`auto`: rmvpe with a GPU, otherwise pm) |
 | `--clean <str>` | Separate the dataset with this preset before slicing, e.g. `vocals-clean` | — |
 | `--json` | Print JSON | Off |
 
@@ -633,6 +633,11 @@ rvc-next train run [OPTIONS] NAME
 | `--gpus <str>` | `auto`, `cpu`, or GPU IDs like `0-1`; saved in the experiment | Saved experiment value (new experiments use `training.gpus`, `auto`) |
 | `--force / --no-force` | Run the chosen stages even when their inputs are unchanged | `--no-force` |
 | `--base <str>` | Base model ID (see `rvc-next model list --type base`); saved in the experiment | Automatically selected by sample rate, version, and pitch guidance |
+| `--precision <str>` | `auto` (fp16 when every GPU supports it), `fp32` or `bf16`; saved | Saved in the experiment (`auto`) |
+| `--tf32` / `--no-tf32` | TF32 maths on NVIDIA GPUs; saved | Saved in the experiment (off) |
+| `--checkpointing` / `--no-checkpointing` | Gradient checkpointing: less GPU memory, slower steps; saved | Saved in the experiment (off) |
+| `--fresh-speakers` / `--no-fresh-speakers` | New speaker vectors instead of the base model's; saved | Saved in the experiment (off) |
+| `--samples` / `--no-samples` | Render a training sample at every save; saved | Saved in the experiment (on) |
 
 `--epochs`, `--batch-size`, `--save-every`, and `--base` are written into the experiment's training settings. After increasing `--epochs`, running without `--stage` runs the fit stage again even if it was already completed.
 

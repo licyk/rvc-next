@@ -1279,6 +1279,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/train/experiments/{name}/samples": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Samples
+         * @description One training clip rendered at every save, newest first; each plays against the clip itself.
+         */
+        get: operations["list_training_samples"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/train/experiments/{name}/export": {
         parameters: {
             query?: never;
@@ -2451,7 +2471,7 @@ export interface components {
              * @default rmvpe
              * @enum {string}
              */
-            f0_method: "pm" | "rmvpe";
+            f0_method: "pm" | "rmvpe" | "fcpe" | "crepe" | "crepe-tiny" | "swift";
             dataset: components["schemas"]["Dataset-Output"];
             fit: components["schemas"]["FitSettings-Output"];
             /** Stages */
@@ -2514,7 +2534,7 @@ export interface components {
             /** Pitch Guidance */
             pitch_guidance?: boolean | null;
             /** F0 Method */
-            f0_method?: ("pm" | "rmvpe") | null;
+            f0_method?: ("pm" | "rmvpe" | "fcpe" | "crepe" | "crepe-tiny" | "swift") | null;
             fit?: components["schemas"]["FitSettings-Input"] | null;
         };
         /** ExperimentSummary */
@@ -2563,7 +2583,7 @@ export interface components {
             /** Pitch Guidance */
             pitch_guidance?: boolean | null;
             /** F0 Method */
-            f0_method?: ("pm" | "rmvpe") | null;
+            f0_method?: ("pm" | "rmvpe" | "fcpe" | "crepe" | "crepe-tiny" | "swift") | null;
             dataset?: components["schemas"]["Dataset-Input"] | null;
             fit?: components["schemas"]["FitSettings-Input"] | null;
         };
@@ -2632,6 +2652,32 @@ export interface components {
              * @default false
              */
             save_latest_only?: boolean;
+            /**
+             * Precision
+             * @default auto
+             * @enum {string}
+             */
+            precision?: "auto" | "fp32" | "bf16";
+            /**
+             * Tf32
+             * @default false
+             */
+            tf32?: boolean;
+            /**
+             * Checkpointing
+             * @default false
+             */
+            checkpointing?: boolean;
+            /**
+             * Fresh Speakers
+             * @default false
+             */
+            fresh_speakers?: boolean;
+            /**
+             * Previews
+             * @default true
+             */
+            previews?: boolean;
         };
         /** FitSettings */
         "FitSettings-Output": {
@@ -2673,6 +2719,32 @@ export interface components {
              * @default false
              */
             save_latest_only: boolean;
+            /**
+             * Precision
+             * @default auto
+             * @enum {string}
+             */
+            precision: "auto" | "fp32" | "bf16";
+            /**
+             * Tf32
+             * @default false
+             */
+            tf32: boolean;
+            /**
+             * Checkpointing
+             * @default false
+             */
+            checkpointing: boolean;
+            /**
+             * Fresh Speakers
+             * @default false
+             */
+            fresh_speakers: boolean;
+            /**
+             * Previews
+             * @default true
+             */
+            previews: boolean;
         };
         /** FolderSpeakersRequest */
         FolderSpeakersRequest: {
@@ -3433,7 +3505,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "converted" | "stem" | "remix" | "preview" | "recording";
+            kind: "converted" | "stem" | "remix" | "preview" | "recording" | "sample";
             /** Label */
             label: string;
             /** Source Path */
@@ -4245,7 +4317,7 @@ export interface components {
              * @default auto
              * @enum {string}
              */
-            f0_method: "auto" | "pm" | "rmvpe";
+            f0_method: "auto" | "pm" | "rmvpe" | "fcpe" | "crepe" | "crepe-tiny" | "swift";
             /**
              * Epochs
              * @default 20
@@ -4275,6 +4347,11 @@ export interface components {
              * @default auto
              */
             gpus: string;
+            /**
+             * Author
+             * @default
+             */
+            author: string;
         };
         /**
          * Transfer
@@ -9942,6 +10019,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Checkpoint"][];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_training_samples: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Output"][];
                 };
             };
             /** @description Bad Request */

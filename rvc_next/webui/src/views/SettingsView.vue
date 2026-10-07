@@ -158,6 +158,7 @@ const previewShown = ref(true);
               <SelectField :model-value="s.training.version" :label="t('train.version')" :options="['v1', 'v2'].map((v) => ({ value: v, label: v }))" @update:model-value="patch({ training: { version: $event } })" />
               <TextField type="number" :min="1" :model-value="s.training.epochs" :label="t('train.epochs')" @change="patch({ training: { epochs: Number($event) } })" />
               <TextField type="number" :min="1" :model-value="s.training.save_every" :label="t('train.saveEvery')" @change="patch({ training: { save_every: Number($event) } })" />
+              <TextField :model-value="s.training.author" :label="t('settings.author')" :supporting-text="t('settings.authorHint')" @change="patch({ training: { author: String($event ?? '').trim() } })" />
             </div>
             <Switch :model-value="s.training.pitch_guidance" :label="t('train.pitchGuidance')" @update:model-value="patch({ training: { pitch_guidance: $event } })" />
             <Switch :model-value="s.training.cache_in_gpu" :label="t('train.cacheInGpu')" @update:model-value="patch({ training: { cache_in_gpu: $event } })" />

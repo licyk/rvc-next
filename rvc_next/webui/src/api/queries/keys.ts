@@ -27,6 +27,8 @@ export const keys = {
   experiments: ['train', 'experiments'] as const,
   experiment: (name: string) => ['train', 'experiment', name] as const,
   checkpoints: (name: string) => ['train', 'checkpoints', name] as const,
+  /** Under ``outputs``: a new output (a sample) refreshes them. */
+  trainingSamples: (name: string) => ['outputs', 'samples', name] as const,
   metrics: (name: string) => ['train', 'metrics', name] as const,
   liveState: ['live', 'state'] as const,
   liveDevices: ['live', 'devices'] as const,

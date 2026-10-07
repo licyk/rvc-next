@@ -5,6 +5,16 @@ metrics and saved files go through a sink (callbacks in this process, a queue fr
 TensorBoard is optional; small models go to ``<experiment>/weights``; a resumed run continues after
 the saved epoch instead of repeating it. One GPU or the CPU trains in this process; several GPUs
 train with DDP over gloo, one spawned process per card.
+
+Options the original lacks, all off by default except the previews (several after Applio):
+``precision`` bf16 (autocast without a scaler) or fp32 instead of the original's automatic fp16;
+``tf32`` matmuls; ``checkpointing`` (gradient checkpointing of the decoder's upsamplers and
+residual blocks and of each sub-discriminator, for small GPUs); ``fresh_speakers`` (new speaker
+vectors for the experiment's speakers instead of the base model's rows, which are near-identical
+for speakers 0 and 1 in every official base model); the fp16 scaler's state saved with the
+checkpoints; gradient norms in the metrics; ``previews``: at every save, a training clip rendered
+by the current generator, written to ``previews/``; ``author`` and the epoch, step and date
+written into the small models.
 """
 
 from __future__ import annotations
@@ -28,6 +38,9 @@ logger = logging.getLogger(__name__)
 
 LATEST_ONLY_STEP = 2333333
 METRICS_FILE = "metrics.jsonl"
+PREVIEW_DIR = "previews"
+PREVIEW_MAX_FRAMES = 900
+"""The dataset's own cap on a slice's frames (``get_labels``)."""
 
 
 @dataclass(frozen=True)
@@ -64,6 +77,13 @@ class TrainRequest:
     """File-list shuffle seed; None is random."""
     ddp_cpu_processes: int = 0
     """Testing only: run DDP over gloo with this many CPU processes."""
+    precision: str = "auto"
+    """auto: fp16 when every card qualifies (the original); bf16; fp32."""
+    tf32: bool = False
+    checkpointing: bool = False
+    fresh_speakers: bool = False
+    previews: bool = True
+    author: str = ""
 
 
 class Sink:
@@ -81,11 +101,11 @@ class Sink:
     def metric(self, item: dict[str, Any]) -> None:
         self.put(("metric", item))
 
-    def output(self, path: str, kind: str) -> None:
-        self.put(("output", path, kind))
+    def output(self, path: str, kind: str, label: str = "", source: str | None = None) -> None:
+        self.put(("output", path, kind, label, source))
 
 
-def _dispatch(msg: tuple, progress: Progress | None, log: Log | None, metrics: Callable[[dict], None] | None, output: Callable[[str, str], None] | None) -> None:
+def _dispatch(msg: tuple, progress: Progress | None, log: Log | None, metrics: Callable[[dict], None] | None, output: Callable[..., None] | None) -> None:
     kind = msg[0]
     if kind == "progress" and progress:
         progress(msg[1], msg[2])
@@ -94,7 +114,7 @@ def _dispatch(msg: tuple, progress: Progress | None, log: Log | None, metrics: C
     elif kind == "metric" and metrics:
         metrics(msg[1])
     elif kind == "output" and output:
-        output(msg[1], msg[2])
+        output(*msg[1:])
 
 
 def training_is_half(gpus: tuple[int, ...]) -> bool:
@@ -109,13 +129,22 @@ def training_is_half(gpus: tuple[int, ...]) -> bool:
     return all(profiles[i].eligible and profiles[i].fp16 for i in range(len(gpus)) if i < len(profiles))
 
 
+def training_precision(gpus: tuple[int, ...], requested: str) -> str:
+    """fp16, bf16 or fp32 for a run: ``auto`` is the original's rule; bf16 and fp16 need a GPU."""
+    if not gpus or requested == "fp32":
+        return "fp32"
+    if requested == "bf16":
+        return "bf16"
+    return "fp16" if training_is_half(gpus) else "fp32"
+
+
 def latest_checkpoint_path(dir_path: str, regex: str = "G_*.pth") -> str:
     f_list = glob.glob(os.path.join(dir_path, regex))
     f_list.sort(key=lambda f: int("".join(filter(str.isdigit, os.path.basename(f))) or 0))
     return f_list[-1]
 
 
-def load_checkpoint(checkpoint_path: str, model: Any, optimizer: Any = None, load_opt: int = 1) -> tuple[Any, Any, float, int]:
+def load_checkpoint(checkpoint_path: str, model: Any, optimizer: Any = None, load_opt: int = 1, scaler: Any = None) -> tuple[Any, Any, float, int]:
     import torch
 
     assert os.path.isfile(checkpoint_path)
@@ -148,20 +177,30 @@ def load_checkpoint(checkpoint_path: str, model: Any, optimizer: Any = None, loa
     learning_rate = checkpoint_dict["learning_rate"]
     if optimizer is not None and load_opt == 1 and not embedding_resized:
         optimizer.load_state_dict(checkpoint_dict["optimizer"])
+    if scaler is not None and scaler.is_enabled() and checkpoint_dict.get("scaler"):
+        # The fp16 loss scale it had reached, instead of starting again from 65536.
+        scaler.load_state_dict(checkpoint_dict["scaler"])
     return model, optimizer, learning_rate, iteration
 
 
-def save_checkpoint(model: Any, optimizer: Any, learning_rate: float, iteration: int, checkpoint_path: str) -> None:
+def save_checkpoint(model: Any, optimizer: Any, learning_rate: float, iteration: int, checkpoint_path: str, scaler: Any = None) -> None:
     import torch
 
     state_dict = model.module.state_dict() if hasattr(model, "module") else model.state_dict()
     tmp = checkpoint_path + ".tmp"
-    torch.save({"model": state_dict, "iteration": iteration, "optimizer": optimizer.state_dict(), "learning_rate": learning_rate}, tmp)
+    data = {"model": state_dict, "iteration": iteration, "optimizer": optimizer.state_dict(), "learning_rate": learning_rate}
+    if scaler is not None and scaler.is_enabled():
+        data["scaler"] = scaler.state_dict()  # an extra key; RVC's loaders read only the four above
+    torch.save(data, tmp)
     os.replace(tmp, checkpoint_path)
 
 
-def load_pretrained_generator(model: Any, path: str) -> Any:
-    """Load a base G, growing the speaker embedding when the experiment has more speakers."""
+def load_pretrained_generator(model: Any, path: str, fresh_rows: list[int] | None = None, seed: int = 1234) -> Any:
+    """Load a base G, growing the speaker embedding when the experiment has more speakers.
+
+    ``fresh_rows``: give these speakers new vectors (random directions at the base model's mean row
+    norm, from ``seed``, so every DDP rank draws the same) instead of the base model's rows.
+    """
     import torch
 
     target = model.module if hasattr(model, "module") else model
@@ -175,7 +214,31 @@ def load_pretrained_generator(model: Any, path: str) -> Any:
             rows = min(saved.shape[0], current.shape[0])
             expanded[:rows].copy_(saved[:rows])
             saved_state[key] = expanded
+    if fresh_rows and key in saved_state:
+        emb = saved_state[key].clone()
+        rows = sorted({r for r in fresh_rows if 0 <= r < emb.shape[0]})
+        if rows:
+            norm = emb.float().norm(dim=1).mean()
+            vectors = torch.randn(len(rows), emb.shape[1], generator=torch.Generator().manual_seed(seed))
+            emb[rows] = (vectors / vectors.norm(dim=1, keepdim=True) * norm).to(emb.dtype)
+            saved_state[key] = emb
     return target.load_state_dict(saved_state)
+
+
+def enable_checkpointing(*modules: Any) -> None:
+    """Recompute each module's activations in the backward pass instead of keeping them (training only)."""
+    import torch
+    from torch.utils.checkpoint import checkpoint
+
+    for module in modules:
+        forward = module.forward
+
+        def run(*args: Any, _forward: Any = forward, _module: Any = module, **kwargs: Any) -> Any:
+            if _module.training and torch.is_grad_enabled():
+                return checkpoint(_forward, *args, use_reentrant=False, **kwargs)
+            return _forward(*args, **kwargs)
+
+        module.forward = run
 
 
 def prepare(request: TrainRequest) -> dict[str, Any]:
@@ -204,6 +267,11 @@ def prepare(request: TrainRequest) -> dict[str, Any]:
             "num_workers": request.num_workers,
             "tensorboard": request.tensorboard,
             "lines": listing["lines"],
+            "tf32": request.tf32,
+            "checkpointing": request.checkpointing,
+            "previews": request.previews,
+            "author": request.author,
+            "fresh_speaker_ids": ([s["id"] for s in listing["speakers"]] if request.multi_speaker else [request.speaker_id]) if request.fresh_speakers else [],
         }
     )
     hps["train"] = dict(hps["train"])
@@ -235,7 +303,7 @@ def run(
     if not n_procs:
         sink = Sink(lambda msg: _dispatch(msg, progress, log, metrics, output))
         device = f"{gpu_backend() or 'cuda'}:{request.gpus[0]}" if request.gpus else "cpu"
-        return _train(0, 1, hps, sink, cancel, device, False, training_is_half(request.gpus))
+        return _train(0, 1, hps, sink, cancel, device, False, training_precision(request.gpus, request.precision))
 
     import torch.multiprocessing as mp
 
@@ -246,8 +314,8 @@ def run(
     backend = (gpu_backend() or "cuda") if request.gpus else None
     if request.gpus:
         os.environ.update(visible_devices_env(request.gpus, backend))
-    half = training_is_half(request.gpus)
-    procs = [ctx.Process(target=_ddp_entry, args=(rank, n_procs, hps, q, backend, half), daemon=False) for rank in range(n_procs)]
+    precision = training_precision(request.gpus, request.precision)
+    procs = [ctx.Process(target=_ddp_entry, args=(rank, n_procs, hps, q, backend, precision), daemon=False) for rank in range(n_procs)]
     for p in procs:
         p.start()
     result: dict[str, Any] = {}
@@ -280,13 +348,13 @@ def run(
     return result
 
 
-def _ddp_entry(rank: int, n_procs: int, hps: dict[str, Any], q: Any, backend: str | None, half: bool) -> None:
+def _ddp_entry(rank: int, n_procs: int, hps: dict[str, Any], q: Any, backend: str | None, precision: str) -> None:
     """``backend`` is cuda or xpu for one process per GPU, None for CPU processes."""
     import traceback
 
     sink = Sink(q.put) if rank == 0 else Sink(lambda msg: None)
     try:
-        result = _train(rank, n_procs, hps, sink, None, f"{backend}:{rank}" if backend else "cpu", True, half)
+        result = _train(rank, n_procs, hps, sink, None, f"{backend}:{rank}" if backend else "cpu", True, precision)
         if rank == 0:
             q.put(("result", result))
     except BaseException as e:
@@ -294,7 +362,7 @@ def _ddp_entry(rank: int, n_procs: int, hps: dict[str, Any], q: Any, backend: st
         raise
 
 
-def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel: CancelToken | None, device: str, use_ddp: bool, is_half: bool) -> dict[str, Any]:
+def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel: CancelToken | None, device: str, use_ddp: bool, precision: str) -> dict[str, Any]:
     import torch
     import torch.distributed as dist
     from torch.nn import functional as F
@@ -323,6 +391,10 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
     amp = "xpu" if xpu else "cuda"
     torch.backends.cudnn.deterministic = False
     torch.backends.cudnn.benchmark = False
+    if hps.tf32:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.set_float32_matmul_precision("high")
     if use_ddp:
         # gloo cannot reduce XPU tensors; xccl is torch's XPU collective backend.
         dist.init_process_group(backend="xccl" if xpu else "gloo", init_method="env://?use_libuv=False", world_size=n_procs, rank=rank)
@@ -331,6 +403,15 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
         torch.xpu.set_device(torch.device(device))
     elif cuda:
         torch.cuda.set_device(torch.device(device))
+    if precision == "bf16" and not (xpu or (cuda and torch.cuda.is_bf16_supported())):
+        if rank == 0:
+            sink.log("bf16 is not supported by this device; training in fp32")
+        precision = "fp32"
+    is_half = precision == "fp16"
+    autocast_dtype = torch.bfloat16 if precision == "bf16" else torch.float16
+    use_amp = precision in ("fp16", "bf16")
+    if rank == 0 and precision != "fp32":
+        sink.log(f"Precision: {precision}")
 
     writer = None
     if rank == 0 and hps.tensorboard:
@@ -363,6 +444,8 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
     else:
         net_g = model_nof0(hps.data.filter_length // 2 + 1, hps.train.segment_size // hps.data.hop_length, **model_kwargs, is_half=is_half)
     net_d = mpd(hps.model.use_spectral_norm)
+    if hps.checkpointing:
+        enable_checkpointing(*net_g.dec.ups, *net_g.dec.resblocks, *net_d.discriminators)
     if cuda:
         net_g = net_g.to(device)
         net_d = net_d.to(device)
@@ -376,10 +459,11 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
             net_g = DDP(net_g)
             net_d = DDP(net_d)
 
+    scaler = torch.amp.GradScaler(amp, enabled=is_half)
     last_epoch = 0
     try:
         _, _, _, last_epoch = load_checkpoint(latest_checkpoint_path(hps.model_dir, "D_*.pth"), net_d, optim_d)
-        _, _, _, last_epoch = load_checkpoint(latest_checkpoint_path(hps.model_dir, "G_*.pth"), net_g, optim_g)
+        _, _, _, last_epoch = load_checkpoint(latest_checkpoint_path(hps.model_dir, "G_*.pth"), net_g, optim_g, scaler=scaler)
         if rank == 0:
             sink.log(f"Resumed from the checkpoint of epoch {last_epoch}")
     except Exception:
@@ -387,7 +471,10 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
         if hps.pretrainG:
             if rank == 0:
                 sink.log(f"Base generator: {hps.pretrainG}")
-            load_pretrained_generator(net_g, hps.pretrainG)
+            fresh = list(getattr(hps, "fresh_speaker_ids", []) or [])
+            if fresh and rank == 0:
+                sink.log(f"New speaker vectors for speaker{'s' if len(fresh) > 1 else ''} {', '.join(map(str, fresh))}")
+            load_pretrained_generator(net_g, hps.pretrainG, fresh, hps.train.seed)
         if hps.pretrainD:
             if rank == 0:
                 sink.log(f"Base discriminator: {hps.pretrainD}")
@@ -398,7 +485,6 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
             group.setdefault("initial_lr", hps.train.learning_rate)
     scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=hps.train.lr_decay, last_epoch=last_epoch - 1)
     scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=last_epoch - 1)
-    scaler = torch.amp.GradScaler(amp, enabled=is_half)
 
     steps_per_epoch = len(train_loader)
     global_step = last_epoch * steps_per_epoch
@@ -422,6 +508,9 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
 
     def save_small(path: str, epoch: int) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        stamp = {"epoch": epoch, "step": global_step, "creation_date": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        if getattr(hps, "author", ""):
+            stamp["author"] = hps.author
         save_small_from_state(
             state_dict_g(),
             small_config_from_hparams(hps),
@@ -431,8 +520,22 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
             version=hps.version,
             info=f"{epoch}epoch",
             speaker_info=getattr(hps, "speaker_info", None),
+            extra=stamp,
         )
         sink.output(path, "small")
+
+    preview_entry = _preview_entry(train_dataset) if rank == 0 and getattr(hps, "previews", False) else None
+    preview_dir = os.path.join(hps.model_dir, PREVIEW_DIR)
+
+    def save_preview(epoch: int) -> None:
+        """Render the preview clip with the current generator; never fails the run."""
+        if preview_entry is None:
+            return
+        try:
+            path = _render_preview(net_g, train_dataset, preview_entry, f0, device, hps.data.sampling_rate, os.path.join(preview_dir, f"{hps.name}_e{epoch}.wav"))
+            sink.output(path, "preview", f"epoch {epoch}", preview_entry[0])
+        except Exception as e:
+            sink.log(f"Preview of epoch {epoch} failed: {e}")
 
     if start_epoch > total and rank == 0:
         sink.log(f"Already trained to epoch {last_epoch}")
@@ -461,7 +564,7 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
                 phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wave, wave_lengths, sid = info
             else:
                 phone, phone_lengths, spec, spec_lengths, wave, wave_lengths, sid = info
-            with torch.autocast(amp, enabled=is_half):
+            with torch.autocast(amp, dtype=autocast_dtype, enabled=use_amp):
                 if f0:
                     y_hat, ids_slice, x_mask, z_mask, (z, z_p, m_p, logs_p, m_q, logs_q) = net_g(phone, phone_lengths, pitch, pitchf, spec, spec_lengths, sid)
                 else:
@@ -479,8 +582,8 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
                         hps.data.mel_fmin,
                         hps.data.mel_fmax,
                     )
-                if is_half:
-                    y_hat_mel = y_hat_mel.half()
+                if use_amp:
+                    y_hat_mel = y_hat_mel.to(autocast_dtype)
                 wave = commons.slice_segments(wave, ids_slice * hps.data.hop_length, hps.train.segment_size)
                 y_d_hat_r, y_d_hat_g, _, _ = net_d(wave, y_hat.detach())
                 with torch.autocast(amp, enabled=False):
@@ -488,10 +591,10 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
             optim_d.zero_grad()
             scaler.scale(loss_disc).backward()
             scaler.unscale_(optim_d)
-            commons.clip_grad_value_(net_d.parameters(), None)
+            grad_d = commons.clip_grad_value_(net_d.parameters(), None)
             scaler.step(optim_d)
 
-            with torch.autocast(amp, enabled=is_half):
+            with torch.autocast(amp, dtype=autocast_dtype, enabled=use_amp):
                 y_d_hat_r, y_d_hat_g, fmap_r, fmap_g = net_d(wave, y_hat)
                 with torch.autocast(amp, enabled=False):
                     loss_mel = F.l1_loss(y_mel, y_hat_mel) * hps.train.c_mel
@@ -502,7 +605,7 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
             optim_g.zero_grad()
             scaler.scale(loss_gen_all).backward()
             scaler.unscale_(optim_g)
-            commons.clip_grad_value_(net_g.parameters(), None)
+            grad_g = commons.clip_grad_value_(net_g.parameters(), None)
             scaler.step(optim_g)
             scaler.update()
 
@@ -516,6 +619,8 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
                     "kl": min(float(loss_kl), 9.0),
                     "fm": float(loss_fm),
                     "gen": float(loss_gen),
+                    "grad_g": float(grad_g),
+                    "grad_d": float(grad_d),
                 }
                 for k, v in values.items():
                     sums[k] = sums.get(k, 0.0) + v
@@ -524,7 +629,7 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
                     emit_metric(epoch, values, lr, "step")
                     if writer is not None:
                         for k, v in values.items():
-                            writer.add_scalar(f"loss/{k}", v, global_step)
+                            writer.add_scalar(f"grad/{k[5:]}" if k.startswith("grad_") else f"loss/{k}", v, global_step)
                         writer.add_scalar("learning_rate", lr, global_step)
                 sink.progress(((epoch - start_epoch) + (batch_idx + 1) / steps_per_epoch) / max(1, total - start_epoch + 1), f"epoch {epoch}/{total}")
             global_step += 1
@@ -537,7 +642,7 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
                 step_name = LATEST_ONLY_STEP if hps.if_latest == 1 else global_step
                 g_path = os.path.join(hps.model_dir, f"G_{step_name}.pth")
                 d_path = os.path.join(hps.model_dir, f"D_{step_name}.pth")
-                save_checkpoint(net_g, optim_g, hps.train.learning_rate, epoch, g_path)
+                save_checkpoint(net_g, optim_g, hps.train.learning_rate, epoch, g_path, scaler)
                 save_checkpoint(net_d, optim_d, hps.train.learning_rate, epoch, d_path)
                 sink.output(g_path, "G")
                 sink.output(d_path, "D")
@@ -546,15 +651,17 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
                     path = os.path.join(small_dir, f"{hps.name}_e{epoch}_s{global_step}.pth")
                     save_small(path, epoch)
                     saved.append(path)
+                save_preview(epoch)
             if epoch >= total:
                 # The last epoch is always kept, so a finished run can resume and export.
                 if epoch % hps.save_every_epoch != 0:
                     step_name = LATEST_ONLY_STEP if hps.if_latest == 1 else global_step
                     for net, opt, prefix in ((net_g, optim_g, "G"), (net_d, optim_d, "D")):
                         path = os.path.join(hps.model_dir, f"{prefix}_{step_name}.pth")
-                        save_checkpoint(net, opt, hps.train.learning_rate, epoch, path)
+                        save_checkpoint(net, opt, hps.train.learning_rate, epoch, path, scaler if prefix == "G" else None)
                         sink.output(path, prefix)
                         saved.append(path)
+                    save_preview(epoch)
                 final_path = os.path.join(small_dir, f"{hps.name}.pth")
                 save_small(final_path, epoch)
         scheduler_g.step()
@@ -567,3 +674,44 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
     if not final_path and os.path.isfile(os.path.join(small_dir, f"{hps.name}.pth")):
         final_path = os.path.join(small_dir, f"{hps.name}.pth")
     return {"epochs": total, "start_epoch": start_epoch, "global_step": global_step, "steps_per_epoch": steps_per_epoch, "final_model": final_path, "saved": saved}
+
+
+def _preview_entry(dataset: Any) -> list[str] | None:
+    """The file-list line of the longest real slice (not a mute line): the clip each save renders."""
+    best: tuple[int, list[str]] | None = None
+    for entry, length in zip(dataset.audiopaths_and_text, dataset.lengths):
+        if "mute" in Path(entry[0]).parts or os.path.basename(os.path.dirname(entry[0])) == "mute":
+            continue
+        if best is None or length > best[0]:
+            best = (length, entry)
+    return best[1] if best else None
+
+
+def _render_preview(net_g: Any, dataset: Any, entry: list[str], f0: bool, device: str, sample_rate: int, path: str) -> str:
+    """Run the generator in inference mode on ``entry``'s features and write ``path`` (16-bit WAV)."""
+    import soundfile as sf
+    import torch
+
+    item = dataset.get_audio_text_pair(entry)
+    module = net_g.module if hasattr(net_g, "module") else net_g
+    phone = item[2].unsqueeze(0).to(device)
+    lengths = torch.LongTensor([phone.shape[1]]).to(device)
+    sid = item[-1].to(device)
+    was_training = module.training
+    module.eval()
+    try:
+        # The NSF noise draws from the RNG: keep the training run's stream as it would be without previews.
+        with torch.no_grad(), torch.random.fork_rng(devices=[torch.device(device)] if device.startswith("cuda") else []):
+            if f0:
+                audio = module.infer(phone, lengths, item[3].unsqueeze(0).to(device), item[4].unsqueeze(0).to(device), sid)[0]
+            else:
+                audio = module.infer(phone, lengths, sid)[0]
+    finally:
+        module.train(was_training)
+    data = audio[0, 0].float().cpu().numpy()
+    peak = float(abs(data).max()) if data.size else 0.0
+    if peak > 0.99:
+        data = data * (0.99 / peak)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    sf.write(path, data, sample_rate, subtype="PCM_16")
+    return path

@@ -104,7 +104,7 @@ Click **Save** when finished. Exported voices include these speaker names.
 | --- | --- | --- |
 | **Sample rate** | 32k / 40k / 48k | Sample rate for training and the exported voice |
 | **Model version** | v1 / v2 | v2 uses 768-dimensional features and is recommended; v1 uses 256 dimensions |
-| **Pitch method** | pm (fast) / RMVPE (best) | Method for extracting pitch from training data; unavailable when pitch guidance is off. New experiments default to RMVPE with an available CUDA GPU, otherwise pm |
+| **Pitch method** | RMVPE (best) / pm (fast) / FCPE / CREPE / CREPE tiny / SwiftF0 | Method for extracting pitch from training data; unavailable when pitch guidance is off. New experiments default to RMVPE with an available CUDA GPU, otherwise pm. The original offers only pm and RMVPE for training; the others are the conversion methods of the same names (see [Pitch method](/docs/guide-parameters#f0)) |
 | **Epochs** | ≥ 1 | Total training epochs |
 | **Batch size** | ≥ 1; leave blank for **Automatic** | Automatic takes the smallest GPU's memory (GiB) ÷ 2, rounded down, as in the original; 1 without a GPU. It is per GPU: with two GPUs each one trains on this many clips at a time (the original gave each GPU this times the number of GPUs) |
 | **Save every N epochs** | ≥ 1 | Number of epochs between checkpoints |
@@ -113,6 +113,18 @@ Click **Save** when finished. Exported voices include these speaker names.
 | **Cache the dataset in GPU memory** | On / Off | Stores the entire training dataset in GPU memory; can speed up training for small datasets with enough GPU memory |
 | **Save a voice at every save point** | On / Off | Saves a small, directly usable model in `weights/` alongside each checkpoint, for comparing different epochs |
 | **Keep only the latest checkpoint** | On / Off | Keeps only one pair of G/D checkpoints (`G_2333333.pth`/`D_2333333.pth`, as in the original), saving disk space |
+| **Render a sample at every save** | On (default) / Off | At every save, the voice as it is renders one training clip (the longest slice) into `previews/`; **Results › Samples** lists them |
+
+Under **Advanced**:
+
+| Setting | Options | Description |
+| --- | --- | --- |
+| **Precision** | Automatic / Full (fp32) / bf16 | Automatic trains in half precision (fp16, with loss scaling) when every chosen GPU supports it, as the original; bf16 needs no loss scaling and suits recent NVIDIA (RTX 30 series on), AMD and Intel GPUs (without bf16 support, training falls back to fp32 and says so in the log); fp32 is the slowest and the most exact |
+| **TF32 maths** | On / Off | Lets NVIDIA GPUs from the RTX 30 series on use TF32 for full-precision matrix maths: faster, slightly less exact |
+| **Save memory (gradient checkpointing)** | On / Off | Recomputes the generator's upsampling and residual blocks and each discriminator in the backward pass instead of keeping their activations: for GPUs with little memory, at the cost of slower steps |
+| **New speaker vectors** | On / Off | Starts each speaker of the experiment from a new random vector (at the size of the base model's) instead of the base model's own; in every official base model speakers 0 and 1 have the same vector, so two speakers of a multi-speaker voice would start out alike. From Applio |
+
+The fp16 loss scale is saved with the checkpoints, so a resumed run continues from it instead of starting the scale again. Trained voices carry the epoch, step and date, and the author from **Settings › Training › Author** when set; **About** on a voice's page shows them.
 
 **Base model**: training starts from a base model.
 
@@ -166,7 +178,9 @@ While running, the **Run** step shows a job card and a progress bar appears belo
 
 ### Step 4: Results
 
-The **Loss** chart shows training loss curves (the horizontal axis is step). Total losses `g_total` and `d_total` come first, followed by components such as `mel`, `kl`, `fm` and `gen`. Curves update live during training.
+The **Loss** chart shows training loss curves (the horizontal axis is step). Total losses `g_total` and `d_total` come first, followed by components such as `mel`, `kl`, `fm` and `gen`. Curves update live during training. **Gradient norms** below shows `grad_g` and `grad_d`, the size of the generator's and the discriminator's gradients at each step: a sudden jump often comes before a run goes wrong.
+
+**Samples** (with **Render a sample at every save** on) lists the training clip as the voice rendered it at each save, labelled by epoch; A/B plays the clip itself, so you can hear the voice approach it, and hear when more epochs stop helping.
 
 **Checkpoints** lists the experiment's G checkpoints and small models (`.pth` files in `weights/`). Each entry shows its type, epoch count and file size:
 

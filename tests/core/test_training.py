@@ -62,6 +62,8 @@ def test_full_run_export_and_staleness(services, dataset, tmp_path, no_asset_che
     assert services.training.metrics("tiny")
     kinds = {c.kind for c in services.training.checkpoints("tiny")}
     assert {"G", "small"} <= kinds
+    samples = services.training.samples("tiny")
+    assert [s.label for s in samples] == ["epoch 1"] and samples[0].kind == "sample" and samples[0].source_path
 
     # Unchanged inputs: nothing to run. Changing the dataset marks slice and later stale.
     with pytest.raises(ConflictError):

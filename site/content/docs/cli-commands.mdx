@@ -571,7 +571,7 @@ rvc-next train new [OPTIONS] NAME
 | `--sr <str>` | `32k`、`40k` 或 `48k` | `training.sample_rate`（`40k`） |
 | `--version <str>` | `v1` 或 `v2` | `training.version`（`v2`） |
 | `--no-pitch` | 不使用音高引导训练 | 使用音高引导 |
-| `--f0 <str>` | `pm` 或 `rmvpe` | `training.f0_method`（`auto`：有 GPU 用 rmvpe，否则 pm） |
+| `--f0 <str>` | `pm`、`rmvpe`、`fcpe`、`crepe`、`crepe-tiny` 或 `swift` | `training.f0_method`（`auto`：有 GPU 用 rmvpe，否则 pm） |
 | `--clean <str>` | 切片前先用这个分离预设处理数据集，例如 `vocals-clean` | — |
 | `--json` | 打印 JSON | 关 |
 
@@ -633,6 +633,11 @@ rvc-next train run [OPTIONS] NAME
 | `--gpus <str>` | `auto`、`cpu`，或 `0-1` 这样的 GPU 编号；保存到实验中 | 实验中保存的值（新实验取 `training.gpus`，`auto`） |
 | `--force / --no-force` | 即使输入没有变化也运行所选阶段 | `--no-force` |
 | `--base <str>` | 底模 id（见 `rvc-next model list --type base`）；保存到实验中 | 按采样率、版本和音高引导自动选择 |
+| `--precision <str>` | `auto`（所有显卡都支持时用 fp16）、`fp32` 或 `bf16`；保存到实验中 | 实验中保存的值（`auto`） |
+| `--tf32` / `--no-tf32` | 在 NVIDIA 显卡上使用 TF32 运算；保存到实验中 | 实验中保存的值（关） |
+| `--checkpointing` / `--no-checkpointing` | 梯度检查点：显存更少、每步更慢；保存到实验中 | 实验中保存的值（关） |
+| `--fresh-speakers` / `--no-fresh-speakers` | 使用新的说话人向量而不是底模的；保存到实验中 | 实验中保存的值（关） |
+| `--samples` / `--no-samples` | 每次保存时渲染一段训练样例；保存到实验中 | 实验中保存的值（开） |
 
 `--epochs`、`--batch-size`、`--save-every` 和 `--base` 会写入实验的训练设置。增加 `--epochs` 后，即使训练阶段已完成，不带 `--stage` 运行也会再次运行训练阶段。
 

@@ -100,7 +100,7 @@ def build_services(
     models.imports = imports
     separation = SeparationService(settings, jobs, audio, assets, compute)
     conversion = ConversionService(settings, jobs, audio, models, assets, compute, separation)
-    training = TrainingService(settings, db, events, jobs, models, assets, separation, compute)
+    training = TrainingService(settings, db, events, jobs, models, assets, separation, compute, audio)
     base_models = BaseModelService(settings, events, assets)
     separation_models = SeparationLibrary(settings, events)
     imports.base = base_models

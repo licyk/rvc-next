@@ -39,7 +39,7 @@ def train_new(
     sr: Annotated[str | None, typer.Option("--sr", help="32k, 40k or 48k")] = None,
     version: Annotated[str | None, typer.Option(help="v1 or v2")] = None,
     no_pitch: Annotated[bool, typer.Option("--no-pitch", help="Train without pitch guidance")] = False,
-    f0: Annotated[str | None, typer.Option("--f0", help="pm or rmvpe")] = None,
+    f0: Annotated[str | None, typer.Option("--f0", help="Pitch method: pm, rmvpe, fcpe, crepe, crepe-tiny or swift")] = None,
     clean: Annotated[str | None, typer.Option(help="Separate the dataset with this preset before slicing, e.g. vocals-clean")] = None,
     json_output: JsonOpt = False,
 ) -> None:
@@ -98,16 +98,24 @@ def train_run(
     gpus: Annotated[str | None, typer.Option(help="auto, cpu, or ids like 0-1; saved in the experiment")] = None,
     force: Annotated[bool, typer.Option(help="Run the chosen stages even when their inputs are unchanged")] = False,
     base: Annotated[str | None, typer.Option("--base", help="Base model id (rvc-next model list --type base); saved in the experiment")] = None,
+    precision: Annotated[str | None, typer.Option(help="auto (fp16 when every GPU supports it), fp32 or bf16; saved in the experiment")] = None,
+    tf32: Annotated[bool | None, typer.Option("--tf32/--no-tf32", help="TF32 maths on NVIDIA GPUs; saved in the experiment")] = None,
+    checkpointing: Annotated[bool | None, typer.Option("--checkpointing/--no-checkpointing", help="Gradient checkpointing (less GPU memory); saved")] = None,
+    fresh_speakers: Annotated[bool | None, typer.Option("--fresh-speakers/--no-fresh-speakers", help="New speaker vectors instead of the base model's; saved")] = None,
+    samples: Annotated[bool | None, typer.Option("--samples/--no-samples", help="Render a training sample at every save; saved")] = None,
 ) -> None:
     """Run stages: every one that is not done, or the chosen ones."""
     from rvc_next.core.training.models import ExperimentUpdate, RunRequest
 
+    if precision is not None and precision not in ("auto", "fp32", "bf16"):
+        raise typer.BadParameter("--precision is auto, fp32 or bf16")
     with open_services() as services:
         exp = services.training.get(name)
-        if epochs or batch_size or save_every or base or gpus:
-            changes = {"epochs": epochs, "batch_size": batch_size, "save_every": save_every, "base_model": base, "gpus": gpus}
-            fit = exp.fit.model_copy(update={k: v for k, v in changes.items() if v})
-            exp = services.training.update(name, ExperimentUpdate(fit=fit))
+        changes = {"epochs": epochs, "batch_size": batch_size, "save_every": save_every, "base_model": base, "gpus": gpus, "precision": precision}
+        toggles = {"tf32": tf32, "checkpointing": checkpointing, "fresh_speakers": fresh_speakers, "previews": samples}
+        update = {k: v for k, v in changes.items() if v} | {k: v for k, v in toggles.items() if v is not None}
+        if update:
+            exp = services.training.update(name, ExperimentUpdate(fit=exp.fit.model_copy(update=update)))
         stages = None if not stage or "all" in stage else stage
         with job_progress(services):
             job = services.training.run(name, RunRequest(stages=stages, force=force), foreground=True)  # ty: ignore[invalid-argument-type]

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request, status
 
 from rvc_next.api.deps import ServicesDep, require_trusted
 from rvc_next.api.errors import ERROR_RESPONSES
+from rvc_next.core.audio.models import Output
 from rvc_next.core.jobs.models import Job
 from rvc_next.core.models.models import VoiceModel
 from rvc_next.core.training.models import (
@@ -95,6 +96,12 @@ def get_metrics(services: ServicesDep, name: str, since: int = 0) -> list[TrainM
 @router.get("/experiments/{name}/checkpoints", operation_id="list_checkpoints")
 def list_checkpoints(services: ServicesDep, name: str) -> list[Checkpoint]:
     return services.training.checkpoints(name)
+
+
+@router.get("/experiments/{name}/samples", operation_id="list_training_samples")
+def list_samples(services: ServicesDep, name: str) -> list[Output]:
+    """One training clip rendered at every save, newest first; each plays against the clip itself."""
+    return services.training.samples(name)
 
 
 @router.post("/experiments/{name}/export", operation_id="export_experiment")

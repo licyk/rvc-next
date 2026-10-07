@@ -138,6 +138,7 @@ These values provide the initial settings for a **New experiment**. Existing exp
 | **Save every N epochs** | 5 |
 | **Pitch guidance** | On |
 | **Cache the dataset in GPU memory** | Off |
+| **Author** | Empty: written into the voices you train (with their epoch, step and date), for all experiments |
 
 This tab also has two defaults unrelated to training:
 
@@ -151,7 +152,7 @@ This tab also has two defaults unrelated to training:
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `training.f0_method` | `auto` | Pitch method for new experiments: `auto` (rmvpe with a CUDA GPU, otherwise pm), `pm` or `rmvpe` |
+| `training.f0_method` | `auto` | Pitch method for new experiments: `auto` (rmvpe with a CUDA GPU, otherwise pm), `pm`, `rmvpe`, `fcpe`, `crepe`, `crepe-tiny` or `swift` |
 | `training.batch_size` | Empty | Batch size for new experiments; empty means the smallest GPU's memory (GiB) ÷ 2 |
 | `training.gpus` | `auto` | GPUs for new experiments: `auto`, `cpu` or IDs such as `0-1` (each experiment can override this in its settings) |
 | `training.save_small_every` | `false` | Whether new experiments save a voice at every save point |

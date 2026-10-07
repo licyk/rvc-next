@@ -15,6 +15,9 @@ export const useExperiment = (name: MaybeRefOrGetter<string>) =>
 export const useCheckpoints = (name: MaybeRefOrGetter<string>) =>
   useQuery({ queryKey: computed(() => keys.checkpoints(toValue(name))), queryFn: () => unwrap(api.GET('/api/v1/train/experiments/{name}/checkpoints', path(toValue(name)))), enabled: computed(() => !!toValue(name)) });
 
+export const useTrainingSamples = (name: MaybeRefOrGetter<string>) =>
+  useQuery({ queryKey: computed(() => keys.trainingSamples(toValue(name))), queryFn: () => unwrap(api.GET('/api/v1/train/experiments/{name}/samples', path(toValue(name)))), enabled: computed(() => !!toValue(name)) });
+
 export const fetchMetrics = (name: string, since = 0) => unwrap(api.GET('/api/v1/train/experiments/{name}/metrics', { params: { path: { name }, query: { since } } }));
 
 export function useExperimentMutations() {

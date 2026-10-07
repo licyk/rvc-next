@@ -1,7 +1,9 @@
 """F0 stage: coarse (``2a_f0``) and continuous (``2b-f0nsf``) pitch for every 16 kHz slice.
 
 Ported from the original ``train/dataset/extract_f0.py``. ``pm`` runs on the CPU split over
-processes; ``rmvpe`` runs on one device, or one process per GPU. Training pitch is not shifted.
+processes; the neural methods (``rmvpe``, and ``fcpe``, ``crepe``, ``crepe-tiny`` and ``swift``,
+which the original does not offer for training) run on one device, or one process per GPU.
+Training pitch is not shifted.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ F0NSF_DIR = "2b-f0nsf"
 class F0Request:
     exp_dir: str
     method: str = "rmvpe"
-    """pm or rmvpe."""
+    """pm, rmvpe, fcpe, crepe, crepe-tiny or swift."""
     assets_dir: str = ""
     device: str = "cpu"
     """cpu, cuda[:N], xpu[:N] or dml; ignored when ``gpus`` lists several cards."""
@@ -37,22 +39,38 @@ class F0Request:
     clean: bool = False
 
 
+TRAINING_METHODS = ("pm", "rmvpe", "fcpe", "crepe", "crepe-tiny", "swift")
+
+
 def _provider(method: str, assets_dir: str, device: str, is_half: bool) -> Any:
     if method == "pm":
         from rvc_next.engine.f0.pm import PmProvider
 
         return PmProvider()
+    if method not in TRAINING_METHODS:
+        raise ValueError(f"F0 method {method!r} is not offered for training ({', '.join(TRAINING_METHODS)})")
+    dev: Any = device
+    if device == "dml":
+        from rvc_next.engine.runtime import directml_device
+
+        dev = directml_device()
+    root = Path(assets_dir)
     if method == "rmvpe":
         from rvc_next.engine.f0.rmvpe_provider import RmvpeProvider
 
-        dev: Any = device
-        if device == "dml":
-            from rvc_next.engine.runtime import directml_device
-
-            dev = directml_device()
-        root = Path(assets_dir)
         return RmvpeProvider(root / "rmvpe" / "rmvpe.pt", dev, is_half, root / "rmvpe" / "rmvpe.onnx")
-    raise ValueError(f"F0 method {method!r} is not offered for training (pm or rmvpe)")
+    if method == "fcpe":
+        from rvc_next.engine.f0.fcpe import FcpeProvider
+
+        return FcpeProvider(root / "fcpe" / "fcpe_c_v001.pt", dev)
+    if method in ("crepe", "crepe-tiny"):
+        from rvc_next.engine.f0.crepe import CrepeProvider
+
+        capacity = "full" if method == "crepe" else "tiny"
+        return CrepeProvider(root / "crepe" / f"{capacity}.pth", capacity, dev)
+    from rvc_next.engine.f0.swift import SwiftProvider
+
+    return SwiftProvider(dev)
 
 
 def compute_f0(provider: Any, path: str) -> np.ndarray | None:
@@ -113,7 +131,7 @@ def run(request: F0Request, progress: Progress | None = None, log: Log | None = 
     env: list[dict[str, str] | None] | None = None
     from rvc_next.engine.runtime import gpu_backend, visible_devices_env
 
-    if request.method == "rmvpe" and len(request.gpus) > 1:
+    if request.method != "pm" and len(request.gpus) > 1:
         n = len(request.gpus)
         backend = gpu_backend() or "cuda"
         parts = [(request.method, request.assets_dir, f"{backend}:0", request.is_half, todo[i::n]) for i in range(n)]

@@ -10,6 +10,8 @@ StageId = Literal["clean", "slice", "f0", "features", "fit", "index"]
 STAGE_ORDER: tuple[str, ...] = ("clean", "slice", "f0", "features", "fit", "index")
 StageStatus = Literal["pending", "running", "done", "stale", "failed", "skipped"]
 SampleRate = Literal["32k", "40k", "48k"]
+TrainingF0Method = Literal["pm", "rmvpe", "fcpe", "crepe", "crepe-tiny", "swift"]
+TrainingPrecision = Literal["auto", "fp32", "bf16"]
 
 
 class StageState(Record):
@@ -49,6 +51,16 @@ class FitSettings(Record):
     cache_in_gpu: bool = False
     save_small_every: bool = False
     save_latest_only: bool = False
+    precision: TrainingPrecision = "auto"
+    """auto: fp16 when every chosen GPU qualifies (the original); bf16 on GPUs that have it; fp32."""
+    tf32: bool = False
+    """TF32 matrix maths on NVIDIA GPUs (Ampere and newer): faster fp32, slightly less precise."""
+    checkpointing: bool = False
+    """Gradient checkpointing: recompute activations in the backward pass; less memory, slower."""
+    fresh_speakers: bool = False
+    """Start the speakers from new vectors instead of the base model's (whose speakers 0 and 1 are near-identical)."""
+    previews: bool = True
+    """At every save, render a training clip with the current generator (Results › Previews)."""
 
 
 class Experiment(Record):
@@ -56,7 +68,7 @@ class Experiment(Record):
     sample_rate: SampleRate = "40k"
     version: Literal["v1", "v2"] = "v2"
     pitch_guidance: bool = True
-    f0_method: Literal["pm", "rmvpe"] = "rmvpe"
+    f0_method: TrainingF0Method = "rmvpe"
     dataset: Dataset = Field(default_factory=Dataset)
     fit: FitSettings = Field(default_factory=FitSettings)
     stages: dict[str, StageState] = Field(default_factory=dict)
@@ -74,7 +86,7 @@ class ExperimentCreate(Record):
     sample_rate: SampleRate | None = None
     version: Literal["v1", "v2"] | None = None
     pitch_guidance: bool | None = None
-    f0_method: Literal["pm", "rmvpe"] | None = None
+    f0_method: TrainingF0Method | None = None
     fit: FitSettings | None = None
 
 
@@ -82,7 +94,7 @@ class ExperimentUpdate(Record):
     sample_rate: SampleRate | None = None
     version: Literal["v1", "v2"] | None = None
     pitch_guidance: bool | None = None
-    f0_method: Literal["pm", "rmvpe"] | None = None
+    f0_method: TrainingF0Method | None = None
     dataset: Dataset | None = None
     fit: FitSettings | None = None
 

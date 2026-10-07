@@ -3,13 +3,15 @@ import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useBaseModels } from '@/api/queries/imports';
 import { useSeparationPresets } from '@/api/queries/separate';
-import { fetchMetrics, useCheckpoints, useExperiment, useExperimentMutations } from '@/api/queries/train';
+import { fetchMetrics, useCheckpoints, useExperiment, useExperimentMutations, useTrainingSamples } from '@/api/queries/train';
 import type { Checkpoint, Dataset, DatasetReport as Report, Experiment, FitSettings } from '@/api/types';
 import AssetGate from '@/components/AssetGate.vue';
 import DatasetReport from '@/components/DatasetReport.vue';
 import ErrorNotice from '@/components/ErrorNotice.vue';
 import JobCard from '@/components/JobCard.vue';
 import LossChart from '@/components/LossChart.vue';
+import ResultsList from '@/components/ResultsList.vue';
+import { pitchAssets } from '@/components/paramFields';
 import ServerPathDialog from '@/components/ServerPathDialog.vue';
 import SpeakerTable from '@/components/SpeakerTable.vue';
 import StageStepper, { type ExperimentStep } from '@/components/StageStepper.vue';
@@ -26,6 +28,7 @@ const router = useRouter();
 const snackbar = useSnackbar();
 const exp = useExperiment(() => props.name);
 const checkpoints = useCheckpoints(() => props.name);
+const samples = useTrainingSamples(() => props.name);
 const sepPresets = useSeparationPresets();
 const m = useExperimentMutations();
 const jobs = useJobsStore();
@@ -129,7 +132,8 @@ function remove() {
 
 const rateOptions = ['32k', '40k', '48k'].map((v) => ({ value: v, label: v }));
 const versionOptions = ['v1', 'v2'].map((v) => ({ value: v, label: v }));
-const f0Options = computed(() => ['pm', 'rmvpe'].map((v) => ({ value: v, label: t(`params.f0.${v}`) })));
+const f0Options = computed(() => ['rmvpe', 'pm', 'fcpe', 'crepe', 'crepe-tiny', 'swift'].map((v) => ({ value: v, label: t(`params.f0.${v}`) })));
+const precisionOptions = computed(() => ['auto', 'fp32', 'bf16'].map((v) => ({ value: v, label: t(`train.precisions.${v}`) })));
 // Base models that fit the experiment: official and imported; none chosen means the official one.
 const baseFilter = computed(() => (settingsForm.value ? { sample_rate: settingsForm.value.sample_rate, version: settingsForm.value.version, pitch_guidance: settingsForm.value.pitch_guidance } : null));
 const baseModels = useBaseModels(baseFilter);
@@ -148,7 +152,7 @@ const importedBase = computed(() => !!settingsForm.value?.fit.base_model && !set
 const baseAssets = computed(() => {
   const f = settingsForm.value;
   if (!f) return [];
-  return [...(importedBase.value ? [] : [`pretrained-${f.version}-${f.sample_rate}`]), 'hubert', ...(f.f0_method === 'rmvpe' && f.pitch_guidance ? ['rmvpe'] : [])];
+  return [...(importedBase.value ? [] : [`pretrained-${f.version}-${f.sample_rate}`]), 'hubert', ...pitchAssets(f.pitch_guidance, f.f0_method)];
 });
 const smallCheckpoints = computed(() => (checkpoints.data.value ?? []).filter((c) => c.kind !== 'D'));
 const stageTone = (status?: string) => (({ done: 'primary', running: 'primary', failed: 'error', stale: 'warning' }) as Record<string, 'primary' | 'error' | 'warning'>)[status ?? ''] ?? 'neutral';
@@ -200,6 +204,14 @@ const num = (v: unknown) => (v === '' || v === null || v === undefined ? null : 
             <Switch v-model="settingsForm.fit.cache_in_gpu" :label="t('train.cacheInGpu')" />
             <Switch v-model="settingsForm.fit.save_small_every" :label="t('train.saveSmallEvery')" />
             <Switch v-model="settingsForm.fit.save_latest_only" :label="t('train.saveLatestOnly')" />
+            <Switch v-model="settingsForm.fit.previews" :label="t('train.previews')" :supporting-text="t('train.previewsHint')" />
+            <h3 class="type-title-small sub">{{ t('train.advanced') }}</h3>
+            <div class="form">
+              <SelectField v-model="settingsForm.fit.precision" :label="t('train.precision')" :options="precisionOptions" :supporting-text="t('train.precisionHint')" />
+            </div>
+            <Switch v-model="settingsForm.fit.tf32" :label="t('train.tf32')" :supporting-text="t('train.tf32Hint')" />
+            <Switch v-model="settingsForm.fit.checkpointing" :label="t('train.checkpointing')" :supporting-text="t('train.checkpointingHint')" />
+            <Switch v-model="settingsForm.fit.fresh_speakers" :label="t('train.freshSpeakers')" :supporting-text="t('train.freshSpeakersHint')" />
             <h3 class="type-title-small sub">{{ t('train.baseModels') }}</h3>
             <SelectField
               :model-value="settingsForm.fit.base_model ?? ''"
@@ -240,6 +252,13 @@ const num = (v: unknown) => (v === '' || v === null || v === undefined ? null : 
           <Surface v-else-if="step === 'results'" key="results" :level="0" class="panel">
             <h3 class="type-title-small sub">{{ t('train.loss') }}</h3>
             <LossChart :metrics="metrics" />
+            <h3 class="type-title-small sub">{{ t('train.gradients') }}</h3>
+            <LossChart :metrics="metrics" gradients />
+            <template v-if="samples.data.value?.length">
+              <h3 class="type-title-small sub">{{ t('train.samples') }}</h3>
+              <p class="type-body-small muted">{{ t('train.samplesHint') }}</p>
+              <ResultsList :outputs="samples.data.value" />
+            </template>
             <div class="ck-head">
               <h3 class="type-title-small sub">{{ t('train.checkpoints') }}</h3>
               <AppButton variant="tonal" :icon="icons.PackageOpen" :disabled="!smallCheckpoints.length" @click="openExport(null)">{{ t('train.export') }}</AppButton>

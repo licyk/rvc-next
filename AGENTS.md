@@ -336,6 +336,15 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
 - **Separation:** presets from `core/separation/presets.json` (vocals, vocals-aggressive,
   dereverb, dereverb-aggressive, karaoke; chains vocals-clean, lead-clean). Weights in
   `assets/pymss_weights/` (the original's layout). Exit 75 → rerun in fp32 (DirectML).
+- **Training options** (`FitSettings` → `loop.TrainRequest`): `precision` auto|fp32|bf16 (bf16:
+  autocast without a scaler, fp32 where unsupported), `tf32`, `checkpointing`
+  (`loop.enable_checkpointing` wraps `dec.ups`, `dec.resblocks` and each sub-discriminator's
+  `forward`, so the ported nets stay as they are), `fresh_speakers` (the experiment's rows of
+  `emb_g` redrawn at the base model's mean norm, seeded so DDP ranks agree), `previews` (default
+  on: the longest slice rendered at each save into `previews/`, registered as outputs of kind
+  `sample` with the slice as source; `GET /train/experiments/{name}/samples`). The G checkpoint
+  carries the fp16 scaler state; metrics add `grad_g`/`grad_d`; small models carry `epoch`,
+  `step`, `creation_date` and `training.author`. Training pitch takes every neural method too.
 - **Training:** `experiment.json` per folder; stage fingerprints (`engine/train/fingerprint.py`);
   **Run all** runs what is not done or whose fingerprint changed, and everything after it (fit alone
   when only `epochs` grew); editing the

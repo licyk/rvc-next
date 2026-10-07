@@ -13,9 +13,10 @@ import logging
 import shutil
 import threading
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rvc_next.core.assets.service import AssetService
+from rvc_next.core.audio.models import Output
 from rvc_next.core.clock import now_iso
 from rvc_next.core.compute.service import ComputeService
 from rvc_next.core.db import Database
@@ -27,6 +28,7 @@ from rvc_next.core.jobs.models import Job, JobStep
 from rvc_next.core.jobs.service import JobContext, JobService, JobSpec
 from rvc_next.core.models.models import VoiceModel
 from rvc_next.core.models.service import VoiceModelService
+from rvc_next.core.params import f0_assets
 from rvc_next.core.safety import validate_name
 from rvc_next.core.separation.service import SeparationService
 from rvc_next.core.settings import SettingsService
@@ -47,6 +49,9 @@ from rvc_next.core.training.models import (
     StageState,
     TrainMetric,
 )
+
+if TYPE_CHECKING:
+    from rvc_next.core.audio.service import AudioFileService
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +75,10 @@ class TrainingService:
         assets: AssetService,
         separation: SeparationService,
         compute: ComputeService,
+        audio: AudioFileService | None = None,
     ) -> None:
         self._settings = settings
+        self._audio = audio
         self._db = db
         self._events = events
         self._jobs = jobs
@@ -324,6 +331,23 @@ class TrainingService:
                 continue
         return out
 
+    def samples(self, name: str) -> list[Output]:
+        """The training samples of ``name`` (one per save), newest first; a sample written again
+        (training started over) is listed once."""
+        folder = (self._dir(name) / "previews").resolve()
+        self._load(name)
+        if self._audio is None:
+            return []
+        seen: set[str] = set()
+        out: list[Output] = []
+        for o in self._audio.list_outputs(kind="sample", limit=1000).items:
+            if o.path in seen or Path(o.path).resolve().parent != folder:
+                continue
+            seen.add(o.path)
+            if o.exists:
+                out.append(o)
+        return out
+
     def checkpoints(self, name: str) -> list[Checkpoint]:
         from datetime import datetime, timezone
 
@@ -397,8 +421,8 @@ class TrainingService:
         needed: list[str] = []
         if "features" in stages:
             needed.append("hubert")
-        if "f0" in stages and exp.f0_method == "rmvpe":
-            needed.append("rmvpe")
+        if "f0" in stages:
+            needed += f0_assets(exp.f0_method, self._settings.settings.compute.device == "dml")
         if "fit" in stages:
             if exp.fit.base_model and self.base is not None:
                 base = self.base.check_fits(exp.fit.base_model, exp.sample_rate, exp.version, exp.pitch_guidance)
@@ -526,6 +550,9 @@ class TrainingService:
                 self._events.publish(TrainMetricsEvent(name=exp.name, epoch=event.epoch, step=event.step, losses=event.values, lr=event.lr))
             elif isinstance(event, OutputEvent):
                 ctx.log(f"Saved {Path(event.path).name}")
+                if event.kind == "preview" and self._audio is not None:
+                    # A training sample: the save's generator on a training clip, A/B against that clip.
+                    self._audio.add_output(ctx.job_id, Path(event.path), "sample", event.label, source_path=Path(event.source) if event.source else None)
             elif isinstance(event, LogEvent):
                 pass
 
@@ -576,6 +603,12 @@ class TrainingService:
                 "cache_in_gpu": fit.cache_in_gpu,
                 "save_small_every": fit.save_small_every,
                 "save_latest_only": fit.save_latest_only,
+                "precision": fit.precision,
+                "tf32": fit.tf32,
+                "checkpointing": fit.checkpointing,
+                "fresh_speakers": fit.fresh_speakers,
+                "previews": fit.previews,
+                "author": self._settings.settings.training.author,
                 "name": exp.name,
                 "multi_speaker": exp.dataset.mode == "multi",
                 "num_workers": min(4, self._cpu_workers()),
