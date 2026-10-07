@@ -8,7 +8,7 @@ import pytest
 from rvc_next.engine.audio.sola import Sola
 from rvc_next.engine.audio_io.devices import group_devices
 from rvc_next.engine.audio_io.drift import DriftCorrector
-from rvc_next.engine.audio_io.fake import FakeBackend
+from rvc_next.engine.audio_io.fake import FakeBackend, FakeStream
 from rvc_next.engine.audio_io.rings import Ring
 from rvc_next.engine.audio_io.streams import (
     AudioSession,
@@ -395,6 +395,68 @@ def test_wasapi_shared_streams_let_windows_convert() -> None:
     assert (shared.exclusive, shared.auto_convert) == (False, True)
     assert (exclusive.exclusive, exclusive.auto_convert) == (True, False)
     assert backend._extra(Endpoint({**wasapi, "host_api": "wdm-ks"})) is None and backend._extra(Endpoint()) is None
+
+
+def test_a_refused_duplex_stream_names_the_device_at_fault() -> None:
+    """PortAudio's duplex error names neither device: each side is checked alone to find it."""
+
+    class FakeSd:
+        bad: int | None = None
+
+        def Stream(self, **kw: Any) -> Any:
+            raise RuntimeError("Error opening Stream: Device unavailable [PaErrorCode -9985]")
+
+        def check_input_settings(self, device: int, **kw: Any) -> None:
+            if device == self.bad:
+                raise RuntimeError("Error opening InputStream: Device unavailable [PaErrorCode -9985]")
+
+        def check_output_settings(self, device: int, **kw: Any) -> None:
+            if device == self.bad:
+                raise RuntimeError("Error opening OutputStream: Invalid sample rate [PaErrorCode -9997]")
+
+    sd = FakeSd()
+    backend = SounddeviceBackend.__new__(SounddeviceBackend)
+    backend.sd = cast(Any, sd)
+    mic, speakers = Endpoint({"portaudio_index": 0, "id": "mic"}), Endpoint({"portaudio_index": 1, "id": "spk"})
+    for bad, role, reason, device_id in ((0, "input", "busy", "mic"), (1, "output", "format", "spk"), (None, None, "busy", None)):
+        sd.bad = bad
+        with pytest.raises(DeviceOpenError) as info:
+            backend.open_duplex(mic, speakers, 48000, 480, 1, 2, lambda *a: None, lambda: None)
+        assert (info.value.role, info.value.reason, info.value.device_id) == (role, reason, device_id)
+        assert "[PaErrorCode -9985]" in info.value.message
+
+
+@pytest.mark.parametrize(("output", "monitor", "role"), [("Jack Out", None, "output"), ("Speakers", "Headphones", "monitor"), ("Speakers", None, None)])
+def test_a_stream_that_will_not_start_names_its_device(output: str, monitor: str | None, role: str | None) -> None:
+    """A stream that opens and then fails to start: its role (a duplex stream's could be either device)."""
+    failing = {"output": 3, "monitor": 2, None: 1}[role]
+
+    class Backend(FakeBackend):
+        def _open(self, kind: str, inp: Endpoint | None, out: Endpoint | None, *args: Any, **kw: Any) -> FakeStream:
+            stream = super()._open(kind, inp, out, *args, **kw)
+            return cast(FakeStream, Unstartable(stream)) if stream.out_index == failing else stream
+
+    class Unstartable:
+        def __init__(self, stream: Any) -> None:
+            self.stream = stream
+            self.latency = stream.latency
+
+        def start(self) -> None:
+            raise RuntimeError("Error starting stream: Unanticipated host error [PaErrorCode -9999]")
+
+        def stop(self) -> None:
+            self.stream.stop()
+
+        def close(self) -> None:
+            self.stream.close()
+
+    backend = Backend(*fake_machine(), time_scale=4.0)
+    session = _session(backend, output, monitor=monitor)
+    with pytest.raises(DeviceOpenError) as info:
+        session.start()
+    name = monitor if role == "monitor" and monitor else output
+    assert (info.value.role, info.value.device_id) == (role, endpoints()[name]["id"] if role else None)
+    assert not backend.streams  # every stream it opened is closed again
 
 
 def test_recorder_writes_what_it_is_given(tmp_path) -> None:

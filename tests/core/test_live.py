@@ -1,5 +1,7 @@
 """LiveService with the fake PortAudio backend and a tiny voice: devices, check, start, hot updates, stop."""
 
+import os
+import signal
 import threading
 import time
 from pathlib import Path
@@ -396,3 +398,32 @@ def test_browser_audio(live, services, tiny_voice_file):
     assert live.state().state == "running"
     newer.close()
     assert wait_for(lambda: live.state().state == "stopped")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="kills the worker with SIGKILL")
+def test_a_crashed_worker_says_how_it_ended(live, services, tiny_voice_file):
+    voice = services.models.import_paths([tiny_voice_file]).voices[0]
+    live.start(LiveConfig(voice_id=voice.id, params=VoiceParamsModel(f0_method="pm", index_rate=0), stream=StreamParamsModel(block_ms=200, context_ms=500)))
+    assert wait_for(lambda: live.state().state == "running"), live.state()
+    os.kill(live._supervisor._process.pid, signal.SIGKILL)
+    assert wait_for(lambda: live.state().state == "error"), live.state()
+    error = live.state().error
+    assert error["code"] == "internal_error"
+    assert error["message"].startswith("The live worker stopped unexpectedly (killed by SIGKILL (signal 9)")
+    assert error["detail"]["exit_code"] == -9 and isinstance(error["detail"]["log"], str)
+
+
+def test_a_lost_device_without_reconnecting_keeps_its_error(live, services, tiny_voice_file):
+    from rvc_next.protocol import live as P
+
+    services.settings.update({"live": {"auto_reconnect": False}})
+    voice = services.models.import_paths([tiny_voice_file]).voices[0]
+    live.start(LiveConfig(voice_id=voice.id, params=VoiceParamsModel(f0_method="pm", index_rate=0), stream=StreamParamsModel(block_ms=200, context_ms=500)))
+    assert wait_for(lambda: live.state().state == "running"), live.state()
+    # What the worker sends when the output goes: the loss, then "reconnecting" naming the device.
+    lost = {"code": "device_unavailable", "message": "Lost the output device “Fake Speakers”: gone", "detail": {"reason": "missing", "role": "output", "lost": True}}
+    live._on_event(P.DeviceLost(direction="output", device_id=None, reason="missing", message=lost["message"]))
+    live._on_event(P.State(state="reconnecting", error=lost))
+    # The core stops the session instead of reconnecting; the reason stays on screen.
+    assert wait_for(lambda: live.state().state == "error"), live.state()
+    assert live.state().error == lost

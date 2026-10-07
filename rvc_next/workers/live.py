@@ -87,6 +87,84 @@ def _error(code: str, message: str, **detail: Any) -> dict[str, Any]:
     return {"code": code, "message": message, "detail": detail}
 
 
+REASON_TEXT = {
+    "missing": "is not connected",
+    "busy": "is in use by another program, or refused to open",
+    "channels": "refuses this channel count",
+    "format": "refuses this sample rate or sample format",
+    "permission": "cannot be used: access was denied",
+}
+
+COMMANDS = {
+    "start": "starting",
+    "stop": "stopping",
+    "update_voice": "changing the voice settings",
+    "update_stream": "changing the stream settings",
+    "set_voice": "switching the voice",
+    "set_devices": "changing the audio devices",
+    "meter": "opening the input meter",
+    "test_tone": "playing the test sound",
+    "passthrough": "turning Hear yourself on or off",
+    "record": "recording",
+    "release_memory": "freeing GPU memory",
+    "processing": "converting audio",
+}
+"""What the worker was doing, by command type, for a failure's message."""
+
+
+def _device_name(ep: Endpoint | None, role: str) -> str:
+    if ep is None or ep.device is None:
+        return f"the system default {'input' if role == 'input' else 'output'}"
+    return f"“{ep.device.get('name') or ep.device_id or ep.index}”"
+
+
+def _device_fields(ep: Endpoint | None) -> dict[str, Any]:
+    if ep is None or ep.device is None:
+        return {"device": None, "host_api": None}
+    return {"device": ep.device.get("name"), "host_api": ep.host_api}
+
+
+def device_error(e: DeviceOpenError, cfg: SessionConfig) -> dict[str, Any]:
+    """The ``device_unavailable`` error for a device that would not open: which role, which device and
+    why, with PortAudio's own text kept in ``detail.error``. A duplex stream whose devices could not
+    be told apart names both (``detail.role`` None)."""
+    if e.role is None:
+        message = f"The input {_device_name(cfg.input, 'input')} and the output {_device_name(cfg.output, 'output')} could not be opened as one stream: {e.message}"
+        return _error(
+            "device_unavailable",
+            message,
+            reason=e.reason,
+            role=None,
+            input=_device_fields(cfg.input)["device"],
+            output=_device_fields(cfg.output)["device"],
+            error=e.message,
+        )
+    ep = {"input": cfg.input, "output": cfg.output, "monitor": cfg.monitor}.get(e.role)
+    why = REASON_TEXT.get(e.reason, "could not be opened")
+    message = f"The {e.role} device {_device_name(ep, e.role)} {why}: {e.message}"
+    return _error("device_unavailable", message, reason=e.reason, role=e.role, device_id=e.device_id or (ep.device_id if ep else None), **_device_fields(ep), error=e.message)
+
+
+def lost_error(role: str, ep: Endpoint | None, device_id: str | None, reason: str, message: str) -> dict[str, Any]:
+    """The ``device_unavailable`` error for a device lost during a session (``detail.lost``)."""
+    text = f"Lost the {role} device {_device_name(ep, role)}: {message}"
+    return _error("device_unavailable", text, reason=reason, role=role, device_id=device_id, **_device_fields(ep), error=message, lost=True)
+
+
+def failure_error(error: BaseException, during: str | None) -> dict[str, Any]:
+    """The ``internal_error`` for an unexpected exception: its type and text as the message, what the
+    worker was doing, and the traceback in ``detail`` (there is no job log for Live to read)."""
+    text = f"{type(error).__name__}: {error}" if str(error) else type(error).__name__
+    doing = COMMANDS.get(during or "")
+    return _error(
+        "internal_error",
+        f"Live failed while {doing}: {text}" if doing else text,
+        exception=type(error).__name__,
+        during=during,
+        traceback="".join(traceback.format_exception(type(error), error, error.__traceback__)).rstrip(),
+    )
+
+
 class LiveWorker:
     def __init__(self, conn: AnyConnection, request: P.WorkerRequest, backend: Any = None, runtime: Any = None) -> None:
         self.conn = conn
@@ -244,7 +322,7 @@ class LiveWorker:
             except Exception as e:
                 self.log("error", traceback.format_exc())
                 self._stop_sessions()
-                self.set_state("error", self._failure(e))
+                self.set_state("error", self._failure(e, message.type))
 
     def handle(self, message: P.Message) -> None:
         with self._lock:
@@ -302,7 +380,7 @@ class LiveWorker:
             if not is_oom(e):
                 raise
             self.log("error", traceback.format_exc())
-            self.set_state("error", self._failure(e))
+            self.set_state("error", self._failure(e, "start"))
             return
         self.engine.passthrough = False
         self._open_session(cfg)
@@ -338,7 +416,9 @@ class LiveWorker:
             session.start()
         except DeviceOpenError as e:
             self.session = None
-            self.set_state("error", _error("device_unavailable", e.message, reason=e.reason, role=e.role, device_id=e.device_id))
+            error = device_error(e, cfg)
+            self.log("warning", error["message"])
+            self.set_state("error", error)
             return False
         self.session = session
         if self.recorder is not None:
@@ -392,15 +472,16 @@ class LiveWorker:
             self.runtime.release()
         self.set_state(self.state, self._last_error)
 
-    def _failure(self, error: BaseException) -> dict[str, Any]:
-        """The ``error`` dict for a failure; on out-of-memory, unload everything first (as ComfyUI does)."""
+    def _failure(self, error: BaseException, during: str | None = None) -> dict[str, Any]:
+        """The ``error`` dict for a failure while ``during`` (a command's type, or ``processing``); on
+        out-of-memory, unload everything first (as ComfyUI does)."""
         if not is_oom(error):
-            return _error("internal_error", str(error) or type(error).__name__)
+            return failure_error(error, during)
         self.log("error", "Out of GPU memory: unloading every loaded model")
         self.engine = None
         if self.runtime is not None:
             self.runtime.release()
-        return _error("compute_unavailable", f"Out of GPU memory: {error}", reason=OUT_OF_MEMORY)
+        return _error("compute_unavailable", f"Out of GPU memory: {error}", reason=OUT_OF_MEMORY, during=during)
 
     def _stop_sessions(self) -> None:
         if self.session is not None:
@@ -460,15 +541,17 @@ class LiveWorker:
         except Exception as e:
             if is_oom(e):
                 raise  # serve() reports it, unloading everything first
-            code, extra = "internal_error", {}
             if isinstance(e, MissingAssetError):
-                code, extra = "asset_missing", {"assets": e.assets}
+                error = _error("asset_missing", str(e), assets=e.assets)
             elif isinstance(e, ModelFormatError):
-                code = "invalid_model"
+                error = _error("invalid_model", str(e))
             elif isinstance(e, FileNotFoundError):
-                code = "not_found"
+                error = _error("not_found", str(e))
+            else:
+                error = failure_error(e, "set_voice")
+            error["detail"].update(reason="voice_load", voice_path=voice_path)
             self.log("error", f"Cannot load the voice {voice_path}: {e}")
-            self.set_state(self.state, _error(code, str(e) or type(e).__name__, reason="voice_load", voice_path=voice_path, **extra), voice_path=self.voice_path)
+            self.set_state(self.state, error, voice_path=self.voice_path)
             return
         self.voice_path, self.index_path = voice_path, index_path
         if speaker_id is not None:
@@ -525,7 +608,8 @@ class LiveWorker:
                 self.aux = aux
                 self.meter = True
             except DeviceOpenError as e:
-                self.send(P.DeviceLost(direction="input", device_id=e.device_id, reason=e.reason, message=e.message))
+                e.role = e.role or "input"
+                self.send(P.DeviceLost(direction="input", device_id=e.device_id, reason=e.reason, message=device_error(e, aux.config)["message"]))
         self.set_state(self.state, self._last_error)
 
     def _aux_block(self, ep: Endpoint | None) -> int:
@@ -555,7 +639,7 @@ class LiveWorker:
                 self.aux_on_monitor = on_monitor
             except DeviceOpenError as e:
                 self.passthrough = False
-                self.send(P.DeviceLost(direction=e.role or "output", device_id=e.device_id, reason=e.reason, message=e.message))
+                self.send(P.DeviceLost(direction=e.role or "output", device_id=e.device_id, reason=e.reason, message=device_error(e, cfg)["message"]))
         self.set_state(self.state, self._last_error)
 
     def test_tone(self, device: dict[str, Any] | None) -> None:
@@ -566,21 +650,26 @@ class LiveWorker:
             try:
                 self.backend.play(ep, chime(rate), rate)
             except DeviceOpenError as e:
-                self.send(P.DeviceLost(direction="output", device_id=e.device_id, reason=e.reason, message=e.message))
+                e.role = "output"
+                self.send(P.DeviceLost(direction="output", device_id=e.device_id, reason=e.reason, message=device_error(e, SessionConfig(input=Endpoint(), output=ep))["message"]))
 
         threading.Thread(target=play, name="rvc-test-tone", daemon=True).start()
 
     # -- failures ----------------------------------------------------------------------------------------
 
     def _device_lost(self, role: str, device_id: str | None, reason: str, message: str) -> None:
-        self.send(P.DeviceLost(direction=role, device_id=device_id, reason=reason, message=message))
+        # The session that lost it has stopped running already (``AudioSession._report_lost``).
+        owner = next((s for s in (self.session, self.aux) if s is not None and not s.running), None)
+        error = lost_error(role, owner.endpoint(role) if owner else None, device_id, reason, message)
+        self.log("warning", error["message"])
+        self.send(P.DeviceLost(direction=role, device_id=device_id, reason=reason, message=error["message"]))
 
         def settle() -> None:
             with self._lock:
                 if self.session is not None and not self.session.running:
                     self.session.stop()
                     self.session = None
-                    self.set_state("reconnecting")
+                    self.set_state("reconnecting", error)  # says which device, until it is back
                 if self.aux is not None and not self.aux.running:
                     self.aux.stop()
                     self.aux = None
@@ -597,7 +686,7 @@ class LiveWorker:
                 if self.session is not None:
                     self.session.stop()
                     self.session = None
-                self.set_state("error", self._failure(error))
+                self.set_state("error", self._failure(error, "processing"))
 
         threading.Thread(target=settle, daemon=True).start()
 

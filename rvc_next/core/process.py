@@ -83,3 +83,33 @@ def kill_process_tree(process: subprocess.Popen | None) -> bool:
             pass
     logger.debug("Process tree %s terminated", pid)
     return True
+
+
+WINDOWS_STATUS = {
+    0xC0000005: "an access violation",
+    0xC000001D: "an illegal instruction",
+    0xC0000094: "an integer division by zero",
+    0xC00000FD: "a stack overflow",
+    0xC0000374: "heap corruption",
+    0xC0000409: "a stack buffer overrun",
+    0xC000013A: "Ctrl+C",
+    0x40010004: "being terminated",
+}
+"""NTSTATUS codes a crashed Windows process exits with."""
+
+
+def describe_exit(code: int | None) -> str:
+    """A process's exit code in words: ``exit code 1``, ``killed by SIGSEGV (signal 11)``, or a
+    Windows crash status such as ``0xC0000005 (an access violation)``."""
+    if code is None:
+        return "no exit code"
+    if code < 0 and os.name != "nt":
+        try:
+            name = signal.Signals(-code).name
+        except ValueError:
+            name = "a signal"
+        return f"killed by {name} (signal {-code})"
+    status = code & 0xFFFFFFFF
+    if status in WINDOWS_STATUS:
+        return f"exit code 0x{status:08X}, {WINDOWS_STATUS[status]}"
+    return f"exit code {code}"

@@ -45,7 +45,11 @@ BACKLOG_WRITES = 3
 
 
 class DeviceOpenError(Exception):
-    """A device refused to open or was lost. ``reason`` is missing, busy, channels, format or permission."""
+    """A device refused to open or was lost. ``reason`` is missing, busy, channels, format or permission.
+
+    ``role`` (input, output or monitor) names the device at fault; None when a duplex stream failed
+    and neither of its devices could be singled out.
+    """
 
     def __init__(self, message: str, reason: str = "busy", role: str | None = None, device_id: str | None = None) -> None:
         super().__init__(message)
@@ -334,8 +338,21 @@ class SounddeviceBackend:
                 finished_callback=finished,
             )
         except Exception as e:
-            raise self._error(e, "output", out) from e
+            raise self._duplex_error(e, inp, out, rate, in_ch, out_ch) from e
         return _SdHandle(stream, True, "duplex")
+
+    def _duplex_error(self, e: Exception, inp: Endpoint, out: Endpoint, rate: int, in_ch: int, out_ch: int) -> DeviceOpenError:
+        """PortAudio's error for a duplex stream names neither side: check each alone to find the one
+        that refuses. When both pass alone, the error stays the pair's (``role`` None)."""
+        for ep, direction, channels in ((inp, "input", in_ch), (out, "output", out_ch)):
+            try:
+                self.check(ep, direction, channels, rate)
+            except DeviceOpenError as side:
+                return DeviceOpenError(
+                    f"{side.message} (opening it with the {'output' if direction == 'input' else 'input'} as one stream: {e})", side.reason, direction, ep.device_id
+                )
+        message = str(e)
+        return DeviceOpenError(message, classify_portaudio_error(message), None, None)
 
     def open_input(self, ep: Endpoint, rate: int, block: int, channels: int, callback: InputCallback, finished: FinishedCallback) -> StreamHandle:
         if ep.loopback_source is not None:
@@ -594,6 +611,7 @@ class AudioSession:
         self.out_ring.write(np.zeros(self._prefill, dtype=np.float32))
         self._running = True
         self._stopping = False
+        role = "duplex" if self.topology == "duplex" else "input"  # the stream being opened or started: a failure names its device
         try:
             if self.topology == "duplex":
                 assert cfg.output is not None
@@ -603,9 +621,11 @@ class AudioSession:
                 h = self.backend.open_input(cfg.input, self.input_rate, self.in_block, self._in_ch, self._input_cb, self._finished("input"))
                 self._handles.append(("input", h))
                 if cfg.output is not None:
+                    role = "output"
                     h = self.backend.open_output(cfg.output, self.sample_rate, self.block, self._out_ch, self._output_cb, self._finished("output"))
                     self._handles.append(("output", h))
             if cfg.monitor is not None and cfg.output is not None:
+                role = "monitor"
                 h = self.backend.open_output(cfg.monitor, self.sample_rate, self.block, self._mon_ch, self._monitor_cb, self._finished("monitor"))
                 self._handles.append(("monitor", h))
             now = time.monotonic()
@@ -613,14 +633,21 @@ class AudioSession:
                 for r in ("input", "output") if role == "duplex" else (role,):
                     self._last_cb[r] = now
                 h.start()
-        except DeviceOpenError:
+        except DeviceOpenError as e:
             self._running = False
             self._close_streams()
+            ep = self.endpoint(role)
+            if ep is not None:
+                # One stream, one device: its role (the backend calls a monitor an output).
+                e.role, e.device_id = role, e.device_id or ep.device_id
             raise
         except Exception as e:
             self._running = False
             self._close_streams()
-            raise DeviceOpenError(str(e), classify_portaudio_error(str(e))) from e
+            # A stream that opened but would not start (an unanticipated host error, a device gone
+            # between the two): the failing stream's role; a duplex stream's could be either device.
+            ep = self.endpoint(role)
+            raise DeviceOpenError(str(e), classify_portaudio_error(str(e)), None if role == "duplex" else role, ep.device_id if ep else None) from e
         self._thread = threading.Thread(target=self._loop, name="rvc-live-processing", daemon=True)
         self._thread.start()
 
@@ -655,13 +682,17 @@ class AudioSession:
 
     # -- processing thread -----------------------------------------------------------------------------
 
+    def endpoint(self, role: str | None) -> Endpoint | None:
+        """The endpoint a role (input, output or monitor) opens; None for another role."""
+        return {"input": self.config.input, "output": self.config.output, "monitor": self.config.monitor}.get(role or "")
+
     def _report_lost(self, role: str, reason: str, message: str) -> None:
         with self._lock:
             if self._lost:
                 return
             self._lost = True
         self._running = False
-        ep = {"input": self.config.input, "output": self.config.output, "monitor": self.config.monitor}.get(role)
+        ep = self.endpoint(role)
         if self.on_device_lost is not None:
             self.on_device_lost(role, ep.device_id if ep else None, reason, message)
 

@@ -429,6 +429,20 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   holds a claim (`useMeterClaim`); the page renews every 5 s while visible. The worker's answers to
   `Meter`/`Passthrough` keep its last error (they used to clear a failed session's error at once).
   `Stats` carry monitor levels; Live's footer errors stay until the next Start or their close button.
+- **Live errors name their cause.** A `device_unavailable` from the worker carries `detail.role`
+  (input/output/monitor), `device`, `host_api` and PortAudio's text as `detail.error`; the message
+  names the role and the device (`workers/live.device_error`, `lost_error` with `detail.lost`). For
+  split streams the session's role wins over the backend's (`open_output` calls a monitor an
+  output); a failed duplex open checks each side alone (`SounddeviceBackend._duplex_error`), else
+  `role` is None and both are named. A lost device rides the `reconnecting` state's error; with
+  auto-reconnect off the core keeps it (`_stop_error`) and the following `stopped` becomes `error`.
+  Unexpected exceptions carry `exception`, `during` (the command, or `processing`) and `traceback`.
+  A dead worker: the supervisor keeps its last 60 output lines (events unpacked), waits for the
+  exit code (`core/process.describe_exit`: signal names, Windows NTSTATUS) and takes the cause from
+  `run_worker`'s error event or a traceback/`faulthandler` line ending the output (`crash_error`,
+  `detail.exit_code`, `detail.log`); `run_worker` enables `faulthandler` for native crashes.
+  `ErrorNotice` titles a device error by role, lists the detail labelled (`errors.fields.*`),
+  multi-line values preformatted, and copies it all as text.
 - **Browser audio** (`engine/audio_io/browser.py`, `LiveConfig.browser`, WebSocket `/live/browser-audio`):
   the browser's microphone and speakers instead of the server's devices. The browser's clock drives
   a duplex `BrowserBackend` stream: each microphone frame that arrives runs the callback, and as

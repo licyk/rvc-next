@@ -187,9 +187,22 @@ def test_device_loss_then_reconnect(worker) -> None:
     lost = client.of(P.DeviceLost)[0]
     assert lost.direction == "input" and lost.reason == "missing" and lost.device_id == devices_by_name()["Mic"]["id"]
     assert client.wait_state("reconnecting")
+    # The state says which device went, until it is back.
+    error = client.of(P.State)[-1].error
+    assert error["code"] == "device_unavailable" and "“Mic”" in error["message"] and "input" in error["message"]
+    assert error["detail"] | {"error": None} == {
+        "reason": "missing",
+        "role": "input",
+        "device_id": devices_by_name()["Mic"]["id"],
+        "device": "Mic",
+        "host_api": "alsa",
+        "error": None,
+        "lost": True,
+    }
     backend.restore(0)
     client.send(P.SetDevices(devices=devices()))
     assert client.wait_state("running")
+    assert client.of(P.State)[-1].error is None
 
 
 def test_errors_are_reported_not_fatal(worker) -> None:
@@ -201,7 +214,18 @@ def test_errors_are_reported_not_fatal(worker) -> None:
     backend.refuse[1] = "busy"
     client.send(P.Start(config=start_config(make_tiny_voice(tmp / "a.pth"))))
     assert client.wait(lambda: client.states()[-1:] == ["error"] and client.of(P.State)[-1].error["code"] == "device_unavailable")
-    assert client.of(P.State)[-1].error["detail"]["reason"] == "busy"
+    error = client.of(P.State)[-1].error
+    assert error["detail"]["reason"] == "busy" and error["detail"]["role"] == "output" and error["detail"]["device"] == "Speakers"
+    assert error["message"].startswith("The output device “Speakers” is in use by another program")
+    assert error["detail"]["error"] == "Speakers refused: busy"
+    backend.refuse.clear()
+    # The monitor refusing is the monitor's fault, not the output's.
+    backend.refuse[2] = "busy"
+    sent = len(client.states())
+    client.send(P.Start(config=start_config(make_tiny_voice(tmp / "a.pth"), monitor="Headphones")))
+    assert client.wait(lambda: "starting" in client.states()[sent:] and client.states()[-1:] == ["error"])
+    assert client.of(P.State)[-1].error["detail"]["role"] == "monitor"
+    assert "“Headphones”" in client.of(P.State)[-1].error["message"]
     backend.refuse.clear()
     # The processor crashing mid-stream.
     client.send(P.Start(config=start_config(make_tiny_voice(tmp / "a.pth"))))
@@ -212,7 +236,11 @@ def test_errors_are_reported_not_fatal(worker) -> None:
 
     w.session.processor = boom
     assert client.wait(lambda: client.states()[-1:] == ["error"])
-    assert client.of(P.State)[-1].error["message"] == "boom"
+    error = client.of(P.State)[-1].error
+    assert error["code"] == "internal_error"
+    assert error["message"] == "Live failed while converting audio: RuntimeError: boom"
+    assert error["detail"]["exception"] == "RuntimeError" and error["detail"]["during"] == "processing"
+    assert error["detail"]["traceback"].startswith("Traceback") and error["detail"]["traceback"].endswith("RuntimeError: boom")
     assert any("boom" in e.message for e in client.of(P.Log))
     # Still serving.
     client.send(P.Stop())
@@ -327,7 +355,7 @@ def test_release_memory_when_idle_and_unload_on_out_of_memory(worker) -> None:
     w.session.processor = oom
     assert client.wait(lambda: client.states()[-1:] == ["error"])
     last = client.of(P.State)[-1]
-    assert last.error["code"] == "compute_unavailable" and last.error["detail"] == {"reason": "out_of_memory"}
+    assert last.error["code"] == "compute_unavailable" and last.error["detail"] == {"reason": "out_of_memory", "during": "processing"}
     assert last.cached == [] and w.engine is None
 
 

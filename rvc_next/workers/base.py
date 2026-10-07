@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import faulthandler
 import json
 import logging
 import os
@@ -41,6 +42,9 @@ def run_worker(main: WorkerMain, argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     real_stdout = os.fdopen(os.dup(sys.stdout.fileno()), "w", encoding="utf-8", buffering=1)
     os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
+    # A native crash (a segfault in a driver or a GPU library) prints the Python stacks to stderr,
+    # which the runner keeps: the only trace such a crash leaves.
+    faulthandler.enable()
     emitter = Emitter(real_stdout)
     handler = _LogHandler(emitter)
     handler.setFormatter(logging.Formatter("%(message)s"))

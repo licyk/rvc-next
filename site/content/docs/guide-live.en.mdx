@@ -182,6 +182,9 @@ A bar stays fixed at the bottom of the page:
 
 - The **Start / Stop** button. From the moment you click it, it shows each step of starting: **Checking the audio devices…**, **Starting the live process…** (first start only), **Loading PyTorch and the compute device…** (first start only), **Loading the voice…**, **Loading the index…**, **Loading HuBERT…**, **Loading the pitch model…**, **Warming up…**; steps with nothing to do are skipped. While stopping it shows **Stopping…**. With no voice selected, it is disabled and says **Choose a voice to start.**
 - On error, an explanation appears above the button (**Stopped by an error**). It stays until the next **Start**, or until you close it with its **×** button.
+  - An audio device problem names the device at fault: **The input device is not available**, **The output device is not available** or **The monitor device is not available**, then the reason (in use by another program, not connected, refuses this format…) and the device's name, for example *The output device “Speakers (Realtek)” is in use by another program, or refused to open: …*. When the input and output share one stream and neither can be singled out, the message names both.
+  - If the live process itself stops (a crash in a driver or GPU library, the system running out of memory), the title is **A background process stopped unexpectedly**, and the message says how it ended (its exit code or signal) and, when its output shows it, why.
+  - **Details** lists every field (device, driver, the driver's own message, exception, exit code…), with the traceback and the process's last output in full. **Copy** copies all of it as text, ready to paste into a bug report.
 
 The status bar updates 10 times per second and includes:
 
@@ -215,11 +218,11 @@ While a session is active (running, loading, reconnecting, etc.), every page's t
 
 If you unplug headphones or a USB microphone while running:
 
-1. The session enters **Reconnecting the device…**. The top-bar chip shows this state and turns red.
+1. The session enters **Reconnecting the device…**. The top-bar chip shows this state and turns red, and the bar at the bottom says which device went: **The output device was lost**, with its name.
 2. The server rescans devices every 2 seconds.
 3. When the original device reappears (including under another driver), the stream reopens automatically and returns to **Running**, without reloading the voice.
 
-This is controlled by **Settings › Audio › Reconnect a lost device automatically** (on by default). When disabled, a device disconnection stops the session immediately.
+This is controlled by **Settings › Audio › Reconnect a lost device automatically** (on by default). When disabled, a device disconnection stops the session immediately, and the error says which device was lost.
 
 ## Sharing the GPU with other jobs
 

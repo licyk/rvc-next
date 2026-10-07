@@ -26,7 +26,7 @@ from rvc_next.core.errors import ConflictError, NotFoundError, RvcNextError, Val
 from rvc_next.core.events import EventBus
 from rvc_next.core.events.models import JobLogEvent, JobsClearedEvent, JobUpdatedEvent
 from rvc_next.core.jobs.models import ACTIVE_STATES, FINISHED_STATES, ErrorInfo, Job, JobLog, JobPage, JobStep, Transfer
-from rvc_next.core.process import kill_process_tree, start_process, worker_command
+from rvc_next.core.process import describe_exit, kill_process_tree, start_process, worker_command
 from rvc_next.core.settings import SettingsService
 
 logger = logging.getLogger(__name__)
@@ -632,5 +632,5 @@ class WorkerExit(RvcNextError):
     """A worker ended with a non-zero exit code and no error event."""
 
     def __init__(self, code: int) -> None:
-        super().__init__(f"The worker process exited with code {code}", {"exit_code": code})
+        super().__init__(f"The worker process ended ({describe_exit(code)})", {"exit_code": code})
         self.exit_code = code

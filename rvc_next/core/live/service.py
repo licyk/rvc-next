@@ -127,6 +127,9 @@ class LiveService:
         self._enumerating = threading.Lock()
         """One enumeration at a time: callers that ask meanwhile share its list."""
         self._lost: set[str] = set()
+        self._stop_error: dict[str, Any] | None = None
+        """Why the core stopped the session itself (a device lost without reconnecting): the worker's
+        ``stopped`` that follows becomes ``error`` with it, so the reason stays on screen."""
         self._reconnect: threading.Thread | None = None
         self._closing = False
         # The input meter while Live is idle. Asking for it only extends a lease (``meter``); a thread
@@ -251,7 +254,13 @@ class LiveService:
         elif isinstance(message, P.DeviceLost) and self._browser_session():
             # Nothing to re-enumerate: the browser stopped sending (a closed or frozen tab).
             logger.warning("Live: the browser stopped sending audio; stopping")
-            self.stop()
+            with self._lock:
+                self._stop_error = {
+                    "code": "device_unavailable",
+                    "message": "This browser stopped sending audio (the tab was closed, frozen or lost its connection)",
+                    "detail": {"reason": "missing", "role": "input", "browser": True, "lost": True, "error": message.message},
+                }
+            self._stop_session()
         elif isinstance(message, P.DeviceLost) and self.state().state not in ACTIVE:
             # The meter (or passthrough while stopped) could not open its device, or lost it: no
             # session to reconnect; the meter tries again later.
@@ -323,18 +332,31 @@ class LiveService:
                 self._lost.clear()
         if state in ("stopped", "error"):
             changes["started_at"] = None
+            with self._lock:
+                stop_error, self._stop_error = self._stop_error, None
+            if state == "stopped" and stop_error is not None and message.error is None:
+                changes.update(state="error", error=stop_error)
         self._set_state(**changes)
         if was_busy != (state in (*ACTIVE, "stopping")):
             self._compute.emit_usage(force=True)
         if state in ("stopped", "error"):
             self._release_gpu()
         if state == "reconnecting" and not self._settings.settings.live.auto_reconnect:
-            try:
-                self._supervisor.send(P.Stop())
-            except RvcNextError:
-                pass
+            # The worker's error names the lost device; keep it once the session has stopped.
+            with self._lock:
+                self._stop_error = message.error
+            self._stop_session()
 
-    def _on_exit(self, expected: bool) -> None:
+    def _stop_session(self) -> None:
+        """Ask the worker to stop the session, as the core's own decision (``_stop_error`` says why)."""
+        with self._lock:
+            self._awaiting_start = False
+        try:
+            self._supervisor.send(P.Stop())
+        except RvcNextError:
+            pass
+
+    def _on_exit(self, expected: bool, error: dict[str, Any] | None = None) -> None:
         with self._lock:
             self._worker_cached = []
             self._meter_sent = None
@@ -346,13 +368,13 @@ class LiveService:
         if self._closing:
             return
         current = self.state()
+        if not expected:
+            error = error or {"code": "internal_error", "message": "The live worker stopped unexpectedly", "detail": {}}
+            logger.error("Live: %s", error["message"])
+            if (error.get("detail") or {}).get("reason") == OUT_OF_MEMORY:
+                self._compute.release_after_oom("Live")
         if not expected or current.state in ACTIVE:
-            self._set_state(
-                state="error" if not expected else "stopped",
-                error=None if expected else {"code": "internal_error", "message": "The live worker stopped unexpectedly", "detail": {}},
-                meter=False,
-                passthrough=False,
-            )
+            self._set_state(state="error" if not expected else "stopped", error=error if not expected else None, meter=False, passthrough=False, stage=None, started_at=None)
 
     def _release_gpu(self) -> None:
         if self._compute.lease_holder == LIVE_HOLDER:
@@ -621,7 +643,7 @@ class LiveService:
             by_role = {r.role: r for r in resolved}
             for r in resolved:
                 if r.device is None:
-                    raise DeviceError(r.message or f"No {r.role} device", "missing", {"role": r.role})
+                    raise _missing(r, devices)
             with self._meter_lock:
                 # ``_measuring`` keeps the meter thread from opening it again meanwhile.
                 paused = self._supervisor.running and (self._meter_sent is not None or self.state().meter)
@@ -760,6 +782,7 @@ class LiveService:
                 # Until Start reaches the worker, a "stopped" from it (a new worker announces itself so,
                 # an idle one answers the meter so) must not undo "starting".
                 self._awaiting_start = True
+                self._stop_error = None
             self._set_state(state="starting", stage="worker" if config.browser else "devices", voice_id=config.voice_id, config=config, error=None)
             try:
                 self._launch(config)
@@ -785,7 +808,7 @@ class LiveService:
         by_role = {r.role: r for r in resolved}
         for r in resolved:
             if r.status == "missing":
-                raise DeviceError(r.message or f"No {r.role} device", "missing", {"role": r.role})
+                raise _missing(r, config.devices)
         _refuse_feedback(resolved)
         out = by_role["output"]
         if out.status == "default_fallback" and not config.allow_output_fallback:
@@ -905,7 +928,7 @@ class LiveService:
                 resolved = self.resolve(devices, self.devices(refresh=True))
                 for r in resolved:
                     if r.status == "missing":
-                        raise DeviceError(r.message or f"No {r.role} device", "missing", {"role": r.role})
+                        raise _missing(r, devices)
                 _refuse_feedback(resolved)
                 self._supervisor.send(P.SetDevices(devices=self._worker_devices(devices, resolved)))
                 config = current.config.model_copy(update={"devices": devices}) if current.config else None
@@ -1134,6 +1157,13 @@ def _feedback(resolved: list[ResolvedDevice]) -> DeviceProblem | None:
                 role="input", reason="feedback", message=f"The input records {r.device.name}, which plays the {role}: the converted voice would feed back into it", action="choose"
             )
     return None
+
+
+def _missing(resolved: ResolvedDevice, devices: LiveDevices) -> DeviceError:
+    """``DeviceError`` (reason ``missing``) for a role whose device is not there, naming the role and
+    the device that was chosen for it."""
+    selection: DeviceSelection | None = getattr(devices, resolved.role, None)
+    return DeviceError(resolved.message or f"No {resolved.role} device", "missing", {"role": resolved.role, "device": selection.name if selection else None})
 
 
 def _refuse_feedback(resolved: list[ResolvedDevice]) -> None:
