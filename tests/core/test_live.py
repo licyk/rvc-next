@@ -1,7 +1,6 @@
 """LiveService with the fake PortAudio backend and a tiny voice: devices, check, start, hot updates, stop."""
 
 import os
-import signal
 import threading
 import time
 from pathlib import Path
@@ -405,7 +404,9 @@ def test_a_crashed_worker_says_how_it_ended(live, services, tiny_voice_file):
     voice = services.models.import_paths([tiny_voice_file]).voices[0]
     live.start(LiveConfig(voice_id=voice.id, params=VoiceParamsModel(f0_method="pm", index_rate=0), stream=StreamParamsModel(block_ms=200, context_ms=500)))
     assert wait_for(lambda: live.state().state == "running"), live.state()
-    os.kill(live._supervisor._process.pid, signal.SIGKILL)
+    process = live._supervisor._process
+    assert process is not None
+    process.kill()  # SIGKILL on POSIX
     assert wait_for(lambda: live.state().state == "error"), live.state()
     error = live.state().error
     assert error["code"] == "internal_error"
