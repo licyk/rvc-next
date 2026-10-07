@@ -64,6 +64,8 @@ class StreamParamsModel(Record):
     threshold_db: float = Field(default=-60.0, ge=-60, le=0, description="Input gate; -60 turns it off")
     input_denoise: bool = False
     output_denoise: bool = False
+    denoise_strength: float = Field(default=0.9, ge=0, le=1, description="How much input and output noise reduction lowers the noise")
+    phase_vocoder: bool = Field(default=False, description="Phase-vocoder crossfade: joins blocks without the dip a plain crossfade can leave")
 
     def to_engine(self) -> StreamParams:
         from rvc_next.engine.stream.params import StreamParams

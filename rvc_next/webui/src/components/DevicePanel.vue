@@ -255,6 +255,17 @@ const inLevels = computed(() => (live.stats ? { rms: live.stats.input_rms_db, pe
         <div class="advanced">
           <SelectField v-if="drivers('input').length > 1" :label="`${t('devices.input')} · ${t('devices.driver')}`" :options="drivers('input')" :model-value="model.input.device_id" @update:model-value="setDriver('input', $event)" />
           <SelectField :label="`${t('devices.input')} · ${t('devices.channels')}`" :options="channelChoices('input')" :model-value="channelValue('input')" @update:model-value="setChannels('input', $event)" />
+          <ParamSlider
+            :model-value="model.input_gain_db"
+            :label="t('devices.inputGain')"
+            :min="-24"
+            :max="24"
+            unit="dB"
+            :default-value="0"
+            :reset-label="t('common.reset')"
+            @update:model-value="model = { ...model, input_gain_db: $event }"
+            @commit="commit({ ...model, input_gain_db: $event })"
+          />
           <SelectField v-if="drivers('output').length > 1" :label="`${t('devices.output')} · ${t('devices.driver')}`" :options="drivers('output')" :model-value="model.output.device_id" @update:model-value="setDriver('output', $event)" />
           <SelectField :label="`${t('devices.output')} · ${t('devices.channels')}`" :options="channelChoices('output')" :model-value="channelValue('output')" @update:model-value="setChannels('output', $event)" />
           <SelectField :label="t('devices.sampleRate')" :options="rateChoices" :model-value="model.output.sample_rate ? String(model.output.sample_rate) : ''" @update:model-value="patchSel('output', { sample_rate: $event ? Number($event) : null })" />

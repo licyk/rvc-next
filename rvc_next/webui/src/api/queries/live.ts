@@ -46,5 +46,7 @@ export function useLiveControl() {
     testTone: m((body: S['TestToneRequest']) => unwrap(api.POST('/api/v1/live/devices/test-tone', { body }))),
     meter: m((on: boolean) => unwrap(api.POST('/api/v1/live/meter', { body: { on } }))),
     passthrough: m((on: boolean) => unwrap(api.POST('/api/v1/live/passthrough', { body: { on } }))),
+    startRecording: m((source: S['RecordingRequest']['source']) => unwrap(api.POST('/api/v1/live/recording', { body: { source } }))),
+    stopRecording: m((_: void) => unwrap(api.DELETE('/api/v1/live/recording'))),
   };
 }

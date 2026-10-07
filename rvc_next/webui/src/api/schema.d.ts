@@ -1634,6 +1634,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/live/recording": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Recording
+         * @description Record the running session to a WAV file in the outputs folder; it is listed as an output
+         *     (kind ``recording``) once it stops.
+         */
+        post: operations["start_live_recording"];
+        /** Stop Recording */
+        delete: operations["stop_live_recording"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/live/passthrough": {
         parameters: {
             query?: never;
@@ -3152,6 +3174,11 @@ export interface components {
              * @default 0
              */
             output_gain_db: number;
+            /**
+             * Input Gain Db
+             * @default 0
+             */
+            input_gain_db: number;
         };
         /** LiveDevices */
         "LiveDevices-Input": {
@@ -3174,6 +3201,11 @@ export interface components {
              * @default 0
              */
             output_gain_db?: number;
+            /**
+             * Input Gain Db
+             * @default 0
+             */
+            input_gain_db?: number;
         };
         /** LiveDevices */
         "LiveDevices-Output": {
@@ -3196,6 +3228,26 @@ export interface components {
              * @default 0
              */
             output_gain_db: number;
+            /**
+             * Input Gain Db
+             * @default 0
+             */
+            input_gain_db: number;
+        };
+        /**
+         * LiveRecording
+         * @description A recording of the running session, under way.
+         */
+        LiveRecording: {
+            /** Path */
+            path: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "both" | "converted" | "input";
+            /** Started At */
+            started_at: string;
         };
         /** LiveSettings */
         LiveSettings: {
@@ -3260,6 +3312,7 @@ export interface components {
             started_at: string | null;
             /** Stage */
             stage: ("devices" | "worker" | "runtime" | "voice" | "index" | "hubert" | "pitch") | null;
+            recording: components["schemas"]["LiveRecording"] | null;
             latency_test: components["schemas"]["LatencyMeasurement"] | null;
         };
         /** LiveStateEvent */
@@ -3380,7 +3433,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "converted" | "stem" | "remix" | "preview";
+            kind: "converted" | "stem" | "remix" | "preview" | "recording";
             /** Label */
             label: string;
             /** Source Path */
@@ -3567,6 +3620,15 @@ export interface components {
             created: string | null;
             /** Dataset Length */
             dataset_length: string | null;
+        };
+        /** RecordingRequest */
+        RecordingRequest: {
+            /**
+             * Source
+             * @default both
+             * @enum {string}
+             */
+            source?: "both" | "converted" | "input";
         };
         /** RemixStep */
         RemixStep: {
@@ -3994,6 +4056,18 @@ export interface components {
              * @default false
              */
             output_denoise: boolean;
+            /**
+             * Denoise Strength
+             * @description How much input and output noise reduction lowers the noise
+             * @default 0.9
+             */
+            denoise_strength: number;
+            /**
+             * Phase Vocoder
+             * @description Phase-vocoder crossfade: joins blocks without the dip a plain crossfade can leave
+             * @default false
+             */
+            phase_vocoder: boolean;
         };
         /**
          * StreamParamsModel
@@ -4034,6 +4108,18 @@ export interface components {
              * @default false
              */
             output_denoise?: boolean;
+            /**
+             * Denoise Strength
+             * @description How much input and output noise reduction lowers the noise
+             * @default 0.9
+             */
+            denoise_strength?: number;
+            /**
+             * Phase Vocoder
+             * @description Phase-vocoder crossfade: joins blocks without the dip a plain crossfade can leave
+             * @default false
+             */
+            phase_vocoder?: boolean;
         };
         /**
          * StreamParamsModel
@@ -4074,6 +4160,18 @@ export interface components {
              * @default false
              */
             output_denoise: boolean;
+            /**
+             * Denoise Strength
+             * @description How much input and output noise reduction lowers the noise
+             * @default 0.9
+             */
+            denoise_strength: number;
+            /**
+             * Phase Vocoder
+             * @description Phase-vocoder crossfade: joins blocks without the dip a plain crossfade can leave
+             * @default false
+             */
+            phase_vocoder: boolean;
         };
         /** TestToneRequest */
         TestToneRequest: {
@@ -11370,6 +11468,131 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_live_recording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordingRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiveState"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stop_live_recording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiveState"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

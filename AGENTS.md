@@ -226,6 +226,12 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   `live.show_all_devices` (keys `loopback:<output>`, negative indexes, `loopback_source`,
   `loopback_of`); a loopback of the output or monitor is refused as `feedback`. That setting no
   longer cross-lists devices (an input can never be played into).
+- **Live extras** (all off/neutral by default): `StreamParams.phase_vocoder` (`audio/sola.phase_vocoder`,
+  RVC's later `gui_v1` crossfade as Applio uses it), `denoise_strength` (TorchGate's
+  `prop_decrease`, the original's 0.9), `LiveDevices.input_gain_db`; gains and the monitor source
+  change in place (`SessionConfig.same_endpoints`). Recording: `AudioSession.tap` feeds
+  `audio_io/recorder.Recorder` (its own writer thread), the worker sends `Recorded`, the core adds
+  an output of kind `recording`.
 - `StreamEngine` calls `remove_weight_norm()` on its voice's net, as the original does; it runs
   in the live worker's own runtime, never the server's.
 

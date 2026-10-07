@@ -125,6 +125,10 @@ export default {
     thresholdHelp: 'Quieter input is muted. −60 dB turns the gate off.',
     inputDenoise: 'Reduce input noise',
     outputDenoise: 'Reduce output noise',
+    denoiseStrength: 'Noise reduction strength',
+    denoiseStrengthHelp: 'How much quieter the noise gets; 1 removes the most, and can also take some voice.',
+    phaseVocoder: 'Phase-vocoder crossfade',
+    phaseVocoderHelp: 'Joins blocks without the slight dip in level a plain crossfade can leave, when two blocks render a sound differently.',
     latency: 'est. latency {ms} ms',
   },
   source: {
@@ -164,7 +168,7 @@ export default {
     downloadAll: 'Download all',
     missing: 'The file is gone',
     deleted: 'Result deleted',
-    kinds: { converted: 'converted', stem: 'stem', remix: 'remix', preview: 'preview' },
+    kinds: { converted: 'converted', stem: 'stem', remix: 'remix', preview: 'preview', recording: 'recording' },
   },
   jobs: {
     transfer: '{done} of {total}',
@@ -223,6 +227,10 @@ export default {
     queued: 'Conversion queued',
   },
   live: {
+    record: 'Record',
+    recordSource: { both: 'Voice and input (stereo)', converted: 'Converted voice', input: 'Input only' },
+    stopRecording: 'Stop recording · {time}',
+    recordings: 'Recordings',
     title: 'Live',
     start: 'Start',
     stop: 'Stop',
@@ -255,6 +263,7 @@ export default {
     monitorSource: { converted: 'Converted', input: 'Input', both: 'Both' },
     monitorGain: 'Monitor level',
     outputGain: 'Output level',
+    inputGain: 'Input level',
     channels: 'Channels',
     channelsDefault: 'Default (channel {list})',
     channel: 'Channel {n}',

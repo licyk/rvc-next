@@ -13,6 +13,10 @@ class StreamParams:
     """-60 turns the gate off."""
     input_denoise: bool = False
     output_denoise: bool = False
+    denoise_strength: float = 0.9
+    """How much the noise gate lowers what it takes for noise (TorchGate's ``prop_decrease``)."""
+    phase_vocoder: bool = False
+    """Crossfade blocks with the phase vocoder (``audio/sola.py``) instead of the plain sin² fade."""
 
     def same_buffers(self, other: "StreamParams") -> bool:
         """Whether ``other`` keeps the buffer layout, so only hot fields changed."""

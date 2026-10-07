@@ -107,7 +107,7 @@ def build_services(
     imports.separation = separation_models
     training.base = base_models
     separation.library = separation_models
-    live = LiveService(settings, events, models, assets, compute, jobs)
+    live = LiveService(settings, events, models, assets, compute, jobs, audio)
     services = Services(
         settings=settings,
         events=events,

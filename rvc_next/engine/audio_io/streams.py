@@ -450,7 +450,13 @@ class SessionConfig:
     monitor_source: str = "converted"
     monitor_gain_db: float = 0.0
     output_gain_db: float = 0.0
+    input_gain_db: float = 0.0
+    """Applied to the input before it is metered and converted."""
     extra: dict[str, Any] = field(default_factory=dict)
+
+    def same_endpoints(self, other: SessionConfig) -> bool:
+        """Whether ``other`` opens the same devices, so only gains and the monitor's source changed."""
+        return (self.input, self.output, self.monitor) == (other.input, other.output, other.monitor)
 
 
 class AudioSession:
@@ -477,6 +483,8 @@ class AudioSession:
         self.sample_rate = int(sample_rate or engine_rate(config.output, config.input))
         self.processor = processor
         self.passthrough = False
+        self.tap: Callable[[np.ndarray, np.ndarray], None] | None = None
+        """Called with every processed block's input and output (at the session rate): the recorder."""
         self.on_device_lost = on_device_lost
         self.on_error = on_error
         self.topology = choose_topology(config.input, config.output, self.sample_rate)
@@ -692,6 +700,8 @@ class AudioSession:
 
     def _process_block(self, x: np.ndarray) -> None:
         cfg = self.config
+        if cfg.input_gain_db:
+            x = x * db_to_gain(cfg.input_gain_db)
         self.input_levels.update(x)
         if cfg.output is None:
             self.processed_blocks += 1
@@ -708,6 +718,9 @@ class AudioSession:
             y = x
         if y.shape[0] != self.block:
             y = np.resize(y, self.block) if y.shape[0] else np.zeros(self.block, dtype=np.float32)
+        tap = self.tap
+        if tap is not None:
+            tap(x, y)
         out = y * db_to_gain(cfg.output_gain_db) if cfg.output_gain_db else y
         self.output_levels.update(out)
         self.out_ring.write(out)

@@ -298,3 +298,28 @@ def test_start_reuses_a_recent_device_list(live, services, tiny_voice_file, monk
     assert actions.count("enumerate") == 1
     live.stop()
     assert wait_for(lambda: live.state().state == "stopped")
+
+
+def test_recording_becomes_an_output(live, services, tiny_voice_file):
+    import soundfile as sf
+
+    from rvc_next.core.live.models import RecordingRequest
+
+    voice = services.models.import_paths([tiny_voice_file]).voices[0]
+    params = VoiceParamsModel(f0_method="pm", index_rate=0, rms_mix_rate=0)
+    live.start(LiveConfig(voice_id=voice.id, params=params, stream=StreamParamsModel(block_ms=200, context_ms=500, phase_vocoder=True)))
+    assert wait_for(lambda: live.state().state == "running"), live.state()
+    state = live.start_recording(RecordingRequest(source="both"))
+    assert state.recording is not None and state.recording.path.endswith(".both.wav")
+    time.sleep(1.0)
+    # Gains alone apply to the running session without reopening its devices.
+    live.set_devices(services.settings.settings.live.devices.model_copy(update={"input_gain_db": 6.0}))
+    time.sleep(0.5)
+    assert live.state().state == "running" and live.state().recording is not None
+    live.stop_recording()
+    assert wait_for(lambda: any(o.kind == "recording" for o in services.audio.list_outputs().items))
+    out = next(o for o in services.audio.list_outputs().items if o.kind == "recording")
+    data, rate = sf.read(out.path)
+    assert data.ndim == 2 and data.shape[1] == 2 and data.shape[0] > rate // 2 and out.model_id == voice.id
+    live.stop()
+    assert wait_for(lambda: live.state().state == "stopped")

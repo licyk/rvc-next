@@ -7,7 +7,8 @@ the new frames only, pitch on the tail rolled into a 1024-frame cache, ``skip_he
 ``return_length`` generation, formant resample, RMS mix and the SOLA crossfade. The original's
 three copies (GUI callback, ``rtrvc``, VST worker) become this one class. Three changes: the speaker
 id is honoured (the original fixed ``sid = 0``), changing block, crossfade or context rebuffers
-without reloading the voice, and ``protect`` applies when ``unvoiced`` is not "original" (the
+without reloading the voice, an optional phase-vocoder crossfade (``StreamParams.phase_vocoder``),
+and ``protect`` applies when ``unvoiced`` is not "original" (the
 original has no protect step in realtime).
 """
 
@@ -198,8 +199,8 @@ class StreamEngine:
                 t = np.arange(self.block_frame) / self.sample_rate
                 block = (0.1 * np.sin(2 * np.pi * 220.0 * t)).astype(np.float32)  # -23 dB, above the gate
                 self.params = replace(params, rms_mix_rate=min(params.rms_mix_rate, 0.5))
-                for gate, denoise in ((-60.0, False), (-50.0, False), (-50.0, True)):
-                    self.stream = replace(stream, threshold_db=gate, input_denoise=denoise, output_denoise=denoise)
+                for gate, denoise, pv in ((-60.0, False, False), (-50.0, False, False), (-50.0, True, True)):
+                    self.stream = replace(stream, threshold_db=gate, input_denoise=denoise, output_denoise=denoise, phase_vocoder=pv)
                     with torch.no_grad():
                         self._process(block)
                 if cuda_graph_enabled(self.device):
@@ -243,6 +244,7 @@ class StreamEngine:
         self.input_wav[-indata.shape[0] :] = torch.from_numpy(indata).to(self.device)
         self.input_wav_res[: -self.block_frame_16k] = self.input_wav_res[self.block_frame_16k :].clone()
         resampler = self.resampler
+        self.tg.prop_decrease = s.denoise_strength
         if s.input_denoise:
             self.input_wav_denoise[: -self.block_frame] = self.input_wav_denoise[self.block_frame :].clone()
             input_wav = self.input_wav[-self.sola_buffer_frame - self.block_frame :]
@@ -283,7 +285,7 @@ class StreamEngine:
             rms2 = torch.max(rms2, torch.zeros_like(rms2) + 1e-3)
             infer_wav *= torch.pow(rms1 / rms2, 1.0 - params.rms_mix_rate)
 
-        out = self.sola.apply(infer_wav, self.block_frame)
+        out = self.sola.apply(infer_wav, self.block_frame, s.phase_vocoder)
         return out.detach().cpu().numpy().astype(np.float32, copy=True)
 
     # -- inference (``rtrvc.RVC.infer``) ------------------------------------------------------

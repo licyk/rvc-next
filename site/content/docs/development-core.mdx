@@ -388,6 +388,8 @@ worker 一连上就会宣告一次 `stopped`；`_awaiting_start` 让服务忽略
 - `start()` 把设备、流参数、`last_voice`、`last_params` 写回设置（`live` 组），所以不带参数的 **Start** 恢复上一次会话，`rvc-next live run` 读的也是同样的值。设备属于服务器所在的机器，因此放在设置里而不是浏览器的客户端状态里。
 - worker 的 `Stats` 消息（约 10 Hz）转成 `live_stats` 事件，状态变化转成 `live_state`。live worker 报告显存不足时，它先卸载自己的模型，核心层再调用 `release_after_oom("Live")`。
 - 电平表（`meter`）和直通（`passthrough`）在会话未运行时也会按需启动 worker；会话运行时显示会话自己的电平。
+- **录音**（`start_recording`/`stop_recording`，`POST`/`DELETE /live/recording`）：核心层选定文件（`outputs/<日期>/live/Live <时间>.<音色>.<来源>.wav`）并发送 `Record`；worker 的 `engine/audio_io/recorder.Recorder` 通过 `AudioSession.tap` 拿到每一块，在自己的线程里写入。录音结束（停止、会话结束、采样率改变）时 worker 发送 `Recorded`，核心层把文件作为 `recording` 类型的输出加入，并记下会话的音色和参数。`LiveState.recording` 以 worker 的确认为准，所以在 `Record` 到达前发出的状态不会把它清掉。
+- 只改变音量或监听来源的 `SetDevices` 会就地更新正在运行的 `AudioSession.config`（`SessionConfig.same_endpoints`），其他改动会重新打开设备。
 
 ## 设置
 

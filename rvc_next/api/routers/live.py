@@ -4,7 +4,19 @@ from fastapi import APIRouter
 
 from rvc_next.api.deps import ServicesDep
 from rvc_next.api.errors import ERROR_RESPONSES
-from rvc_next.core.live.models import DeviceCheck, DeviceList, LatencyMeasurement, LatencyTestRequest, LiveConfig, LiveDevices, LiveState, LiveVoiceRequest, TestToneRequest, Toggle
+from rvc_next.core.live.models import (
+    DeviceCheck,
+    DeviceList,
+    LatencyMeasurement,
+    LatencyTestRequest,
+    LiveConfig,
+    LiveDevices,
+    LiveState,
+    LiveVoiceRequest,
+    RecordingRequest,
+    TestToneRequest,
+    Toggle,
+)
 from rvc_next.core.params import StreamParamsModel, VoiceParamsModel
 
 router = APIRouter(prefix="/v1/live", tags=["live"], responses=ERROR_RESPONSES)
@@ -75,6 +87,18 @@ def measure_latency(services: ServicesDep, body: LatencyTestRequest) -> LatencyM
 def meter(services: ServicesDep, body: Toggle) -> LiveState:
     """Open the input alone and stream its level while Live is stopped."""
     return services.live.meter(body.on)
+
+
+@router.post("/recording", operation_id="start_live_recording")
+def start_recording(services: ServicesDep, body: RecordingRequest) -> LiveState:
+    """Record the running session to a WAV file in the outputs folder; it is listed as an output
+    (kind ``recording``) once it stops."""
+    return services.live.start_recording(body)
+
+
+@router.delete("/recording", operation_id="stop_live_recording")
+def stop_recording(services: ServicesDep) -> LiveState:
+    return services.live.stop_recording()
 
 
 @router.post("/passthrough", operation_id="set_live_passthrough")

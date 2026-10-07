@@ -146,6 +146,10 @@ def live_run(
     crossfade_ms: Annotated[int | None, typer.Option(help="Crossfade in ms")] = None,
     context_ms: Annotated[int | None, typer.Option(help="Extra context in ms")] = None,
     threshold_db: Annotated[float | None, typer.Option(help="Input gate in dB; -60 turns it off")] = None,
+    denoise_strength: Annotated[float | None, typer.Option(min=0, max=1, help="How much input/output noise reduction lowers the noise")] = None,
+    phase_vocoder: Annotated[bool | None, typer.Option("--phase-vocoder/--no-phase-vocoder", help="Phase-vocoder crossfade between blocks")] = None,
+    input_gain: Annotated[float | None, typer.Option("--input-gain", min=-24, max=24, help="Input gain in dB")] = None,
+    record: Annotated[str | None, typer.Option("--record", help="Record the session to the outputs folder: both (stereo, input left), converted or input")] = None,
     allow_fallback: Annotated[bool, typer.Option("--allow-fallback", help="Start even if the saved output is gone and the default would be used")] = False,
     seconds: Annotated[float | None, typer.Option(help="Stop after this many seconds (default: until Ctrl+C)")] = None,
 ) -> None:
@@ -160,9 +164,17 @@ def live_run(
         v = services.models.resolve(ref, allow_path=False)
         base = services.presets.resolve(preset, v.id).params if preset else (live.last_params if v.id == live.last_voice else services.presets.default_for(v.id).params)
         params = build_params(base, speaker=speaker, pitch=pitch, formant=formant, f0=f0, index_rate=index_rate, protect=protect, rms_mix=rms_mix, unvoiced=unvoiced)
-        stream = live.stream.model_copy(
-            update={k: val for k, val in {"block_ms": block_ms, "crossfade_ms": crossfade_ms, "context_ms": context_ms, "threshold_db": threshold_db}.items() if val is not None}
-        )
+        if record is not None and record not in ("both", "converted", "input"):
+            raise typer.BadParameter("--record is both, converted or input")
+        changes = {
+            "block_ms": block_ms,
+            "crossfade_ms": crossfade_ms,
+            "context_ms": context_ms,
+            "threshold_db": threshold_db,
+            "denoise_strength": denoise_strength,
+            "phase_vocoder": phase_vocoder,
+        }
+        stream = live.stream.model_copy(update={k: val for k, val in changes.items() if val is not None})
         listing = services.live.devices(refresh=True)
         devices = live.devices.model_copy()
         if (sel := _find(listing, "input", input_)) is not None:
@@ -171,14 +183,17 @@ def live_run(
             devices.output = sel
         if monitor is not None:
             devices.monitor = None if monitor.lower() == "none" else _find(listing, "output", monitor)
+        if input_gain is not None:
+            devices.input_gain_db = input_gain
         services.live.start(LiveConfig(voice_id=v.id, params=params, stream=stream, devices=devices, allow_output_fallback=allow_fallback))
-        _status_loop(services, seconds)
+        _status_loop(services, seconds, record)
 
 
-def _status_loop(services: Services, seconds: float | None) -> None:
+def _status_loop(services: Services, seconds: float | None, record: str | None = None) -> None:
     from rich.live import Live
 
     started = time.monotonic()
+    recorded = None
     try:
         with Live(console=err_console, refresh_per_second=4, transient=True) as view:
             while True:
@@ -186,6 +201,10 @@ def _status_loop(services: Services, seconds: float | None) -> None:
                 stats = services.live.stats()
                 if state.state == "error":
                     break
+                if record is not None and state.state == "running" and state.recording is None and recorded is None:
+                    from rvc_next.core.live.models import RecordingRequest
+
+                    recorded = services.live.start_recording(RecordingRequest(source=record)).recording  # ty: ignore[invalid-argument-type]
                 if state.state == "stopped" and time.monotonic() - started > 2:
                     break
                 load = stats.infer_ms_p95 / stats.block_ms if stats.block_ms else 0.0
@@ -208,6 +227,8 @@ def _status_loop(services: Services, seconds: float | None) -> None:
                     break
                 time.sleep(0.25)
     final = services.live.state()
+    if recorded is not None:
+        err_console.print(f"Recorded {recorded.path}")
     if final.error:
         err_console.print(f"[red]{final.error.get('message')}[/red]")
         raise typer.Exit(8 if final.error.get("code") == "device_unavailable" else 1)

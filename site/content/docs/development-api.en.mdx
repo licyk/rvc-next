@@ -59,7 +59,7 @@ Errors are defined in `core/errors.py`; `api/errors.py` only maps them. HTTP sta
 | `separate` | `/v1/separate` | `GET presets`, `POST ""` → `Job` |
 | `train` | `/v1/train` | Experiment CRUD, `dataset/scan`, `speakers`, `speakers/from-folders`, `run` → `Job`, `stop`, `metrics?since=`, `checkpoints`, `export` → `Job`, `try` (temporary voice), `POST /import` (legacy experiment) |
 | `jobs` | `/v1/jobs` | List (`state` can be a specific state or `active`/`finished`), `DELETE ""` (clear finished jobs, keep outputs), individual job, `log?offset=`, `cancel`, `retry`, `run-anyway`, delete |
-| `live` | `/v1/live` | `GET state`, `POST start/stop`, `PATCH voice`, `PATCH stream`, `PUT voice-model`, `PUT/GET devices`, `POST devices/check`, `POST devices/test-tone`, `POST meter`, `POST passthrough` |
+| `live` | `/v1/live` | `GET state`, `POST start/stop`, `PATCH voice`, `PATCH stream`, `PUT voice-model`, `PUT/GET devices`, `POST devices/check`, `POST devices/test-tone`, `POST meter`, `POST passthrough`, `POST/DELETE recording` |
 
 <Callout type="info" title="Route order">
 

@@ -125,6 +125,10 @@ export default {
     thresholdHelp: '低于此电平的输入会被静音。−60 dB 为关闭。',
     inputDenoise: '输入降噪',
     outputDenoise: '输出降噪',
+    denoiseStrength: '降噪强度',
+    denoiseStrengthHelp: '噪声被压低多少；1 去除最多，也可能带走一些人声。',
+    phaseVocoder: '相位声码器交叉淡化',
+    phaseVocoderHelp: '当相邻两块对同一个声音渲染得不同时，拼接处不会出现普通交叉淡化可能留下的轻微音量下陷。',
     latency: '估计延迟 {ms} 毫秒',
   },
   source: {
@@ -164,7 +168,7 @@ export default {
     downloadAll: '全部下载',
     missing: '文件已不存在',
     deleted: '已删除结果',
-    kinds: { converted: '已转换', stem: '分轨', remix: '混音', preview: '预览' },
+    kinds: { converted: '已转换', stem: '分轨', remix: '混音', preview: '预览', recording: '录音' },
   },
   jobs: {
     transfer: '{done} / {total}',
@@ -223,6 +227,10 @@ export default {
     queued: '转换已加入队列',
   },
   live: {
+    record: '录音',
+    recordSource: { both: '变声与输入（立体声）', converted: '仅变声', input: '仅输入' },
+    stopRecording: '停止录音 · {time}',
+    recordings: '录音',
     title: '实时',
     start: '开始',
     stop: '停止',
@@ -255,6 +263,7 @@ export default {
     monitorSource: { converted: '转换后', input: '输入', both: '两者' },
     monitorGain: '监听音量',
     outputGain: '输出音量',
+    inputGain: '输入音量',
     channels: '声道',
     channelsDefault: '默认（声道 {list}）',
     channel: '声道 {n}',

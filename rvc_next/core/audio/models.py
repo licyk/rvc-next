@@ -7,7 +7,7 @@ from pydantic import Field
 from rvc_next.core.params import VoiceParamsModel
 from rvc_next.core.record import Record
 
-OutputKind = Literal["converted", "stem", "remix", "preview"]
+OutputKind = Literal["converted", "stem", "remix", "preview", "recording"]
 
 
 class AudioRef(Record):

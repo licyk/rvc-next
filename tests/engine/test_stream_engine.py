@@ -174,3 +174,30 @@ def test_swift_in_the_stream(tiny_runtime, voice) -> None:
     engine = StreamEngine(tiny_runtime, voice, VoiceParams(f0_method="swift"), STREAM, 48000)
     outs = _run(engine, tone(0.5, sr=48000), 4)
     assert all(o.shape == (engine.block_size,) for o in outs)
+
+
+def test_phase_vocoder_crossfade() -> None:
+    import torch
+
+    from rvc_next.engine.audio.sola import fade_windows, phase_vocoder
+
+    n = 1920
+    fade_in, fade_out = fade_windows(n, "cpu")
+    t = torch.arange(n) / 48000
+    a = torch.sin(2 * np.pi * 150 * t)
+    # The same signal on both sides comes out unchanged.
+    assert torch.allclose(phase_vocoder(a, a.clone(), fade_out, fade_in), a, atol=1e-4)
+    # A phase-shifted rendering: the plain fade dips in the middle, the phase vocoder much less.
+    b = torch.sin(2 * np.pi * 150 * t + 2.5)
+    mid = slice(n * 3 // 8, n * 5 // 8)
+    linear = a * fade_out + b * fade_in
+    pv = phase_vocoder(a, b, fade_out, fade_in)
+    assert pv[mid].pow(2).mean().sqrt() > 1.2 * linear[mid].pow(2).mean().sqrt()
+
+
+def test_stream_with_phase_vocoder_and_denoise_strength(tiny_runtime, voice) -> None:
+    stream = StreamParams(block_ms=100, crossfade_ms=50, context_ms=300, phase_vocoder=True, output_denoise=True, denoise_strength=0.5)
+    engine = StreamEngine(tiny_runtime, voice, VoiceParams(f0_method="pm"), stream, 48000)
+    outs = _run(engine, tone(0.5, sr=48000), 4)
+    assert all(o.shape == (engine.block_size,) and np.isfinite(o).all() for o in outs)
+    assert engine.tg.prop_decrease == 0.5

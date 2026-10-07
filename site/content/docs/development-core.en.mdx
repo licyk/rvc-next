@@ -388,6 +388,8 @@ The worker announces `stopped` immediately after connecting; `_awaiting_start` m
 - `start()` saves devices, stream parameters, `last_voice`, `last_params` to settings (the `live` group), so **Start** without arguments restores the last session; `rvc-next live run` reads the same values. Devices belong to the server machine, so they live in settings rather than browser client state.
 - Worker `Stats` (about 10 Hz) become `live_stats`, and state changes become `live_state`. When the live worker reports OOM, it unloads its models first, then core calls `release_after_oom("Live")`.
 - Meters (`meter`) and passthrough (`passthrough`) start the worker on demand even without a running session; running sessions show their own levels.
+- **Recording** (`start_recording`/`stop_recording`, `POST`/`DELETE /live/recording`): the core picks the file (`outputs/<date>/live/Live <time>.<voice>.<source>.wav`) and sends `Record`; the worker's `engine/audio_io/recorder.Recorder` gets every block from `AudioSession.tap` and writes on its own thread. When it ends (stop, the session's end, a new sample rate), the worker sends `Recorded` and the core adds the file as an output of kind `recording` with the session's voice and parameters. `LiveState.recording` follows the worker's confirmation, so a state sent before `Record` arrived does not clear it.
+- A `SetDevices` that changes only gains or the monitor's source updates the running `AudioSession.config` in place (`SessionConfig.same_endpoints`); other changes reopen the devices.
 
 ## Settings
 

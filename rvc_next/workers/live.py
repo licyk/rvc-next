@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from rvc_next.engine.audio_io.fake import backend_from_request
+from rvc_next.engine.audio_io.recorder import Recorder
 from rvc_next.engine.audio_io.streams import AudioSession, DeviceOpenError, Endpoint, SessionConfig, engine_rate
 from rvc_next.engine.audio_io.tone import chime
 from rvc_next.engine.convert.params import VoiceParams
@@ -65,6 +66,7 @@ def session_config(devices: dict[str, Any] | None) -> SessionConfig:
         monitor_source=str(devices.get("monitor_source", "converted")),
         monitor_gain_db=float(devices.get("monitor_gain_db", 0.0)),
         output_gain_db=float(devices.get("output_gain_db", 0.0)),
+        input_gain_db=float(devices.get("input_gain_db", 0.0)),
     )
 
 
@@ -84,6 +86,7 @@ class LiveWorker:
         self._last_error: dict[str, Any] | None = None
         self.engine: Any = None
         self.session: AudioSession | None = None
+        self.recorder: Recorder | None = None
         self.aux: AudioSession | None = None
         """A session without the voice: the meter, or passthrough while stopped."""
         self.params = VoiceParams()
@@ -127,6 +130,7 @@ class LiveWorker:
                 cached=self.runtime.cached() if self.runtime is not None else [],
                 voice_path=voice_path,
                 stage=stage,
+                recording=str(self.recorder.path) if self.recorder is not None else None,
             )
         )
 
@@ -216,6 +220,8 @@ class LiveWorker:
                 self.test_tone(message.device)
             elif isinstance(message, P.Passthrough):
                 self.set_passthrough(message.on)
+            elif isinstance(message, P.Record):
+                self.record(message.on, message.path, message.source)
             elif isinstance(message, P.ReleaseMemory):
                 self.release_memory()
 
@@ -287,8 +293,40 @@ class LiveWorker:
             self.set_state("error", _error("device_unavailable", e.message, reason=e.reason, role=e.role, device_id=e.device_id))
             return False
         self.session = session
+        if self.recorder is not None:
+            if self.recorder.sample_rate == session.sample_rate:
+                session.tap = self.recorder.write  # the recording goes on across a reopen
+            else:
+                self._finish_recording()
         self.set_state("running")
         return True
+
+    def record(self, on: bool, path: str | None, source: str) -> None:
+        """Start or stop recording the running session (``protocol.live.Record``)."""
+        if not on:
+            self._finish_recording()
+            self.set_state(self.state, self._last_error)
+            return
+        if self.session is None or self.state != "running" or not path:
+            self.set_state(self.state, _error("conflict", "Recording needs a running session"))
+            return
+        self._finish_recording()
+        try:
+            self.recorder = Recorder(path, self.session.sample_rate, source)
+        except (OSError, ValueError, RuntimeError) as e:
+            self.set_state(self.state, _error("invalid_path", f"Cannot record to {path}: {e}"))
+            return
+        self.session.tap = self.recorder.write
+        self.set_state(self.state)
+
+    def _finish_recording(self) -> None:
+        recorder, self.recorder = self.recorder, None
+        if recorder is None:
+            return
+        if self.session is not None:
+            self.session.tap = None
+        result = recorder.close()
+        self.send(P.Recorded(path=result.path, source=result.source, sample_rate=result.sample_rate, seconds=round(result.seconds, 3), dropped_blocks=result.dropped_blocks))
 
     def stop(self) -> None:
         if self.session is not None or self.state not in ("stopped",):
@@ -317,6 +355,9 @@ class LiveWorker:
         return _error("compute_unavailable", f"Out of GPU memory: {error}", reason=OUT_OF_MEMORY)
 
     def _stop_sessions(self) -> None:
+        if self.session is not None:
+            self.session.tap = None
+        self._finish_recording()
         for name in ("session", "aux"):
             s = getattr(self, name)
             setattr(self, name, None)
@@ -397,6 +438,9 @@ class LiveWorker:
         if self.engine is None or self.state not in ("running", "reconnecting", "error"):
             return
         cfg = session_config(self.devices)
+        if self.session is not None and self.session.config.same_endpoints(cfg):
+            self.session.config = cfg  # only gains or the monitor's source changed: from the next block
+            return
         if self.session is not None:
             self.session.stop()
             self.session = None

@@ -395,3 +395,21 @@ def test_wasapi_shared_streams_let_windows_convert() -> None:
     assert (shared.exclusive, shared.auto_convert) == (False, True)
     assert (exclusive.exclusive, exclusive.auto_convert) == (True, False)
     assert backend._extra(Endpoint({**wasapi, "host_api": "wdm-ks"})) is None and backend._extra(Endpoint()) is None
+
+
+def test_recorder_writes_what_it_is_given(tmp_path) -> None:
+    import soundfile as sf
+
+    from rvc_next.engine.audio_io.recorder import Recorder
+
+    rec = Recorder(tmp_path / "r.wav", 16000, "both")
+    for _ in range(10):
+        rec.write(np.full(1600, 0.25, np.float32), np.full(1600, -0.5, np.float32))
+    result = rec.close()
+    data, rate = sf.read(result.path)
+    assert rate == 16000 and data.shape == (16000, 2) and result.seconds == 1.0 and result.dropped_blocks == 0
+    assert np.allclose(data[:, 0], 0.25, atol=1e-4) and np.allclose(data[:, 1], -0.5, atol=1e-4)
+    mono = Recorder(tmp_path / "m.wav", 16000, "converted")
+    mono.write(np.zeros(160, np.float32), np.ones(160, np.float32) * 2)  # clipped to full scale
+    data, _ = sf.read(mono.close().path)
+    assert data.ndim == 1 and np.allclose(data, 1.0, atol=1e-4)

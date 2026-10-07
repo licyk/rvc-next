@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import type { LiveState, LiveStats } from '@/api/types';
 
-const STOPPED: LiveState = { state: 'stopped', voice_id: null, config: null, resolved: [], topology: null, sample_rate: null, meter: false, passthrough: false, error: null, started_at: null, stage: null, latency_test: null };
+const STOPPED: LiveState = { state: 'stopped', voice_id: null, config: null, resolved: [], topology: null, sample_rate: null, meter: false, passthrough: false, error: null, started_at: null, stage: null, recording: null, latency_test: null };
 
 /** Live session state and its 10 Hz stats. Stats never enter the query cache. */
 export const useLiveStore = defineStore('live', () => {

@@ -766,6 +766,10 @@ rvc-next live test-tone [OPTIONS] [DEVICE]
 | `--crossfade-ms <int>` | 交叉淡化（毫秒），`[10, 150]` | 已保存的值（50） |
 | `--context-ms <int>` | 额外上下文（毫秒），`[50, 5000]` | 已保存的值（2500） |
 | `--threshold-db <float>` | 输入门限（dB），`[-60, 0]`；-60 为关闭 | 已保存的值（-60） |
+| `--denoise-strength <float>` | 降噪强度，`[0, 1]` | 已保存的值（0.9） |
+| `--phase-vocoder` / `--no-phase-vocoder` | 块之间用相位声码器交叉淡化 | 已保存的值（关） |
+| `--input-gain <float>` | 输入音量（dB），`[-24, 24]` | 已保存的值（0） |
+| `--record <source>` | 运行后把会话录到输出文件夹：`both`（立体声，左为输入）、`converted` 或 `input`；实时变声停止时打印文件路径 | 不录音 |
 | `--allow-fallback` | 已保存的输出设备不存在、将使用默认设备时仍然启动 | 关 |
 | `--seconds <float>` | 运行这么多秒后停止 | 直到 <kbd>ctrl</kbd>+<kbd>c</kbd> |
 

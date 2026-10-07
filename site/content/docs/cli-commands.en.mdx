@@ -766,6 +766,10 @@ Convert live with the server's devices until <kbd>ctrl</kbd>+<kbd>c</kbd>, with 
 | `--crossfade-ms <int>` | Crossfade in milliseconds, `[10, 150]` | Saved value (50) |
 | `--context-ms <int>` | Extra context in milliseconds, `[50, 5000]` | Saved value (2500) |
 | `--threshold-db <float>` | Input gate in dB, `[-60, 0]`; -60 turns it off | Saved value (-60) |
+| `--denoise-strength <float>` | Noise reduction strength, `[0, 1]` | Saved value (0.9) |
+| `--phase-vocoder` / `--no-phase-vocoder` | Phase-vocoder crossfade between blocks | Saved value (off) |
+| `--input-gain <float>` | Input level in dB, `[-24, 24]` | Saved value (0) |
+| `--record <source>` | Record the session to the outputs folder once it runs: `both` (stereo, input left), `converted` or `input`; the file is printed when Live stops | Not recorded |
 | `--allow-fallback` | Start even if the saved output device is missing and the default would be used | Off |
 | `--seconds <float>` | Stop after this many seconds | Until <kbd>ctrl</kbd>+<kbd>c</kbd> |
 

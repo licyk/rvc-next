@@ -130,6 +130,18 @@ export const PARAM_SPECS: Record<'voice' | 'stream', Record<string, ParamSpec>> 
     "output_denoise": {
       "type": "boolean",
       "default": false
+    },
+    "denoise_strength": {
+      "type": "number",
+      "default": 0.9,
+      "min": 0,
+      "max": 1,
+      "help": "How much input and output noise reduction lowers the noise"
+    },
+    "phase_vocoder": {
+      "type": "boolean",
+      "default": false,
+      "help": "Phase-vocoder crossfade: joins blocks without the dip a plain crossfade can leave"
     }
   }
 };

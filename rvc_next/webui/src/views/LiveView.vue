@@ -1,21 +1,24 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { ApiError } from '@/api/client';
 import { useMeta, useSettings, useUpdateSettings } from '@/api/queries/app';
 import { useLiveControl, useLiveDevices } from '@/api/queries/live';
+import { useOutputs } from '@/api/queries/outputs';
 import type { LiveDevices, StreamParams, VoiceModel, VoiceParams } from '@/api/types';
 import AssetGate from '@/components/AssetGate.vue';
 import DevicePanel from '@/components/DevicePanel.vue';
 import DevicePanelSkeleton from '@/components/DevicePanelSkeleton.vue';
 import ErrorNotice from '@/components/ErrorNotice.vue';
 import LiveStatsBar from '@/components/LiveStatsBar.vue';
+import ResultsList from '@/components/ResultsList.vue';
 import StreamParamsPanel from '@/components/StreamParamsPanel.vue';
 import VoiceParamsPanel from '@/components/VoiceParamsPanel.vue';
 import VoicePicker from '@/components/VoicePicker.vue';
 import { defaults, pitchAssets } from '@/components/paramFields';
 import { useI18n } from '@/i18n';
 import { useLiveStore } from '@/stores/live';
-import { AppButton, ConfirmDialog, EmptyState, PageFooter, Surface, icons } from '@/ui';
+import { formatDuration } from '@/format';
+import { AppButton, AppMenu, ConfirmDialog, EmptyState, PageFooter, Surface, icons, type MenuItem } from '@/ui';
 
 /**
  * Live: devices on top, voice and parameters in the middle (both hot), buffering below,
@@ -123,6 +126,21 @@ function toggle() {
   if (running.value) control.stop.mutate();
   else start();
 }
+
+// Recording: a WAV of the session in the outputs folder, listed below once it stops.
+const recordings = useOutputs({ kind: 'recording' });
+const recordingItems = computed(() => recordings.data.value?.items ?? []);
+const recordMenu = computed<MenuItem[]>(() => (['both', 'converted', 'input'] as const).map((id) => ({ id, label: t(`live.recordSource.${id}`) })));
+const now = ref(Date.now());
+const clock = window.setInterval(() => (now.value = Date.now()), 500);
+onBeforeUnmount(() => window.clearInterval(clock));
+const recordedFor = computed(() => {
+  const started = live.state.recording?.started_at;
+  return started ? formatDuration(Math.max(0, (now.value - Date.parse(started)) / 1000)) : '';
+});
+function record(source: string) {
+  control.startRecording.mutate(source as 'both' | 'converted' | 'input', { onError: (e) => (error.value = e) });
+}
 </script>
 
 <template>
@@ -142,6 +160,10 @@ function toggle() {
         <Surface :level="0" shape="large" class="section">
           <StreamParamsPanel v-model="stream" @change="onStream" />
         </Surface>
+        <Surface v-if="recordingItems.length" :level="0" shape="large" class="section">
+          <h2 class="type-title-medium title">{{ t('live.recordings') }}</h2>
+          <ResultsList :outputs="recordingItems" />
+        </Surface>
       </div>
       <PageFooter>
         <ErrorNotice v-if="error" :error="error" />
@@ -151,6 +173,14 @@ function toggle() {
             <AppButton class="start" :icon="running ? icons.Square : icons.Mic" :loading="live.busy || requested" :disabled="!voiceId && !running" @click="toggle">{{ buttonText }}</AppButton>
           </AssetGate>
           <span v-if="!voiceId && !running" class="type-body-small muted">{{ t('live.noVoice') }}</span>
+          <AppButton v-if="live.state.recording" variant="tonal" :icon="icons.Square" :loading="control.stopRecording.isPending.value" @click="control.stopRecording.mutate()">
+            {{ t('live.stopRecording', { time: recordedFor }) }}
+          </AppButton>
+          <AppMenu v-else-if="live.state.state === 'running'" :items="recordMenu" @select="record">
+            <template #default="{ toggle: open }">
+              <AppButton variant="tonal" :icon="icons.CircleDot" :loading="control.startRecording.isPending.value" @click="open">{{ t('live.record') }}</AppButton>
+            </template>
+          </AppMenu>
           <LiveStatsBar class="stats" @increase-block="increaseBlock" />
         </div>
       </PageFooter>
@@ -167,6 +197,7 @@ function toggle() {
 .bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--app-space-4); }
 .start { --md-filled-button-container-height: 56px; min-width: 160px; }
 .stats { flex: 1; min-width: 0; }
+.title { margin: 0; }
 @container app-content (max-width: 599px) {
   .sections { padding: var(--app-space-3); }
   .section { padding: var(--app-space-4); }

@@ -20,6 +20,7 @@ export {
   ChevronRight,
   ChevronUp,
   CircleCheck,
+  CircleDot,
   CircleHelp,
   CircleStop,
   CircleX,

@@ -16,15 +16,17 @@ import sys
 import tempfile
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rvc_next.core.assets.service import AssetService
 from rvc_next.core.clock import now_iso
 from rvc_next.core.compute.service import LIVE_HOLDER, ComputeService, MemoryHolder
-from rvc_next.core.errors import BusyError, DeviceError, RvcNextError, ValidationError
+from rvc_next.core.errors import BusyError, ConflictError, DeviceError, RvcNextError, ValidationError
 from rvc_next.core.events import EventBus
 from rvc_next.core.events.models import DevicesChangedEvent, LiveStateEvent, LiveStatsEvent
+from rvc_next.core.files import slugify
 from rvc_next.core.jobs.service import JobService
 from rvc_next.core.live.models import (
     DeviceCheck,
@@ -35,17 +37,23 @@ from rvc_next.core.live.models import (
     LatencyTestRequest,
     LiveConfig,
     LiveDevices,
+    LiveRecording,
     LiveState,
     LiveStats,
+    RecordingRequest,
     ResolvedDevice,
     TestToneRequest,
 )
 from rvc_next.core.live.supervisor import LiveSupervisor
 from rvc_next.core.models.service import VoiceModelService
 from rvc_next.core.params import StreamParamsModel, VoiceParamsModel, f0_assets
+from rvc_next.core.safety import unique_path
 from rvc_next.core.settings import SettingsService
 from rvc_next.protocol import live as P
 from rvc_next.protocol.messages import OUT_OF_MEMORY
+
+if TYPE_CHECKING:
+    from rvc_next.core.audio.service import AudioFileService
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +68,18 @@ ACTIVE = ("starting", "loading", "prewarming", "running", "reconnecting")
 
 
 class LiveService:
-    def __init__(self, settings: SettingsService, events: EventBus, models: VoiceModelService, assets: AssetService, compute: ComputeService, jobs: JobService) -> None:
+    def __init__(
+        self,
+        settings: SettingsService,
+        events: EventBus,
+        models: VoiceModelService,
+        assets: AssetService,
+        compute: ComputeService,
+        jobs: JobService,
+        audio: AudioFileService | None = None,
+    ) -> None:
         self._settings = settings
+        self._audio = audio
         self._events = events
         self._models = models
         self._assets = assets
@@ -85,6 +103,8 @@ class LiveService:
         self._closing = False
         self._awaiting_start = False
         self._measuring = False
+        self._recording_seen = False
+        """The worker has confirmed the current recording (a state naming its file)."""
         self.backend = "sounddevice"
         """``fake`` in tests, with ``fake`` as the fake backend's configuration."""
         self.fake: dict[str, Any] | None = None
@@ -146,6 +166,8 @@ class LiveService:
                 self._lost.add(message.direction)
             if self._settings.settings.live.auto_reconnect:
                 self._start_reconnect()
+        elif isinstance(message, P.Recorded):
+            self._on_recorded(message)
         elif isinstance(message, P.Log):
             getattr(logger, message.level if message.level in ("debug", "info", "warning", "error") else "info")("live worker: %s", message.message)
 
@@ -168,6 +190,13 @@ class LiveService:
                     return
                 self._awaiting_start = False
         changes: dict[str, Any] = {"state": state, "meter": message.meter, "passthrough": message.passthrough, "stage": message.stage}
+        recording = self._state.recording
+        if recording is not None:
+            # A state sent before the worker saw Record still says "not recording": wait for its answer.
+            if message.recording == recording.path:
+                self._recording_seen = True
+            elif message.recording is None and (self._recording_seen or message.error or state not in ACTIVE):
+                changes["recording"] = None
         if message.topology is not None:
             changes["topology"] = message.topology
         if message.sample_rate is not None:
@@ -379,6 +408,7 @@ class LiveService:
             "monitor_source": devices.monitor_source,
             "monitor_gain_db": devices.monitor_gain_db,
             "output_gain_db": devices.output_gain_db,
+            "input_gain_db": devices.input_gain_db,
         }
 
     def check(self, devices: LiveDevices) -> DeviceCheck:
@@ -757,6 +787,51 @@ class LiveService:
             self._supervisor.send(P.SetDevices(devices=self._worker_devices(devices, resolved)))
         self._supervisor.send(P.Passthrough(on=on))
         return self._set_state(passthrough=on)
+
+    # -- recording ---------------------------------------------------------------------------------
+
+    def start_recording(self, request: RecordingRequest) -> LiveState:
+        """Record the running session to a WAV file in the outputs folder; it becomes an output when it stops."""
+        with self._control:
+            current = self.state()
+            if current.state != "running":
+                raise ConflictError("Recording needs Live to be running")
+            if current.recording is not None:
+                return current
+            voice = self._models.get(current.voice_id) if current.voice_id else None
+            stamp = datetime.now().astimezone().strftime("%Y-%m-%d %H-%M-%S")
+            folder = self._settings.outputs_dir / stamp[:10] / "live"
+            stem = f"Live {stamp[11:]}" + (f".{slugify(voice.name)}" if voice else "")
+            path = unique_path(folder / f"{stem}.{request.source}.wav")
+            self._recording_seen = False
+            self._supervisor.send(P.Record(on=True, path=str(path), source=request.source))
+            return self._set_state(recording=LiveRecording(path=str(path), source=request.source, started_at=now_iso()))
+
+    def stop_recording(self) -> LiveState:
+        """Stop recording; the file is added to the outputs when the worker has closed it."""
+        with self._control:
+            if self.state().recording is None:
+                return self.state()
+            try:
+                self._supervisor.send(P.Record(on=False))
+            except RvcNextError:
+                pass
+            return self._set_state(recording=None)
+
+    def _on_recorded(self, message: P.Recorded) -> None:
+        if message.dropped_blocks:
+            logger.warning("Live recording %s: %d blocks dropped (the disk fell behind)", message.path, message.dropped_blocks)
+        path = Path(message.path)
+        if self._audio is None or not path.is_file():
+            return
+        current = self.state()
+        params = current.config.params if current.config else None
+        self._audio.add_output(None, path, "recording", message.source, model_id=current.voice_id, voice=params)
+        with self._lock:
+            still = self._state.recording is not None and self._state.recording.path == message.path
+        if still:
+            # The session ended (or changed rate) under the recording.
+            self._set_state(recording=None)
 
     # -- recovery ---------------------------------------------------------------------------------
 

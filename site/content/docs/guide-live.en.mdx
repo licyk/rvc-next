@@ -79,7 +79,10 @@ Expand **Advanced** to see:
 | **Input · Channels** / **Output · Channels** | The selected input channels are mixed to mono; output is written to the selected channels. Defaults are **Default (channel 1)** for input and **Default (channel 1+2)** for output (channel 1 for a mono device). You can also select **Channel N** or **Mix 1+2**. |
 | **Sample rate** | **Automatic** (default) or a fixed rate supported by the device. Automatic uses the output device's default rate (48 kHz if unsupported). |
 | **Exclusive mode (WASAPI)** | Shown only when output uses the WASAPI driver. Exclusive mode can reduce latency, but prevents other programs from using the device at the same time. |
+| **Input level** | −24 to +24 dB, default 0 dB. Applies to the input before it is metered and converted: raise a quiet microphone, lower a hot one. |
 | **Output level** | −60 to +12 dB, default 0 dB. Applies to converted audio sent to the output device. |
+
+Changing a level (or the monitor's source) while running applies from the next block without reopening the devices.
 
 <Callout type="idea" title="Multichannel audio interfaces">
 
@@ -147,6 +150,8 @@ The middle section contains the **Voice** picker and **Voice parameters** panel,
 | **Input gate** | −60–0 dB (−60) | Input below this level is muted; −60 dB disables it | None | Immediate |
 | **Reduce input noise** | On / Off (Off) | Reduces input noise before conversion | min(crossfade, 40 ms) | Immediate |
 | **Reduce output noise** | On / Off (Off) | Reduces noise in converted audio | None | Immediate |
+| **Noise reduction strength** | 0–1 (0.9) | Shown while either noise reduction is on: how much quieter the noise gets; 1 removes the most and can take some voice with it | None | Immediate |
+| **Phase-vocoder crossfade** | On / Off (Off) | Joins blocks with a phase vocoder (from RVC's later realtime GUI, as Applio uses it) instead of the plain crossfade: when two blocks render a sound with different phase, a plain crossfade dips in level in the middle of the join; this one does not | None | Immediate |
 
 “Rebuffer” means that changing block length, crossfade or context while running closes the audio stream and reopens it with the new buffers. There is a brief interruption, but the voice is not reloaded.
 
@@ -175,6 +180,18 @@ The status bar updates 10 times per second and includes:
 | **measured N ms** | The [measured latency](#measure-latency), when a measurement fits the session's devices and block length |
 | **N underruns** / **N overruns** | Counts of the output buffer running empty (audible gaps) / the input buffer overflowing. Shown only after they occur |
 | **GPU N MB** | GPU memory used by the live process |
+
+### Record [#record]
+
+While Live runs, **Record** beside the start button writes the session to a WAV file in the outputs folder (`<date>/live/`). Choose what to keep:
+
+| Choice | File |
+| --- | --- |
+| **Voice and input (stereo)** | The input on the left channel, the converted voice on the right: for comparing them, or for editing either one later |
+| **Converted voice** | The converted voice alone, mono |
+| **Input only** | Your input alone, mono (after **Input level**) |
+
+The button then reads **Stop recording · 0:12**. The recording ends when you stop it, when Live stops, or when the sample rate changes; it then appears under **Recordings** on the Live page and in every outputs list, with the voice and parameters it was made with. Recording happens off the audio thread and never makes a block late. Output and monitor levels do not apply to it.
 
 ## The Live chip in the top bar
 
@@ -231,4 +248,4 @@ rvc-next live test-tone        # Play a tone on the output device
 rvc-next live run -v "My voice" --pitch 12   # Start live conversion; Ctrl+C to stop
 ```
 
-`live run` also supports `--block-ms`, `--crossfade-ms`, `--context-ms`, `--threshold-db`, `--allow-fallback` and other options. See [Command reference](/docs/cli-commands) for the full list.
+`live run` also supports `--block-ms`, `--crossfade-ms`, `--context-ms`, `--threshold-db`, `--denoise-strength`, `--phase-vocoder`, `--input-gain`, `--record both|converted|input`, `--allow-fallback` and other options. See [Command reference](/docs/cli-commands) for the full list.

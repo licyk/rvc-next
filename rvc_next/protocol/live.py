@@ -66,8 +66,9 @@ class SetDevices:
 
     An endpoint is ``{"device": <AudioDevice dict or None for the system default>,
     "channels": [1-based] or None, "sample_rate": int or None, "exclusive": bool}``. Top-level
-    keys ``monitor_source`` (converted, input or both), ``monitor_gain_db`` and
-    ``output_gain_db`` complete it.
+    keys ``monitor_source`` (converted, input or both), ``monitor_gain_db``, ``output_gain_db`` and
+    ``input_gain_db`` complete it. A change of gains or monitor source alone applies to the running
+    session without reopening the devices.
     """
 
     devices: dict[str, Any]
@@ -100,6 +101,20 @@ class Passthrough:
 
 
 @dataclass
+class Record:
+    """Start (``on``) recording the running session to ``path`` (a WAV file), or stop.
+
+    ``source``: converted, input, or both (stereo: input left, converted right). The recording ends
+    with the session, or when the sample rate changes; the worker then sends ``Recorded``.
+    """
+
+    on: bool
+    path: str | None = None
+    source: str = "both"
+    type: str = "record"
+
+
+@dataclass
 class ReleaseMemory:
     """Unload the voice, HuBERT and the F0 models and empty the GPU cache; ignored while a session runs."""
 
@@ -129,6 +144,8 @@ class State:
     stage: str | None = None
     """While ``loading``, the step under way: runtime (importing torch and transformers, opening the
     compute device), voice, index, hubert or pitch. None otherwise."""
+    recording: str | None = None
+    """The file being recorded to, while a recording runs."""
     type: str = "state"
 
 
@@ -163,16 +180,65 @@ class DeviceLost:
 
 
 @dataclass
+class Recorded:
+    """A recording finished (stopped, or ended with its session); the file is complete."""
+
+    path: str
+    source: str
+    sample_rate: int
+    seconds: float
+    dropped_blocks: int = 0
+    type: str = "recorded"
+
+
+@dataclass
 class Log:
     level: str
     message: str
     type: str = "log"
 
 
-Message = Start | Stop | Shutdown | UpdateVoice | UpdateStream | SetVoice | SetDevices | Meter | TestTone | Passthrough | State | Stats | DeviceLost | Log
+Message = (
+    Start
+    | Stop
+    | Shutdown
+    | UpdateVoice
+    | UpdateStream
+    | SetVoice
+    | SetDevices
+    | Meter
+    | TestTone
+    | Passthrough
+    | Record
+    | ReleaseMemory
+    | State
+    | Stats
+    | DeviceLost
+    | Recorded
+    | Log
+)
 
 MESSAGE_TYPES: dict[str, Any] = {
-    cls.type: cls for cls in (Start, Stop, Shutdown, UpdateVoice, UpdateStream, SetVoice, SetDevices, Meter, TestTone, Passthrough, ReleaseMemory, State, Stats, DeviceLost, Log)
+    cls.type: cls
+    for cls in (
+        Start,
+        Stop,
+        Shutdown,
+        UpdateVoice,
+        UpdateStream,
+        SetVoice,
+        SetDevices,
+        Meter,
+        TestTone,
+        Passthrough,
+        Record,
+        ReleaseMemory,
+        State,
+        Stats,
+        DeviceLost,
+        Recorded,
+        Log,
+    )
 }
 
 STATS_FIELDS: tuple[str, ...] = tuple(f.name for f in fields(Stats) if f.name != "type")

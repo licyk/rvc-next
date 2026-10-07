@@ -91,6 +91,8 @@ class LiveDevices(Record):
     monitor_source: Literal["converted", "input", "both"] = "converted"
     monitor_gain_db: float = Field(default=0.0, ge=-60, le=12)
     output_gain_db: float = Field(default=0.0, ge=-60, le=12)
+    input_gain_db: float = Field(default=0.0, ge=-24, le=24)
+    """Applied to the input before it is metered and converted."""
 
 
 class ResolvedDevice(Record):
@@ -168,6 +170,22 @@ class LatencyTestRequest(Record):
     """Peak level of the test bursts in dBFS."""
 
 
+RecordingSource = Literal["both", "converted", "input"]
+
+
+class LiveRecording(Record):
+    """A recording of the running session, under way."""
+
+    path: str
+    source: RecordingSource
+    started_at: str
+
+
+class RecordingRequest(Record):
+    source: RecordingSource = "both"
+    """both: a stereo file, the input left and the converted voice right; or one of them, mono."""
+
+
 class LiveState(Record):
     state: LiveStateName = "stopped"
     voice_id: str | None = None
@@ -184,6 +202,7 @@ class LiveState(Record):
     process, importing torch and opening the compute device (runtime), then the voice, its index,
     HuBERT and the pitch model. Steps with nothing to do (a worker already running, models already
     loaded) are skipped."""
+    recording: LiveRecording | None = None
     latency_test: LatencyMeasurement | None = None
     """The last latency measurement, while it still applies: cleared when the input, the output or
     the block length changes; recomputed when the crossfade or input denoise does."""
