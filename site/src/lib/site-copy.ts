@@ -104,9 +104,10 @@ const zhCN = {
       ],
     },
     install: {
-      title: "几条命令即可开始",
-      description: "先在独立环境中安装适合硬件的 PyTorch，再安装 RVC Next 并启动网页界面。",
-      link: "阅读安装文档",
+      title: "按文档完成安装",
+      description:
+        "安装命令因系统和显卡而异。安装文档会一步步带你创建独立的 Python 环境、选择适合硬件的 PyTorch、安装 RVC Next 并启动网页界面。",
+      link: "查看安装文档",
     },
     footer: {
       label: "页脚导航",
@@ -277,9 +278,9 @@ const en = {
       ],
     },
     install: {
-      title: "A few commands to get started",
+      title: "Install with the guide",
       description:
-        "Install PyTorch for your hardware in its own environment, then install RVC Next and start the web UI.",
+        "The commands depend on your system and graphics card. The installation guide walks you through a Python environment of its own, the PyTorch build for your hardware, RVC Next itself and the web UI.",
       link: "Read the installation guide",
     },
     footer: {
