@@ -459,6 +459,24 @@ def test_a_stream_that_will_not_start_names_its_device(output: str, monitor: str
     assert not backend.streams  # every stream it opened is closed again
 
 
+def test_probe_stream_finds_a_stream_that_stops() -> None:
+    from rvc_next.engine.audio_io.streams import probe_stream
+
+    eps = endpoints()
+    backend = FakeBackend(*fake_machine(), time_scale=4.0)
+    probe_stream(backend, Endpoint(eps["Speakers"]), "output", 16000)  # runs: no error
+    probe_stream(backend, Endpoint(eps["Mic"]), "input", 16000)
+    backend.stops.add(1)
+    with pytest.raises(DeviceOpenError) as info:
+        probe_stream(backend, Endpoint(eps["Speakers"]), "output", 16000)
+    assert (info.value.reason, info.value.role, info.value.device_id) == ("stopped", "output", eps["Speakers"]["id"])
+    backend.refuse[0] = "busy"
+    with pytest.raises(DeviceOpenError) as info:
+        probe_stream(backend, Endpoint(eps["Mic"]), "input", 16000)
+    assert (info.value.reason, info.value.role) == ("busy", "input")
+    assert not backend.streams
+
+
 def test_recorder_writes_what_it_is_given(tmp_path) -> None:
     import soundfile as sf
 

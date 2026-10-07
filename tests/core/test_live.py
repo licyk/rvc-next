@@ -427,3 +427,44 @@ def test_a_lost_device_without_reconnecting_keeps_its_error(live, services, tiny
     # The core stops the session instead of reconnecting; the reason stays on screen.
     assert wait_for(lambda: live.state().state == "error"), live.state()
     assert live.state().error == lost
+
+
+def test_an_input_that_stops_shows_before_start(live, services):
+    """The idle meter's device stops right after it opens: the state says so (no Start needed)."""
+    live.fake["stops"] = [0]  # Fake Microphone
+    live.meter(True)
+    assert wait_for(lambda: live.state().device_error is not None), live.state()
+    error = live.state().device_error
+    assert error["code"] == "device_unavailable"
+    assert error["detail"]["role"] == "input" and error["detail"]["reason"] == "stopped" and error["detail"]["device"] == "Fake Microphone"
+    assert "“Fake Microphone”" in error["message"]
+    # It keeps failing: the error stays, never flickering away between retries.
+    time.sleep(2.5)
+    assert live.state().device_error is not None and live.state().device_error["detail"]["role"] == "input"
+    live.meter(False)
+
+
+def test_check_opens_the_output_for_a_moment(live, services):
+    """Settings a driver accepts can still fail once the stream runs: the check opens the outputs."""
+    speakers = next(d for d in live.fake["devices"] if d["name"] == "Fake Speakers")
+    live.fake["stops"] = [speakers["index"]]
+    result = live.check(LiveDevices())
+    assert not result.ok
+    assert [(p.role, p.reason, p.action) for p in result.problems] == [("output", "stopped", "choose")]
+    live.fake["stops"] = []
+    # A device that runs clears an earlier failure of the same role.
+    live._set_state(device_error={"code": "device_unavailable", "message": "x", "detail": {"role": "output", "reason": "stopped"}})
+    assert live.check(LiveDevices()).ok
+    assert live.state().device_error is None
+
+
+def test_another_device_clears_an_idle_device_error(live, services):
+    from rvc_next.protocol import live as P
+
+    live._idle_device_failed(P.DeviceLost(direction="output", device_id=None, reason="busy", message="The output device “Fake Speakers” is in use"))
+    assert live.state().device_error["detail"] == {"reason": "busy", "role": "output", "device_id": None}
+    services.settings.update({"live": {"devices": {"output_gain_db": -3.0}}})  # only a gain: the same device
+    time.sleep(0.3)
+    assert live.state().device_error is not None
+    services.settings.update({"live": {"devices": {"output": DeviceSelection(channels=[1]).model_dump()}}})
+    assert wait_for(lambda: live.state().device_error is None)

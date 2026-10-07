@@ -441,6 +441,12 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   exit code (`core/process.describe_exit`: signal names, Windows NTSTATUS) and takes the cause from
   `run_worker`'s error event or a traceback/`faulthandler` line ending the output (`crash_error`,
   `detail.exit_code`, `detail.log`); `run_worker` enables `faulthandler` for native crashes.
+  Before Start: `LiveState.device_error` holds what the idle meter, Hear yourself or the test sound
+  hit (`DeviceLost.error`); it clears when that role's selection changes, after 2 s of the meter
+  (or Hear yourself) running again, on a check that ran the device, and on Start. The check runs the
+  outputs for 0.4 s while Live is idle (`streams.probe_stream`, reason `stopped`: a driver that ends
+  the stream by itself), the input only when the meter is off. `DevicePanel` shows both under the
+  picker, and a failed Test sound too.
   `ErrorNotice` titles a device error by role, lists the detail labelled (`errors.fields.*`),
   multi-line values preformatted, and copies it all as text.
 - **Browser audio** (`engine/audio_io/browser.py`, `LiveConfig.browser`, WebSocket `/live/browser-audio`):

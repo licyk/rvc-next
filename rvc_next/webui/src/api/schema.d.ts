@@ -2560,7 +2560,7 @@ export interface components {
              * Reason
              * @enum {string}
              */
-            reason: "missing" | "busy" | "channels" | "format" | "permission" | "fallback" | "feedback";
+            reason: "missing" | "busy" | "channels" | "format" | "permission" | "stopped" | "fallback" | "feedback";
             /** Message */
             message: string;
             /** Action */
@@ -3691,6 +3691,10 @@ export interface components {
             passthrough: boolean;
             /** Error */
             error: {
+                [key: string]: unknown;
+            } | null;
+            /** Device Error */
+            device_error: {
                 [key: string]: unknown;
             } | null;
             /** Started At */

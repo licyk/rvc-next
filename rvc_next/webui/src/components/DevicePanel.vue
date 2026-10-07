@@ -81,8 +81,42 @@ function patchSel(role: 'input' | 'output' | 'monitor', p: Partial<DeviceSelecti
 }
 
 const roleValue = (role: 'input' | 'output' | 'monitor') => (role === 'monitor' && !model.value.monitor ? '__none__' : selectionValue(model.value[role]));
+type Role = 'input' | 'output' | 'monitor';
+interface Problem {
+  key: string;
+  reason: string;
+  message: string;
+  action?: string | null;
+}
 const resolved = (role: string) => check.value?.resolved.find((r) => r.role === role);
-const problems = (role: string) => check.value?.problems.filter((p) => p.role === role) ?? [];
+// A failed test sound, per role, until it is tried again or another device is chosen.
+const toneErrors = ref<Partial<Record<Role, unknown>>>({});
+function asProblem(key: string, error: unknown): Problem {
+  const e = error as { message?: string; detail?: Record<string, unknown> };
+  const reason = typeof e.detail?.reason === 'string' ? e.detail.reason : 'busy';
+  return { key, reason, message: e.message ?? String(error), action: 'choose' };
+}
+// What the check found (settings refused, a device that stops once opened), then what the idle
+// meter, Hear yourself or the test sound ran into on the device (``live.state.device_error``),
+// which the check cannot see when the meter already holds the input.
+const problems = (role: Role): Problem[] => {
+  const found: Problem[] = (check.value?.problems ?? []).filter((p) => p.role === role).map((p) => ({ key: `check:${p.reason}`, ...p }));
+  const idle = live.state.device_error;
+  if (!props.running && idle && (idle.detail as Record<string, unknown> | undefined)?.role === role && !found.length) found.push(asProblem('idle', idle));
+  if (toneErrors.value[role]) found.push(asProblem('tone', toneErrors.value[role]));
+  return found;
+};
+function testTone(role: 'output' | 'monitor') {
+  toneErrors.value = { ...toneErrors.value, [role]: undefined };
+  control.testTone.mutate({ role, device: model.value[role] }, { onError: (e) => (toneErrors.value = { ...toneErrors.value, [role]: e }) });
+}
+watch(
+  () => [model.value.output, model.value.monitor],
+  ([output, monitor], [oldOutput, oldMonitor]) => {
+    if (JSON.stringify(output) !== JSON.stringify(oldOutput)) toneErrors.value = { ...toneErrors.value, output: undefined };
+    if (JSON.stringify(monitor) !== JSON.stringify(oldMonitor)) toneErrors.value = { ...toneErrors.value, monitor: undefined };
+  },
+);
 const status = (role: 'input' | 'output' | 'monitor') =>
   problems(role).length
     ? null
@@ -204,7 +238,7 @@ const levels = computed(() => {
           />
           <LevelMeter :label="t('devices.meter')" :rms-db="levels.input.rms" :peak-db="levels.input.peak" />
           <p v-if="status('input')" class="type-body-small warn">{{ status('input') }}</p>
-          <div v-for="p in problems('input')" :key="p.reason" class="problem type-body-small">
+          <div v-for="p in problems('input')" :key="p.key" class="problem type-body-small" role="alert">
             <span>{{ tOr(`devices.reasons.${p.reason}`, p.reason) }}: {{ p.message }}<template v-if="p.action === 'grant_permission' || p.action === 'choose'"> · {{ tOr(`devices.actions.${p.action}`, p.action) }}</template></span>
             <AppButton v-if="p.action === 'use_48k' || p.action === 'disable_exclusive'" variant="text" @click="runAction('input', p.action)">{{ tOr(`devices.actions.${p.action}`, p.action) }}</AppButton>
           </div>
@@ -219,10 +253,10 @@ const levels = computed(() => {
           />
           <div class="below">
             <LevelMeter class="level" :label="t('devices.outputMeter')" :rms-db="levels.output.rms" :peak-db="levels.output.peak" />
-            <AppButton variant="tonal" :icon="icons.Volume2" :disabled="loading" @click="control.testTone.mutate({ role: 'output', device: model.output })">{{ t('devices.test') }}</AppButton>
+            <AppButton variant="tonal" :icon="icons.Volume2" :disabled="loading" @click="testTone('output')">{{ t('devices.test') }}</AppButton>
           </div>
           <p v-if="status('output')" class="type-body-small warn">{{ status('output') }}</p>
-          <div v-for="p in problems('output')" :key="p.reason" class="problem type-body-small">
+          <div v-for="p in problems('output')" :key="p.key" class="problem type-body-small" role="alert">
             <span>{{ tOr(`devices.reasons.${p.reason}`, p.reason) }}: {{ p.message }}<template v-if="p.action === 'grant_permission' || p.action === 'choose'"> · {{ tOr(`devices.actions.${p.action}`, p.action) }}</template></span>
             <AppButton v-if="p.action === 'use_48k' || p.action === 'disable_exclusive'" variant="text" @click="runAction('output', p.action)">{{ tOr(`devices.actions.${p.action}`, p.action) }}</AppButton>
           </div>
@@ -237,7 +271,7 @@ const levels = computed(() => {
           />
           <div v-if="model.monitor" class="below">
             <LevelMeter class="level" :label="t('devices.monitorMeter')" :rms-db="levels.monitor.rms" :peak-db="levels.monitor.peak" />
-            <AppButton variant="tonal" :icon="icons.Headphones" :disabled="loading" @click="control.testTone.mutate({ role: 'monitor', device: model.monitor })">{{ t('devices.test') }}</AppButton>
+            <AppButton variant="tonal" :icon="icons.Headphones" :disabled="loading" @click="testTone('monitor')">{{ t('devices.test') }}</AppButton>
           </div>
           <div v-if="model.monitor" class="monitor">
             <SegmentedControl v-model="monitorSource" :options="sourceOptions" />
@@ -254,6 +288,10 @@ const levels = computed(() => {
             />
           </div>
           <p v-if="status('monitor')" class="type-body-small warn">{{ status('monitor') }}</p>
+          <div v-for="p in problems('monitor')" :key="p.key" class="problem type-body-small" role="alert">
+            <span>{{ tOr(`devices.reasons.${p.reason}`, p.reason) }}: {{ p.message }}<template v-if="p.action === 'grant_permission' || p.action === 'choose'"> · {{ tOr(`devices.actions.${p.action}`, p.action) }}</template></span>
+            <AppButton v-if="p.action === 'use_48k' || p.action === 'disable_exclusive'" variant="text" @click="runAction('monitor', p.action)">{{ tOr(`devices.actions.${p.action}`, p.action) }}</AppButton>
+          </div>
         </div>
       </div>
       <Switch v-model="passthrough" :label="t('devices.hearYourself')" :supporting-text="t('devices.hearYourselfHint')" />

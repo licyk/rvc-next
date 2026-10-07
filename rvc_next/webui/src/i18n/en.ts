@@ -435,7 +435,7 @@ export default {
     },
     measureClipped: 'the input clipped; lower its gain',
     statuses: { exact: '', matched: '{name} was found under another driver.', default_fallback: '{name} was not found: using the system default.', missing: '{name} is not connected.' },
-    reasons: { missing: 'Not connected', busy: 'In use by another program', feedback: 'Records its own output', channels: 'Refuses this channel count', format: 'Refuses this format', permission: 'Microphone permission denied', fallback: 'Falling back to the default' },
+    reasons: { missing: 'Not connected', busy: 'In use by another program', feedback: 'Records its own output', channels: 'Refuses this channel count', format: 'Refuses this format', stopped: 'Stops right after it starts', permission: 'Microphone permission denied', fallback: 'Falling back to the default' },
     actions: { choose: 'Choose another', use_48k: 'Use 48 kHz', disable_exclusive: 'Turn off exclusive mode', grant_permission: 'How to grant access' },
     unavailable: 'Audio devices are not available: {message}',
   },

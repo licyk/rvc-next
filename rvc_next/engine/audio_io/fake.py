@@ -124,6 +124,10 @@ class FakeStream:
                 break
             if self.in_index in self.backend.lost or self.out_index in self.backend.lost:
                 continue
+            if self.calls and (self.in_index in self.backend.stops or self.out_index in self.backend.stops):
+                self._running = False  # the driver gave up after starting the stream
+                self.finished()
+                return
             flags = StatusFlags()
             if self.kind in ("input", "duplex"):
                 mono = (self.source or self.backend.source)(self.rate, self.samples, self.block)
@@ -160,6 +164,7 @@ class FakeBackend:
         refuse: dict[int, str] | None = None,
         loopback: dict[str, Any] | None = None,
         list_loopback: bool = False,
+        stops: list[int] | None = None,
     ) -> None:
         if hostapis is None or devices is None:
             hostapis, devices = default_devices()
@@ -175,6 +180,8 @@ class FakeBackend:
         if loopback is not None:
             self.source = self._loopback_source(**loopback)
         self.lost: set[int] = set()
+        self.stops = {int(i) for i in stops or []}
+        """Devices whose streams open and start, then stop by themselves after one block (a driver that gives up)."""
         self.recorded: dict[int, list[np.ndarray]] = {}
         self.played: list[tuple[int | None, int]] = []
         self._streams: set[FakeStream] = set()
@@ -313,6 +320,7 @@ def backend_from_request(name: str, enable_asio: bool = False, fake: dict[str, A
             refuse=cfg.get("refuse"),
             loopback=cfg.get("loopback"),
             list_loopback=list_loopback,
+            stops=cfg.get("stops"),
         )
     from rvc_next.engine.audio_io.streams import SounddeviceBackend
 

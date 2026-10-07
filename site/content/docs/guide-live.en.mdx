@@ -120,7 +120,7 @@ If no burst comes back, the panel says so: check the connection and raise the le
 
 ### Device problems and repair buttons
 
-Whenever you change devices, rvc-next actually tries to open them with the current configuration in the background. Problems therefore appear below the relevant device before you click **Start**. The format is **reason: explanation from the server** (the explanation is supplied by the server in English):
+Whenever you change devices, rvc-next actually tries to open them with the current configuration in the background: it checks the settings with the driver and, while Live is stopped, runs the output and monitor for a moment (the input is already open for the **Input level** meter). Problems therefore appear below the relevant device before you click **Start**, and so does a failed **Test** sound or **Hear yourself**. The format is **reason: explanation from the server** (the explanation is supplied by the server in English, naming the device):
 
 | Reason | Meaning | Action |
 | --- | --- | --- |
@@ -129,6 +129,7 @@ Whenever you change devices, rvc-next actually tries to open them with the curre
 | **Records its own output** | The input records the output (or monitor) that plays the converted voice | **Choose another** input or output |
 | **Refuses this channel count** | The driver will not open the device with this many channels (rvc-next already picks a count the device reported accepting, so this usually means exclusive mode or a device that changed) | If exclusive mode is on, a **Turn off exclusive mode** button appears; otherwise, **Choose another** is suggested (another driver of the same device usually works) |
 | **Refuses this format** | The device rejects the current sample rate | Click **Use 48 kHz** |
+| **Stops right after it starts** | The driver accepts the settings but ends the stream once it runs (a disabled or disconnected device, one held exclusively by another program, or a driver fault) | **Choose another** (another driver of the same device often works); with exclusive mode on, **Turn off exclusive mode** |
 | **Microphone permission denied** | The system has not granted microphone access | **How to grant access**: allow it in the system's privacy settings |
 | **Falling back to the default** | The saved device is missing, so the system default will be used | **Choose another** is suggested |
 

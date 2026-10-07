@@ -44,8 +44,13 @@ BACKLOG_WRITES = 3
 """Writes in a row above the normal level before the output buffer is trimmed."""
 
 
+PROBE_SECONDS = 0.4
+"""How long ``probe_stream`` runs a stream to see whether it keeps going."""
+
+
 class DeviceOpenError(Exception):
-    """A device refused to open or was lost. ``reason`` is missing, busy, channels, format or permission.
+    """A device refused to open or was lost. ``reason`` is missing, busy, channels, format, permission
+    or stopped (the stream started, then stopped by itself).
 
     ``role`` (input, output or monitor) names the device at fault; None when a duplex stream failed
     and neither of its devices could be singled out.
@@ -598,7 +603,7 @@ class AudioSession:
     def _finished(self, role: str) -> FinishedCallback:
         def done() -> None:
             if self._running and not self._stopping:
-                self._report_lost(role, "missing", f"The {role} stream stopped")
+                self._report_lost(role, "stopped", f"The {role} stream stopped by itself")
 
         return done
 
@@ -805,3 +810,31 @@ class AudioSession:
         data = np.array(self.infer_ms)
         p50 = float(np.percentile(data, 50))
         return p50, float(np.percentile(data, 95)) if data.size >= MIN_TIMINGS else p50
+
+
+def probe_stream(backend: Backend, ep: Endpoint, direction: str, rate: int, seconds: float = PROBE_SECONDS) -> None:
+    """Open ``ep`` for ``seconds`` (an output plays silence) and raise ``DeviceOpenError`` when it
+    will not open or start, or stops by itself meanwhile: some drivers accept the settings, then give
+    up once the stream runs. A stream that is merely slow to deliver (Bluetooth) is not a failure."""
+    stopped = threading.Event()
+    channels = ep.open_channels(direction)
+    block = max(1, rate // 100)
+    try:
+        if direction == "input":
+            handle = backend.open_input(ep, rate, block, channels, lambda *_: None, stopped.set)
+        else:
+            handle = backend.open_output(ep, rate, block, channels, lambda outdata, *_: outdata.fill(0), stopped.set)
+    except DeviceOpenError as e:
+        raise DeviceOpenError(e.message, e.reason, direction, e.device_id or ep.device_id) from e
+    try:
+        handle.start()
+        if stopped.wait(seconds):
+            raise DeviceOpenError(f"the driver ended the {direction} stream within {seconds:g} s of starting it", "stopped", direction, ep.device_id)
+    except DeviceOpenError:
+        raise
+    except Exception as e:
+        raise DeviceOpenError(str(e), classify_portaudio_error(str(e)), direction, ep.device_id) from e
+    finally:
+        stopped.set()  # its own stop below is not a failure
+        handle.stop()
+        handle.close()

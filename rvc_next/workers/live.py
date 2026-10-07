@@ -89,6 +89,7 @@ def _error(code: str, message: str, **detail: Any) -> dict[str, Any]:
 
 REASON_TEXT = {
     "missing": "is not connected",
+    "stopped": "stopped by itself right after it started",
     "busy": "is in use by another program, or refused to open",
     "channels": "refuses this channel count",
     "format": "refuses this sample rate or sample format",
@@ -609,7 +610,7 @@ class LiveWorker:
                 self.meter = True
             except DeviceOpenError as e:
                 e.role = e.role or "input"
-                self.send(P.DeviceLost(direction="input", device_id=e.device_id, reason=e.reason, message=device_error(e, aux.config)["message"]))
+                self._send_lost(e, device_error(e, aux.config))
         self.set_state(self.state, self._last_error)
 
     def _aux_block(self, ep: Endpoint | None) -> int:
@@ -639,7 +640,8 @@ class LiveWorker:
                 self.aux_on_monitor = on_monitor
             except DeviceOpenError as e:
                 self.passthrough = False
-                self.send(P.DeviceLost(direction=e.role or "output", device_id=e.device_id, reason=e.reason, message=device_error(e, cfg)["message"]))
+                e.role = e.role or "output"
+                self._send_lost(e, device_error(e, cfg))
         self.set_state(self.state, self._last_error)
 
     def test_tone(self, device: dict[str, Any] | None) -> None:
@@ -651,18 +653,22 @@ class LiveWorker:
                 self.backend.play(ep, chime(rate), rate)
             except DeviceOpenError as e:
                 e.role = "output"
-                self.send(P.DeviceLost(direction="output", device_id=e.device_id, reason=e.reason, message=device_error(e, SessionConfig(input=Endpoint(), output=ep))["message"]))
+                self._send_lost(e, device_error(e, SessionConfig(input=Endpoint(), output=ep)))
 
         threading.Thread(target=play, name="rvc-test-tone", daemon=True).start()
 
     # -- failures ----------------------------------------------------------------------------------------
+
+    def _send_lost(self, e: DeviceOpenError, error: dict[str, Any]) -> None:
+        """A device the meter, Hear yourself or the test sound could not open."""
+        self.send(P.DeviceLost(direction=e.role or "output", device_id=e.device_id, reason=e.reason, message=error["message"], error=error))
 
     def _device_lost(self, role: str, device_id: str | None, reason: str, message: str) -> None:
         # The session that lost it has stopped running already (``AudioSession._report_lost``).
         owner = next((s for s in (self.session, self.aux) if s is not None and not s.running), None)
         error = lost_error(role, owner.endpoint(role) if owner else None, device_id, reason, message)
         self.log("warning", error["message"])
-        self.send(P.DeviceLost(direction=role, device_id=device_id, reason=reason, message=error["message"]))
+        self.send(P.DeviceLost(direction=role, device_id=device_id, reason=reason, message=error["message"], error=error))
 
         def settle() -> None:
             with self._lock:

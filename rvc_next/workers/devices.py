@@ -7,7 +7,8 @@ Request: ``{"action": "enumerate" | "check" | "test_tone" | "measure_latency", "
 "loopback"?: bool, "platform"?: str, "backend"?: "sounddevice" | "fake", "fake"?: {...}}``.
 ``loopback`` lists output devices as loopback inputs too (``engine/audio_io/capture.py``). ``check``
 also takes ``input``, ``output`` and ``monitor`` (each a ``DeviceSelection`` dict plus
-``portaudio_index`` and, for a loopback input, ``loopback_source``, or null) and ``sample_rate``; ``test_tone`` takes ``device`` (the same shape, or null for the default
+``portaudio_index`` and, for a loopback input, ``loopback_source``, or null), ``sample_rate`` and ``probe``
+(the roles to open for a moment, ``streams.probe_stream``, once every setting passed); ``test_tone`` takes ``device`` (the same shape, or null for the default
 output); ``measure_latency`` takes ``input``, ``output``, ``block_ms`` and ``level_db`` and runs a
 loopback measurement (``engine/audio_io/loopback.py``). One ``ResultEvent`` carries the answer.
 """
@@ -19,7 +20,7 @@ from typing import Any
 
 from rvc_next.engine.audio_io.devices import device_list
 from rvc_next.engine.audio_io.fake import backend_from_request
-from rvc_next.engine.audio_io.streams import DeviceOpenError, Endpoint, choose_topology, engine_rate
+from rvc_next.engine.audio_io.streams import DeviceOpenError, Endpoint, choose_topology, engine_rate, probe_stream
 from rvc_next.engine.audio_io.tone import chime
 from rvc_next.protocol.jsonl import Emitter
 from rvc_next.protocol.messages import ResultEvent
@@ -60,16 +61,32 @@ def check(backend: Any, request: dict[str, Any]) -> dict[str, Any]:
     mon = endpoint_from_selection(request.get("monitor"), raw_devices, "output")
     rate = int(request.get("sample_rate") or engine_rate(out, inp))
     topology = choose_topology(inp or Endpoint(), out, rate) if out is not None else "input"
-    for role, ep, direction in (("input", inp, "input"), ("output", out, "output"), ("monitor", mon, "output")):
-        if ep is None:
-            continue
-        ep_rate = rate
-        if role == "input" and topology == "split" and ep.device is not None and not ep.supports(rate):
-            ep_rate = int(ep.device.get("default_sample_rate") or rate)
-        try:
-            backend.check(ep, direction, ep.open_channels(direction), int(ep.sample_rate or ep_rate) if role == "input" else ep_rate)
-        except DeviceOpenError as e:
-            return {"ok": False, "reason": e.reason, "message": e.message, "role": role, "sample_rate": rate, "topology": topology}
+    probe = set(request.get("probe") or [])
+    opened: list[tuple[str, Endpoint, str, int]] = []
+    try:
+        for role, ep, direction in (("input", inp, "input"), ("output", out, "output"), ("monitor", mon, "output")):
+            if ep is None:
+                continue
+            ep_rate = rate
+            if role == "input" and topology == "split" and ep.device is not None and not ep.supports(rate):
+                ep_rate = int(ep.device.get("default_sample_rate") or rate)
+            ep_rate = int(ep.sample_rate or ep_rate) if role == "input" else ep_rate
+            try:
+                backend.check(ep, direction, ep.open_channels(direction), ep_rate)
+            except DeviceOpenError as e:
+                e.role = role
+                raise
+            if role in probe:
+                opened.append((role, ep, direction, ep_rate))
+        # The settings pass; some drivers still give up once a stream runs. One device at a time.
+        for role, ep, direction, ep_rate in opened:
+            try:
+                probe_stream(backend, ep, direction, ep_rate)
+            except DeviceOpenError as e:
+                e.role = role
+                raise
+    except DeviceOpenError as e:
+        return {"ok": False, "reason": e.reason, "message": e.message, "role": e.role, "sample_rate": rate, "topology": topology}
     return {"ok": True, "reason": None, "message": None, "role": None, "sample_rate": rate, "topology": topology}
 
 

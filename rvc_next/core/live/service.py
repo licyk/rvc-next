@@ -71,6 +71,8 @@ every 5 s while it is shown, so a closed or hidden page lets the microphone go."
 METER_RETRY = (1.0, 2.0, 5.0, 10.0)
 """Seconds before opening the meter again after its device refused or was lost, by attempt."""
 METER_RESEND = 0.5
+DEVICE_OK_AFTER = 2.0
+"""Seconds the idle meter (or Hear yourself) must run before its device's earlier failure is cleared."""
 """The least time between two requests for the same meter, when the worker answers without one."""
 ACTIVE = ("starting", "loading", "prewarming", "running", "reconnecting")
 
@@ -127,6 +129,11 @@ class LiveService:
         self._enumerating = threading.Lock()
         """One enumeration at a time: callers that ask meanwhile share its list."""
         self._lost: set[str] = set()
+        self._device_error_selection: dict[str, Any] | None = None
+        """The failing role's selection when ``LiveState.device_error`` was set: another one clears it."""
+        self._meter_since: float | None = None
+        self._passthrough_since: float | None = None
+        """When the worker last reported the meter (Hear yourself) open; None while it is closed."""
         self._stop_error: dict[str, Any] | None = None
         """Why the core stopped the session itself (a device lost without reconnecting): the worker's
         ``stopped`` that follows becomes ``error`` with it, so the reason stays on screen."""
@@ -251,6 +258,7 @@ class LiveService:
             with self._lock:
                 self._stats = stats
             self._events.publish(LiveStatsEvent(stats=stats))
+            self._settle_device_error()
         elif isinstance(message, P.DeviceLost) and self._browser_session():
             # Nothing to re-enumerate: the browser stopped sending (a closed or frozen tab).
             logger.warning("Live: the browser stopped sending audio; stopping")
@@ -265,6 +273,7 @@ class LiveService:
             # The meter (or passthrough while stopped) could not open its device, or lost it: no
             # session to reconnect; the meter tries again later.
             logger.info("Live: the idle %s device is unavailable (%s): %s", message.direction, message.reason, message.message)
+            self._idle_device_failed(message)
             self._meter_failed()
         elif isinstance(message, P.DeviceLost):
             logger.warning("Live: %s device lost (%s): %s", message.direction, message.reason, message.message)
@@ -277,9 +286,66 @@ class LiveService:
         elif isinstance(message, P.Log):
             getattr(logger, message.level if message.level in ("debug", "info", "warning", "error") else "info")("live worker: %s", message.message)
 
+    # -- a device failing while idle ----------------------------------------------------------------
+
+    def _selection(self, role: str) -> dict[str, Any] | None:
+        selection = getattr(self._settings.settings.live.devices, role, None)
+        return selection.model_dump() if selection is not None else None
+
+    def _idle_device_failed(self, message: P.DeviceLost) -> None:
+        """The meter, Hear yourself or the test sound could not open its device, or lost it: say so
+        in the state (``device_error``), so the device panel shows it before any Start."""
+        error = message.error or {
+            "code": "device_unavailable",
+            "message": message.message or f"The {message.direction} device is not available",
+            "detail": {"reason": message.reason, "role": message.direction, "device_id": message.device_id},
+        }
+        role = (error.get("detail") or {}).get("role") or message.direction
+        with self._lock:
+            self._device_error_selection = self._selection(role)
+            if role == "input":
+                self._meter_since = None
+            else:
+                self._passthrough_since = None
+            changed = self._state.device_error != error
+        if changed:
+            self._set_state(device_error=error)
+
+    def _clear_device_error(self, roles: tuple[str, ...]) -> None:
+        """Clear ``device_error`` when it concerns one of ``roles``."""
+        with self._lock:
+            error = self._state.device_error
+            if error is None or (error.get("detail") or {}).get("role") not in roles:
+                return
+            self._device_error_selection = None
+        self._set_state(device_error=None)
+
+    def _settle_device_error(self) -> None:
+        """The meter (or Hear yourself) has run long enough on its device: its earlier failure is over."""
+        now = time.monotonic()
+        with self._lock:
+            if self._state.device_error is None:
+                return
+            roles: tuple[str, ...] = ()
+            if self._meter_since is not None and now - self._meter_since >= DEVICE_OK_AFTER:
+                roles += ("input",)
+            if self._passthrough_since is not None and now - self._passthrough_since >= DEVICE_OK_AFTER:
+                roles += ("input", "output", "monitor")
+        if roles:
+            self._clear_device_error(roles)
+
     def _on_state(self, message: P.State) -> None:
         state = message.state
         with self._lock:
+            now = time.monotonic()
+            if not message.meter:
+                self._meter_since = None
+            elif self._meter_since is None:
+                self._meter_since = now
+            if not message.passthrough:
+                self._passthrough_since = None
+            elif self._passthrough_since is None:
+                self._passthrough_since = now
             was_busy = self._state.state in (*ACTIVE, "stopping")
             cached_changed = message.cached != self._worker_cached
             self._worker_cached = list(message.cached)
@@ -480,6 +546,11 @@ class LiveService:
         if any(k.startswith("live.devices") for k in keys):
             with self._lock:
                 self._meter_failures, self._meter_retry_at = 0, 0.0
+                error = self._state.device_error
+                role = (error.get("detail") or {}).get("role") if error else None
+                moved = role is not None and self._selection(role) != self._device_error_selection
+            if moved:
+                self._clear_device_error((role,))  # another device for that role: its own result will tell
             self._meter_wake.set()  # another input or gain: the meter follows
         if "live.show_all_devices" in keys:
             # The loopback sources are listed (or not) by the enumeration itself: list again, off the
@@ -568,9 +639,16 @@ class LiveService:
             return _probe_selection(selection, by_role.get(role))
 
         topology = sample_rate = None
+        probe = self._probe_roles(devices)
         if not any(p.reason in ("missing", "feedback") for p in problems):
             result = self._run_devices(
-                {"action": "check", "input": sel("input", devices.input), "output": sel("output", devices.output), "monitor": sel("monitor", devices.monitor)}
+                {
+                    "action": "check",
+                    "input": sel("input", devices.input),
+                    "output": sel("output", devices.output),
+                    "monitor": sel("monitor", devices.monitor),
+                    "probe": probe,
+                }
             )
             topology = result.get("topology") if result.get("topology") in ("duplex", "split") else None
             sample_rate = result.get("sample_rate")
@@ -582,6 +660,7 @@ class LiveService:
                     "channels": "disable_exclusive" if exclusive else "choose",
                     "busy": "disable_exclusive" if exclusive else "choose",
                     "permission": "grant_permission",
+                    "stopped": "disable_exclusive" if exclusive else "choose",
                 }.get(reason, "choose")
                 problems.append(DeviceProblem(role=result.get("role") or "output", reason=reason, message=result.get("message") or "The device refused the format", action=action))
         latency = None
@@ -595,9 +674,25 @@ class LiveService:
                 (out_dev.latency_ms[0] if out_dev else 0.0),
             )
         ok = not any(p.reason != "fallback" or p.role == "output" for p in problems)
+        if ok and probe:
+            self._clear_device_error(tuple(probe))  # those devices just ran
         return DeviceCheck(
             ok=ok, resolved=resolved, problems=problems, topology=topology, sample_rate=sample_rate, est_latency_ms=round(latency, 1) if latency is not None else None
         )
+
+    def _probe_roles(self, devices: LiveDevices) -> list[str]:
+        """The roles a check opens for a moment (``streams.probe_stream``): only while Live has none of
+        its devices open, so the probe never competes with a stream of its own. The input is left to
+        the meter when it is shown, which opens it anyway (``device_error`` reports its failure)."""
+        state = self.state()
+        with self._lock:
+            measuring = self._measuring
+        if state.state in (*ACTIVE, "stopping") or state.passthrough or measuring:
+            return []
+        roles = ["output"] + (["monitor"] if devices.monitor is not None else [])
+        if not self._settings.settings.live.show_meters and not state.meter:
+            roles.insert(0, "input")
+        return roles
 
     def test_tone(self, request: TestToneRequest) -> LiveState:
         saved = self._settings.settings.live.devices
@@ -783,7 +878,7 @@ class LiveService:
                 # an idle one answers the meter so) must not undo "starting".
                 self._awaiting_start = True
                 self._stop_error = None
-            self._set_state(state="starting", stage="worker" if config.browser else "devices", voice_id=config.voice_id, config=config, error=None)
+            self._set_state(state="starting", stage="worker" if config.browser else "devices", voice_id=config.voice_id, config=config, error=None, device_error=None)
             try:
                 self._launch(config)
             except BaseException:

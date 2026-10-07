@@ -182,8 +182,10 @@ class DeviceLost:
     """input, output or monitor."""
     device_id: str | None
     reason: str
-    """missing, busy, channels, format or permission."""
+    """missing, busy, channels, format, permission or stopped."""
     message: str = ""
+    error: dict[str, Any] | None = None
+    """The ``device_unavailable`` error naming the device (``{code, message, detail}``), as a state's."""
     type: str = "device_lost"
 
 

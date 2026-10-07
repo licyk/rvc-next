@@ -209,6 +209,10 @@ class LiveState(Record):
     meter: bool = False
     passthrough: bool = False
     error: dict | None = None
+    device_error: dict | None = None
+    """While no session runs: a device the input meter, Hear yourself or the test sound could not open
+    or lost (a ``device_unavailable`` error; ``detail.role`` says which). Cleared when that role's
+    selection changes, once the meter has run for a while again, and by Start."""
     started_at: str | None = None
     stage: LiveStage | None = None
     """While starting or loading, the step under way: checking the audio devices, starting the live
@@ -223,7 +227,7 @@ class LiveState(Record):
 
 class DeviceProblem(Record):
     role: Literal["input", "output", "monitor"]
-    reason: Literal["missing", "busy", "channels", "format", "permission", "fallback", "feedback"]
+    reason: Literal["missing", "busy", "channels", "format", "permission", "stopped", "fallback", "feedback"]
     message: str
     action: str | None = None
     """A suggested fix the picker shows as a button: "choose", "use_48k", "disable_exclusive", "grant_permission"."""
