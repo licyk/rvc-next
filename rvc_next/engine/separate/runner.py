@@ -36,6 +36,43 @@ class RetryInFp32(Exception):
     """The fp16 DirectML path failed; run the job again in a new process with ``precision = "fp32"``."""
 
 
+def ensure_plain_checkpoint(path: str | Path, model_type: str) -> None:
+    """Refuse a checkpoint that needs more than tensors and containers to load.
+
+    pymss reads demucs and apollo packages with ``weights_only=False``, which runs whatever the
+    pickle names. An imported model is first read with ``weights_only=True``; demucs packages name
+    their model classes, which pass as the empty stand-ins pymss installs for them.
+    """
+    import pickle
+
+    import torch
+
+    path = Path(path)
+    if path.suffix.lower() == ".safetensors":
+        return
+    kind = (model_type or "").lower()
+    previous = None
+    stand_ins: list[Any] = []
+    if kind in {"htdemucs", "demucs", "legacy_demucs", "legacy_tasnet"}:
+        import sys
+
+        from pymss_core.checkpoint import _install_demucs_pickle_stubs
+
+        previous = _install_demucs_pickle_stubs()
+        for name in ("demucs.demucs", "demucs.hdemucs", "demucs.htdemucs"):
+            stand_ins += [v for v in vars(sys.modules[name]).values() if isinstance(v, type)]
+    try:
+        with torch.serialization.safe_globals(stand_ins):
+            torch.load(str(path), map_location="cpu", weights_only=True, mmap=True)
+    except pickle.UnpicklingError as e:
+        raise ValueError(f"{path.name} holds Python objects besides weights; it is refused, as loading it could run code") from e
+    finally:
+        if previous is not None:
+            from pymss_core.checkpoint import _restore_modules
+
+            _restore_modules(previous)
+
+
 class Reporter(Protocol):
     """Where the runner reports; the worker turns these calls into protocol events."""
 

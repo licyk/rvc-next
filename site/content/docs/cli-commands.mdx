@@ -109,6 +109,7 @@ rvc-next convert [OPTIONS] INPUTS...
 | `--index-rate <float>` | 索引强度，`[0, 1]` | 取自预设 |
 | `--protect <float>` | 辅音保护，`[0, 0.5]`；0.5 为关闭 | 取自预设 |
 | `--rms-mix <float>` | 响度匹配，`[0, 1]`；1 保持转换后的响度 | 取自预设 |
+| `--unvoiced <mode>` | 无音高帧：`protect`、`zero` 或 `original`，见[无音高帧](/docs/guide-parameters#unvoiced) | 取自预设 |
 | `--separate <str>` | 先用这个分离预设分离，再转换人声 | — |
 | `--remix` | 加回伴奏（需要 `--separate`） | 关 |
 | `--remix-gain <float>` | 伴奏增益（dB） | `0.0` |
@@ -515,6 +516,7 @@ rvc-next preset save [OPTIONS] NAME
 | `--index-rate <float>` | 索引强度，`[0, 1]` |
 | `--protect <float>` | 辅音保护，`[0, 0.5]`；0.5 为关闭 |
 | `--rms-mix <float>` | 响度匹配，`[0, 1]`；1 保持转换后的响度 |
+| `--unvoiced <mode>` | 无音高帧：`protect`、`zero` 或 `original`，见[无音高帧](/docs/guide-parameters#unvoiced) |
 
 ```bash
 rvc-next preset save "男转女" --voice "我的音色" --pitch 12 --default
@@ -755,6 +757,7 @@ rvc-next live test-tone [OPTIONS] [DEVICE]
 | `--index-rate <float>` | 索引强度，`[0, 1]` | 取自起点参数 |
 | `--protect <float>` | 辅音保护，`[0, 0.5]`；0.5 为关闭 | 取自起点参数 |
 | `--rms-mix <float>` | 响度匹配，`[0, 1]`；1 保持转换后的响度 | 取自起点参数 |
+| `--unvoiced <mode>` | 无音高帧：`protect`、`zero` 或 `original`，见[无音高帧](/docs/guide-parameters#unvoiced) | 取自起点参数 |
 | `--block-ms <int>` | 块长（毫秒），`[20, 1500]` | 已保存的值（250） |
 | `--crossfade-ms <int>` | 交叉淡化（毫秒），`[10, 150]` | 已保存的值（50） |
 | `--context-ms <int>` | 额外上下文（毫秒），`[50, 5000]` | 已保存的值（2500） |

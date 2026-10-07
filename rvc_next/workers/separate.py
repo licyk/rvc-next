@@ -52,9 +52,10 @@ def check(request: dict[str, Any], emitter: Emitter) -> None:
     """Load an imported model once on the CPU, so a wrong checkpoint/YAML pair fails at import."""
     import torch
 
-    from rvc_next.engine.separate.runner import PymssSeparator
+    from rvc_next.engine.separate.runner import PymssSeparator, ensure_plain_checkpoint
 
     model = request["model"]
+    ensure_plain_checkpoint(model["ckpt"], model["model_type"])
     PymssSeparator(model, torch.device("cpu"), "cpu", False).close()
     emitter.emit(ResultEvent(data={"ok": True}))
 

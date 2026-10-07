@@ -102,6 +102,11 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE voice_models ADD COLUMN catalog_id TEXT;
     """,
+    # 3: what a voice file says about its training (author, epoch, ...); every row is read again.
+    """
+    ALTER TABLE voice_models ADD COLUMN meta TEXT NOT NULL DEFAULT '{}';
+    UPDATE voice_models SET mtime_ns = 0;
+    """,
 ]
 
 

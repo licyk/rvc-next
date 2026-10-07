@@ -17,3 +17,8 @@ class VoiceParams:
     """0.5 turns protection off."""
     rms_mix_rate: float = 0.25
     """1 keeps the converted envelope unchanged."""
+    unvoiced: str = "original"
+    """Frames the pitch detector finds unvoiced. "original": filled by interpolation, and ``protect``
+    has no effect (the 2026 package's arithmetic, which the golden runs hold). "protect": filled, and
+    ``protect`` applies to them. "zero": kept at 0 Hz with ``protect`` applied, as classic RVC and
+    Applio convert, and as most shared voices were trained."""

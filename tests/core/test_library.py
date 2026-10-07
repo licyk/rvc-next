@@ -110,3 +110,17 @@ def test_merge_and_extract_jobs(services, tmp_path):
     assert job.state == "completed", job.error
     with pytest.raises(ModelFormatError):
         services.models.inspect(str(tmp_path / "exp" / "nope.pth")) if False else services.models._summarize(Path(__file__))
+
+
+def test_provenance_from_the_file(services, tmp_path):
+    import torch
+
+    from tests.tiny import make_tiny_voice
+
+    src = make_tiny_voice(tmp_path / "ana.pth")
+    data = torch.load(str(src), weights_only=True)
+    data.update(author="Ana", epoch=120, step=2400, dataset_length="00:12:30")
+    torch.save(data, str(src))
+    voice = services.models.import_paths([src]).voices[0]
+    assert voice.provenance.model_dump() == {"author": "Ana", "epoch": 120, "step": 2400, "created": None, "dataset_length": "00:12:30"}
+    assert services.models.inspect(str(src)).provenance.author == "Ana"

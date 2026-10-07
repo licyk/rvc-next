@@ -49,13 +49,20 @@ def to_coarse(f0: np.ndarray) -> np.ndarray:
     return np.rint(f0_mel).astype(np.int32)
 
 
-def offline_f0(provider: F0Provider, x: np.ndarray, p_len: int, semitones: float) -> tuple[np.ndarray, np.ndarray]:
+UNVOICED_MODES = ("original", "protect", "zero")
+
+
+def offline_f0(provider: F0Provider, x: np.ndarray, p_len: int, semitones: float, unvoiced: str = "original") -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """The offline converter's pitch: compute, interpolate unvoiced frames, shift, quantise.
 
-    Returns ``(coarse, hz)``, as the original's ``Pipeline.get_f0``.
+    Returns ``(coarse, hz, voiced)``: ``coarse`` and ``hz`` as the original's ``Pipeline.get_f0``,
+    and the frames the detector found voiced. ``unvoiced = "zero"`` keeps 0 Hz there instead of
+    filling them, as classic RVC (and Applio) convert and train.
     """
     f0 = provider.compute(x, p_len)
-    f0 = interpolate_unvoiced(f0)
+    voiced = f0 > 0
+    if unvoiced != "zero":
+        f0 = interpolate_unvoiced(f0)
     f0 = shift(f0, semitones)
     f0bak = f0.copy()
-    return to_coarse(f0), f0bak
+    return to_coarse(f0), f0bak, voiced

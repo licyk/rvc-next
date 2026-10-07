@@ -92,14 +92,17 @@ class OfflineConverter:
         audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
         p_len = audio_pad.shape[0] // WINDOW
         sid = torch.tensor(params.speaker_id, device=self.device).unsqueeze(0).long()
-        pitch = pitchf = None
+        pitch = pitchf = voiced = None
         if voice.if_f0:
             if cancel:
                 cancel.check()
             provider = self.runtime.f0(params.f0_method)
-            coarse, hz = offline_f0(provider, audio_pad, p_len, params.pitch - params.formant)
+            coarse, hz, is_voiced = offline_f0(provider, audio_pad, p_len, params.pitch - params.formant, params.unvoiced)
             pitch = torch.tensor(coarse[:p_len], device=self.device).unsqueeze(0).long()
             pitchf = torch.tensor(hz[:p_len].astype(np.float32), device=self.device).unsqueeze(0).float()
+            if params.unvoiced != "original":
+                # Protect reads 0 Hz as unvoiced; with the frames filled, the detector's own verdict marks them.
+                voiced = torch.tensor(is_voiced[:p_len], device=self.device).unsqueeze(0)
 
         total = len(opt_ts) + 1
         audio_opt: list[np.ndarray] = []
@@ -111,7 +114,8 @@ class OfflineConverter:
             t = t // WINDOW * WINDOW
             seg_pitch = pitch[:, s // WINDOW : (t + self.t_pad2) // WINDOW] if pitch is not None else None
             seg_pitchf = pitchf[:, s // WINDOW : (t + self.t_pad2) // WINDOW] if pitchf is not None else None
-            out = self._vc(hubert, voice, sid, audio_pad[s : t + self.t_pad2 + WINDOW], seg_pitch, seg_pitchf, index, index_rate, params)
+            seg_voiced = voiced[:, s // WINDOW : (t + self.t_pad2) // WINDOW] if voiced is not None else None
+            out = self._vc(hubert, voice, sid, audio_pad[s : t + self.t_pad2 + WINDOW], seg_pitch, seg_pitchf, index, index_rate, params, seg_voiced)
             audio_opt.append(out[t_pad_tgt:-t_pad_tgt])
             s = t
             if progress:
@@ -120,7 +124,8 @@ class OfflineConverter:
             cancel.check()
         seg_pitch = (pitch[:, t // WINDOW :] if t is not None else pitch) if pitch is not None else None
         seg_pitchf = (pitchf[:, t // WINDOW :] if t is not None else pitchf) if pitchf is not None else None
-        out = self._vc(hubert, voice, sid, audio_pad[t:] if t is not None else audio_pad, seg_pitch, seg_pitchf, index, index_rate, params)
+        seg_voiced = (voiced[:, t // WINDOW :] if t is not None else voiced) if voiced is not None else None
+        out = self._vc(hubert, voice, sid, audio_pad[t:] if t is not None else audio_pad, seg_pitch, seg_pitchf, index, index_rate, params, seg_voiced)
         audio_opt.append(out[t_pad_tgt:-t_pad_tgt])
         if progress:
             progress(1.0)
@@ -145,6 +150,7 @@ class OfflineConverter:
         index: LoadedIndex | None,
         index_rate: float,
         params: VoiceParams,
+        voiced: Any = None,
     ) -> np.ndarray:
         import torch
         import torch.nn.functional as F
@@ -180,9 +186,12 @@ class OfflineConverter:
                 pitch = pitch[:, :p_len]
                 pitchf = pitchf[:, :p_len]
         if feats0 is not None:
-            pitchff = pitchf.clone()
-            pitchff[pitchf > 0] = 1
-            pitchff[pitchf < 1] = protect
+            if voiced is not None:
+                pitchff = torch.where(voiced[:, : pitchf.shape[1]], 1.0, protect).to(pitchf.dtype)
+            else:
+                pitchff = pitchf.clone()
+                pitchff[pitchf > 0] = 1
+                pitchff[pitchf < 1] = protect
             pitchff = pitchff.unsqueeze(-1)
             feats = feats * pitchff + feats0 * (1 - pitchff)
             feats = feats.to(feats0.dtype)

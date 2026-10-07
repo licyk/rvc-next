@@ -97,7 +97,7 @@ Some command-specific behavior:
 
 A voice can be specified by ID, name, or `.pth` path. With a path, `convert` uses `services.models.temporary()` to register a **temporary voice** (`tmp-…`, hidden from lists), with an optional index supplied by `--index`; parameters start from `convert.default_params` rather than the voice's default preset. `live run` only accepts library voices (`resolve(..., allow_path=False)`): `LiveConfig` identifies the voice by ID, saved as `live.last_voice` after startup so the next `live run` without `--voice` and the Web UI can restore the session.
 
-`ParamOptions` in `cli/params.py` defines `--speaker`, `--pitch`, `--formant`, `--f0`, `--index-rate`, `--protect`, `--rms-mix`, with the same ranges as `VoiceParamsModel`. `build_params(base, **overrides)` overlays only user-supplied options on `base` (the voice's default preset, the preset selected by `--preset`, or the last Live parameters), then validates with `VoiceParamsModel`. This matches the Web UI: selecting a voice loads its default preset, so it sounds the same in Convert and Live.
+`ParamOptions` in `cli/params.py` defines `--speaker`, `--pitch`, `--formant`, `--f0`, `--index-rate`, `--protect`, `--rms-mix`, `--unvoiced`, with the same ranges as `VoiceParamsModel`. `build_params(base, **overrides)` overlays only user-supplied options on `base` (the voice's default preset, the preset selected by `--preset`, or the last Live parameters), then validates with `VoiceParamsModel`. This matches the Web UI: selecting a voice loads its default preset, so it sounds the same in Convert and Live.
 
 ### The `webui` command
 

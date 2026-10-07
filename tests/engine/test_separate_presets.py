@@ -79,3 +79,23 @@ def test_output_name_never_overwrites(tmp_path: Path) -> None:
     (tmp_path / "song.vocals.flac").write_bytes(b"")
     assert output_name("song", "vocals", "flac", directory=tmp_path) == "song.vocals-2.flac"
     assert output_name("song", "vocals", "flac", {"song.vocals-2.flac"}, tmp_path) == "song.vocals-3.flac"
+
+
+def test_imported_checkpoints_must_be_plain_data(tmp_path: Path) -> None:
+    import os
+
+    import torch
+
+    from rvc_next.engine.separate.runner import ensure_plain_checkpoint
+
+    torch.save({"state_dict": {"w": torch.zeros(2)}}, str(tmp_path / "ok.ckpt"))
+    ensure_plain_checkpoint(tmp_path / "ok.ckpt", "bs_roformer")
+
+    class Payload:
+        def __reduce__(self):
+            return (os.getcwd, ())
+
+    torch.save({"state_dict": {}, "hp": Payload()}, str(tmp_path / "evil.ckpt"))
+    for kind in ("bs_roformer", "htdemucs"):
+        with pytest.raises(ValueError, match="could run code"):
+            ensure_plain_checkpoint(tmp_path / "evil.ckpt", kind)

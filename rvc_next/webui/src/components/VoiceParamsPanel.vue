@@ -4,7 +4,7 @@ import { usePresetMutations, usePresets } from '@/api/queries/presets';
 import type { Preset, VoiceModel, VoiceParams } from '@/api/types';
 import { VOICE_FIELDS, spec } from '@/components/paramFields';
 import { useI18n } from '@/i18n';
-import { AppButton, AppDialog, AppMenu, Checkbox, ParamSlider, SegmentedControl, TextField, icons, useSnackbar, type MenuItem } from '@/ui';
+import { AppButton, AppDialog, AppMenu, Checkbox, ExpansionPanel, ParamSlider, SegmentedControl, SelectField, TextField, icons, useSnackbar, type MenuItem } from '@/ui';
 
 /**
  * The one parameter panel: the same labels, ranges (from the server's schema),
@@ -50,12 +50,26 @@ const noPitch = computed(() => !!props.voice && !props.voice.pitch_guidance);
 const fields = computed(() =>
   VOICE_FIELDS.map((f) => {
     const s = spec('voice', f.key);
-    const disabledReason = f.key === 'index_rate' && noIndex.value ? t('params.noIndex') : f.key === 'protect' && noPitch.value ? t('params.noPitch') : '';
+    const disabledReason =
+      f.key === 'index_rate' && noIndex.value
+        ? t('params.noIndex')
+        : f.key === 'protect' && noPitch.value
+          ? t('params.noPitch')
+          : f.key === 'protect' && model.value.unvoiced === 'original'
+            ? t('params.protectOff')
+            : '';
     return { ...f, min: s.min, max: s.max, default: s.default as number, disabledReason };
   }),
 );
 const f0Options = computed(() => (spec('voice', 'f0_method').options ?? ['pm', 'rmvpe', 'fcpe']).map((v) => ({ value: v, label: t(`params.f0.${v}`) })));
 const f0 = computed({ get: () => model.value.f0_method, set: (v) => setField('f0_method', v) });
+
+/** The choices under "Pitch details", options from the schema. */
+const CHOICES = [{ key: 'unvoiced', label: 'params.unvoiced', help: 'params.unvoicedHelp', options: 'params.unvoicedOptions' }] as const;
+const choices = computed(() =>
+  CHOICES.map((c) => ({ ...c, options: (spec('voice', c.key).options ?? []).map((v) => ({ value: v, label: t(`${c.options}.${v}`) })) })),
+);
+const detailsOpen = ref(false);
 
 const menuItems = computed<MenuItem[]>(() => [
   ...(presets.data.value ?? []).map((p) => ({ id: p.id, label: `${p.name}${p.is_default ? ` · ${t('params.defaultPreset')}` : p.voice_id ? '' : ` · ${t('params.global')}`}` })),
@@ -121,6 +135,20 @@ function save() {
         @commit="setField(f.key, $event)"
       />
     </div>
+    <ExpansionPanel v-model:open="detailsOpen" :label="t('params.more')" :disabled="noPitch">
+      <div class="fields">
+        <SelectField
+          v-for="c in choices"
+          :key="c.key"
+          :model-value="model[c.key] as string"
+          :label="t(c.label)"
+          :supporting-text="t(c.help)"
+          :options="c.options"
+          :disabled="disabled"
+          @update:model-value="$event && setField(c.key, $event)"
+        />
+      </div>
+    </ExpansionPanel>
     <AppDialog v-model:open="saveOpen" :title="t('params.savePreset')" width="small" :close-label="t('common.close')">
       <TextField v-model="saveName" :label="t('params.presetName')" @enter="save" />
       <Checkbox v-if="voice" v-model="saveForVoice" :label="t('params.forVoice')" />

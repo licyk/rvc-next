@@ -53,3 +53,54 @@ def test_not_a_model(tmp_path: Path) -> None:
     torch.save({"hello": 1}, str(tmp_path / "n.pth"))
     with pytest.raises(ModelFormatError):
         summarize(tmp_path / "n.pth")
+
+
+def _rewrite(path: Path, **changes) -> Path:
+    import torch
+
+    data = torch.load(str(path), weights_only=True)
+    data.update(changes)
+    torch.save(data, str(path))
+    return path
+
+
+def test_pickled_code_is_refused(tmp_path: Path) -> None:
+    import os
+
+    import torch
+
+    class Payload:
+        def __reduce__(self):
+            return (os.getcwd, ())
+
+    torch.save({"weight": {}, "config": [], "info": Payload()}, str(tmp_path / "evil.pth"))
+    with pytest.raises(ModelFormatError, match="could run code"):
+        summarize(tmp_path / "evil.pth")
+
+
+def test_applio_voice_keys(tmp_path: Path) -> None:
+    v = _rewrite(
+        make_tiny_voice(tmp_path / "a.pth", speakers=3),
+        vocoder="HiFi-GAN",
+        embedder_model="contentvec",
+        speakers_id=2,
+        author="Ana",
+        epoch=200,
+        step=4000,
+        creation_date="2026-09-01T10:00:00",
+        sr=40000,
+    )
+    info = summarize(v)
+    assert info.speaker_info == [{"id": 0, "name": "Speaker 0"}, {"id": 1, "name": "Speaker 1"}]
+    assert info.provenance == {"author": "Ana", "epoch": "200", "step": "4000", "creation_date": "2026-09-01T10:00:00"}
+
+
+@pytest.mark.parametrize(("changes", "reason"), [({"vocoder": "RefineGAN"}, "vocoder"), ({"embedder_model": "spin-v2"}, "embedder")])
+def test_applio_voices_rvc_cannot_run(tmp_path: Path, changes: dict, reason: str) -> None:
+    from rvc_next.engine.models.checkpoint import inspect_checkpoint
+
+    v = _rewrite(make_tiny_voice(tmp_path / "a.pth"), **changes)
+    with pytest.raises(ModelFormatError) as e:
+        summarize(v)
+    assert e.value.detail["reason"] == reason
+    assert inspect_checkpoint(v).kind == "unsupported"

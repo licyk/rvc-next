@@ -203,7 +203,7 @@ OOM 之后由谁卸载什么，是核心层的策略（`release_after_oom`），
 
 - **F0 只算一次**，覆盖整个填充后的音频，再按块切片，避免块边界处音高不连续。
 - **索引**：`index_rate == 0` 或没有索引时完全跳过检索。融合在 fp32 下进行（半精度时先转 fp32 再转回），与原版一致。
-- **protect**：`protect < 0.5` 且有音高时，把原始特征按 `pitchf` 混回——浊音帧权重 1、清音帧权重 `protect`——以保护辅音和呼吸声。`0.5` 关闭保护。
+- **protect**：`protect < 0.5` 且有音高时，把原始特征按 `pitchf` 混回——浊音帧权重 1、清音帧权重 `protect`——以保护辅音和呼吸声。`0.5` 关闭保护。整合包在这一判断之前就插值了清音帧，所以 `unvoiced = "original"` 时没有任何帧低于 1 Hz，protect 从不生效；`"protect"`（core 的默认值）改用检测器自己的有声判断作为掩码（由 `offline_f0` 返回），仍然送入插值后的音高；`"zero"` 在这些帧保留 0 Hz，与经典 RVC 相同。`unvoiced` 不是 `"original"` 时，`StreamEngine` 也做同样的混合，掩码来自与 `cache_pitchf` 同步移动的有声缓存（原版实时没有 protect）。
 - **说话人** `params.speaker_id` 直接作为 `sid` 传给合成器。
 - **取消与进度**：每块之前 `cancel.check()`，每块之后 `progress(n/total)`。
 

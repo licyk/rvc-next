@@ -42,3 +42,16 @@ def test_separation_config(tmp_path):
     (tmp_path / "bad.yaml").write_text("training: {instruments: [a]}\nmodel: {}\n")
     with pytest.raises(ValueError):
         inspect_config(tmp_path / "bad.yaml")
+
+
+def test_applio_generators_and_discriminators_are_unsupported(tmp_path):
+    import torch
+
+    torch.save({"model": {"dec.mrfs.0.0.layers.0.conv1.weight_v": torch.zeros(1), "dec.conv_pre.weight": torch.zeros(1)}}, str(tmp_path / "G.pth"))
+    g = inspect_checkpoint(tmp_path / "G.pth")
+    assert g.kind == "unsupported" and "MRF" in g.note
+    d_state = {f"discriminators.{i}.convs.0.weight_v": torch.zeros(32, 1, 5, 1) for i in range(6)}
+    d_state |= {f"discriminators.{i}.convs.0.weight_v": torch.zeros(32, 1, 3, 9) for i in range(6, 9)}
+    torch.save({"model": d_state}, str(tmp_path / "D.pth"))
+    d = inspect_checkpoint(tmp_path / "D.pth")
+    assert d.kind == "unsupported" and "RefineGAN" in d.note

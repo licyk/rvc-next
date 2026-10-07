@@ -12,7 +12,8 @@ The panel is titled **Voice parameters** and contains:
 
 1. **Pitch method**: a segmented control with three choices;
 2. Five sliders: **Pitch**, **Formant**, **Index strength**, **Consonant protection** and **Loudness match**;
-3. The **Presets** menu at the top right.
+3. **Pitch details**, a section that opens on click, with **Frames without pitch**;
+4. The **Presets** menu at the top right.
 
 Each slider shows its current value and a line of help beneath it. When the value differs from the default, a **Reset to default** (↺) button appears beside it. If a parameter has no effect on the current voice, its slider is dimmed and explains why.
 
@@ -31,6 +32,7 @@ The small text beneath the panel explains when changes apply:
 | **Index strength** | 0 to 1 | 0.75 | 0.01 | `--index-rate` |
 | **Consonant protection** | 0 to 0.5 | 0.33 | 0.01 | `--protect` |
 | **Loudness match** | 0 to 1 | 0.25 | 0.01 | `--rms-mix` |
+| **Frames without pitch** | `protect` / `zero` / `original` | `protect` | — | `--unvoiced` |
 | **Speaker** | 0 to 109 | 0 | — | `--speaker` |
 
 The server validates these ranges, and the interface reads the server's definitions directly, so it cannot allow a value that the server rejects.
@@ -109,16 +111,28 @@ If the voice has no attached index, this slider is dimmed and shows “This voic
 
 ## Consonant protection [#protect]
 
-> Keeps breaths and consonants clear; 0.5 turns it off.
+> Keeps breaths and consonants clear where the input has no pitch; 0.5 turns it off.
 
-Unvoiced consonants (such as s, sh, t and k) and breaths have no pitch. Replacing them with voice features can cause robotic sounds or tearing artifacts. Consonant protection preserves more of the input's features in these unpitched regions.
+Unvoiced consonants (such as s, sh, t and k) and breaths have no pitch. Replacing them with voice features can cause robotic sounds or tearing artifacts. Consonant protection preserves more of the input's features in these unpitched regions. What it holds back is the index: with **Index strength** at 0, or a voice without an index, it changes nothing.
 
 - **Lower values give stronger protection**; **0.5 disables protection**;
 - The default 0.33 suits most cases;
 - If sibilants or breaths have tearing or electronic artifacts, lower it to 0.2–0.3;
 - Very strong protection (close to 0) makes these regions sound more like the original and weakens the effect of **Index strength**.
 
-Voices with **no pitch guidance** do not use this parameter; the slider is dimmed and shows “This voice has no pitch guidance, so this has no effect.”
+Voices with **no pitch guidance** do not use this parameter; the slider is dimmed and shows “This voice has no pitch guidance, so this has no effect.” With **Frames without pitch** set to **Fill in (RVC 2026)** it has no effect either, and the slider says so.
+
+## Frames without pitch [#unvoiced]
+
+Under **Pitch details**. The pitch method finds no pitch in breaths and unvoiced consonants; this choice says what happens there:
+
+| Choice | `--unvoiced` | What it does |
+| --- | --- | --- |
+| **Protect them** (default) | `protect` | The pitch is filled in from the neighbouring frames, and **Consonant protection** applies to these frames. |
+| **No pitch (classic RVC)** | `zero` | These frames also get no pitch, so the voice makes noise there instead of a tone, as classic RVC and Applio convert. Most voices shared online were trained this way and may sound cleaner with it. |
+| **Fill in (RVC 2026)** | `original` | The rule of the RVC package RVC Next follows: the pitch is filled in and consonant protection has no effect. |
+
+RVC 2026 fills in the missing pitch before consonant protection looks for it, so it never finds any and protection never applies. **Protect them** keeps the filled-in pitch (what voices trained with RVC 2026 or RVC Next expect) but takes the frames from the pitch method's own verdict. Live applies the same choice.
 
 ## Loudness match [#rms-mix]
 
@@ -179,7 +193,7 @@ rvc-next preset remove male-to-female --voice kikiV1
 
 ## Parameters in live voice conversion [#live]
 
-On **Live**, the parameter panel's help changes to “Changes apply as you drag.”: all voice parameters (**Pitch**, **Formant**, **Index strength**, **Consonant protection**, **Loudness match**) apply to the running conversion as you drag their sliders, without stopping and restarting.
+On **Live**, the parameter panel's help changes to “Changes apply as you drag.”: all voice parameters (**Pitch**, **Formant**, **Index strength**, **Consonant protection**, **Loudness match**, **Pitch details**) apply to the running conversion as you drag their sliders, without stopping and restarting.
 
 - When switching **Pitch method**, the new method's model loads in the background. If it has not been downloaded, conversion continues using the previous method and reports the missing model.
 - Switching **Speaker** also switches to that speaker's index.

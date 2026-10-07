@@ -97,7 +97,7 @@ rvc-next
 
 音色参数可以写成音色 id、名称，或者 `.pth` 文件路径。给路径时，`convert` 用 `services.models.temporary()` 把它注册为一个**临时音色**（`tmp-…`，不出现在列表里），可以用 `--index` 附上索引；参数则从 `convert.default_params` 起步，而不是从音色的默认预设起步。`live run` 只接受库中的音色（`resolve(..., allow_path=False)`）：`LiveConfig` 以音色 id 指定音色，启动后这个 id 会作为 `live.last_voice` 存进设置，供下一次不带 `--voice` 的 `live run` 和 Web UI 恢复会话。
 
-`cli/params.py` 的 `ParamOptions` 定义了 `--speaker`、`--pitch`、`--formant`、`--f0`、`--index-rate`、`--protect`、`--rms-mix`，范围与 `VoiceParamsModel` 一致。`build_params(base, **overrides)` 只把用户给出的选项盖在 `base`（音色的默认预设、`--preset` 指定的预设，或 Live 上次的参数）上，再交给 `VoiceParamsModel` 校验。这与 Web UI 的行为相同：选中一个音色就加载它的默认预设，所以同一个音色在转换和实时变声里听起来一样。
+`cli/params.py` 的 `ParamOptions` 定义了 `--speaker`、`--pitch`、`--formant`、`--f0`、`--index-rate`、`--protect`、`--rms-mix`、`--unvoiced`，范围与 `VoiceParamsModel` 一致。`build_params(base, **overrides)` 只把用户给出的选项盖在 `base`（音色的默认预设、`--preset` 指定的预设，或 Live 上次的参数）上，再交给 `VoiceParamsModel` 校验。这与 Web UI 的行为相同：选中一个音色就加载它的默认预设，所以同一个音色在转换和实时变声里听起来一样。
 
 ### `webui` 命令
 

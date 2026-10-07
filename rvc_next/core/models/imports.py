@@ -236,6 +236,8 @@ class ImportService:
                     return StagedFile(**base, kind="generator", version=c.version, sample_rate=c.sample_rate, pitch_guidance=c.pitch_guidance)  # ty: ignore[invalid-argument-type]
                 if c.kind == "D":
                     return StagedFile(**base, kind="discriminator", version=c.version)  # ty: ignore[invalid-argument-type]
+                if c.kind == "unsupported":
+                    return StagedFile(**base, kind="unsupported", note=c.note)
                 # Some separation models ship their weights as .pth; a YAML in the import can claim it.
                 return StagedFile(**base, kind="separation_checkpoint", note=c.note)
         except Exception as e:

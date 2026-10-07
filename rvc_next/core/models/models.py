@@ -12,6 +12,28 @@ class Speaker(Record):
     name: str
 
 
+class Provenance(Record):
+    """Training details a voice file carries (written by Applio and by rvc-next's exports)."""
+
+    author: str | None = None
+    epoch: int | None = None
+    step: int | None = None
+    created: str | None = None
+    """When the file was made, as written (ISO 8601)."""
+    dataset_length: str | None = None
+    """Length of the training audio, as written (``HH:MM:SS``)."""
+
+    @classmethod
+    def from_file(cls, values: dict[str, str]) -> "Provenance":
+        def number(key: str) -> int | None:
+            try:
+                return int(float(values[key]))
+            except (KeyError, ValueError):
+                return None
+
+        return cls(author=values.get("author"), epoch=number("epoch"), step=number("step"), created=values.get("creation_date"), dataset_length=values.get("dataset_length"))
+
+
 class VoiceModel(Record):
     """A voice: a small model, its index or indexes, its speakers and its default parameters."""
 
@@ -35,6 +57,7 @@ class VoiceModel(Record):
     has_index: bool = False
     size: int = 0
     info: str = ""
+    provenance: Provenance = Field(default_factory=Provenance)
     hidden: bool = False
     catalog_id: str | None = None
     """The download catalog entry this voice came from."""
@@ -121,6 +144,7 @@ class CheckpointInfo(Record):
     speaker_slots: int = 1
     info: str = ""
     iteration: int | None = None
+    provenance: Provenance = Field(default_factory=Provenance)
 
 
 # -- import sessions -------------------------------------------------------------

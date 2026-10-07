@@ -109,6 +109,7 @@ rvc-next convert [OPTIONS] INPUTS...
 | `--index-rate <float>` | Index strength, `[0, 1]` | From the preset |
 | `--protect <float>` | Consonant protection, `[0, 0.5]`; 0.5 turns it off | From the preset |
 | `--rms-mix <float>` | Loudness match, `[0, 1]`; 1 keeps the converted loudness | From the preset |
+| `--unvoiced <mode>` | Frames without pitch: `protect`, `zero` or `original`; see [Frames without pitch](/docs/guide-parameters#unvoiced) | From the preset |
 | `--separate <str>` | Separate first with this preset and convert the vocals | — |
 | `--remix` | Add the accompaniment back (needs `--separate`) | Off |
 | `--remix-gain <float>` | Accompaniment gain in dB | `0.0` |
@@ -515,6 +516,7 @@ rvc-next preset save [OPTIONS] NAME
 | `--index-rate <float>` | Index strength, `[0, 1]` |
 | `--protect <float>` | Consonant protection, `[0, 0.5]`; 0.5 turns it off |
 | `--rms-mix <float>` | Loudness match, `[0, 1]`; 1 keeps the converted loudness |
+| `--unvoiced <mode>` | Frames without pitch: `protect`, `zero` or `original`; see [Frames without pitch](/docs/guide-parameters#unvoiced) |
 
 ```bash
 rvc-next preset save "male-to-female" --voice "My voice" --pitch 12 --default
@@ -755,6 +757,7 @@ Convert live with the server's devices until <kbd>ctrl</kbd>+<kbd>c</kbd>, with 
 | `--index-rate <float>` | Index strength, `[0, 1]` | From the starting parameters |
 | `--protect <float>` | Consonant protection, `[0, 0.5]`; 0.5 turns it off | From the starting parameters |
 | `--rms-mix <float>` | Loudness match, `[0, 1]`; 1 keeps the converted loudness | From the starting parameters |
+| `--unvoiced <mode>` | Frames without pitch: `protect`, `zero` or `original`; see [Frames without pitch](/docs/guide-parameters#unvoiced) | From the starting parameters |
 | `--block-ms <int>` | Block length in milliseconds, `[20, 1500]` | Saved value (250) |
 | `--crossfade-ms <int>` | Crossfade in milliseconds, `[10, 150]` | Saved value (50) |
 | `--context-ms <int>` | Extra context in milliseconds, `[50, 5000]` | Saved value (2500) |

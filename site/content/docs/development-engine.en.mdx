@@ -203,7 +203,7 @@ Key points:
 
 - **F0 is computed once** for the entire padded audio, then sliced per chunk to avoid pitch discontinuities at chunk boundaries.
 - **Index**: retrieval is skipped entirely when `index_rate == 0` or there is no index. Blending is in fp32 (convert half precision to fp32, then back), matching the original.
-- **protect**: when `protect < 0.5` and pitch guidance is present, original features are mixed back according to `pitchf`—weight 1 for voiced frames, `protect` for unvoiced frames—to protect consonants and breaths. `0.5` disables protection.
+- **protect**: when `protect < 0.5` and pitch guidance is present, original features are mixed back according to `pitchf`—weight 1 for voiced frames, `protect` for unvoiced frames—to protect consonants and breaths. `0.5` disables protection. The 2026 package interpolates unvoiced frames before this test, so with `unvoiced = "original"` no frame is below 1 Hz and protect never applies; `"protect"` (the core's default) takes the mask from the detector's own voicing (`offline_f0` returns it) and still feeds the interpolated pitch, and `"zero"` keeps 0 Hz there, as classic RVC. `StreamEngine` applies the same blend when `unvoiced` is not `"original"`, from a voicing cache shifted with `cache_pitchf` (the original has no protect in realtime).
 - **Speaker** `params.speaker_id` is passed directly to the synthesizer as `sid`.
 - **Cancellation and progress**: `cancel.check()` before each chunk, `progress(n/total)` after each chunk.
 

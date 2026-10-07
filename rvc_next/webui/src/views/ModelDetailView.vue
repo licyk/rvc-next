@@ -6,7 +6,7 @@ import { useConvert } from '@/api/queries/convert';
 import { revealModel, useAttachIndexFile, useDeleteModel, useModel, useModelJobs, useSetIndexPath, useUpdateModel } from '@/api/queries/models';
 import { usePresetMutations, usePresets } from '@/api/queries/presets';
 import { useExperiments } from '@/api/queries/train';
-import type { VoiceParams } from '@/api/types';
+import type { VoiceModel, VoiceParams } from '@/api/types';
 import AssetGate from '@/components/AssetGate.vue';
 import AudioSourceInput from '@/components/AudioSourceInput.vue';
 import ErrorNotice from '@/components/ErrorNotice.vue';
@@ -84,6 +84,16 @@ function save() {
   );
 }
 
+/** What the file says about its training; rows only for what it carries. */
+function provenanceRows(p: VoiceModel['provenance']): { label: string; value: string }[] {
+  const rows: { label: string; value: string }[] = [];
+  if (p.author) rows.push({ label: t('models.detail.author'), value: p.author });
+  if (p.epoch != null) rows.push({ label: t('models.detail.trainedFor'), value: p.step != null ? t('models.detail.epochSteps', { epoch: p.epoch, step: p.step }) : t('models.detail.epochs', { epoch: p.epoch }) });
+  if (p.dataset_length) rows.push({ label: t('models.detail.datasetLength'), value: p.dataset_length });
+  if (p.created) rows.push({ label: t('models.detail.created'), value: p.created.replace('T', ' ').slice(0, 19) });
+  return rows;
+}
+
 const info = computed(() =>
   voice.value
     ? [
@@ -94,6 +104,7 @@ const info = computed(() =>
         { label: t('models.detail.file'), value: voice.value.model_path, mono: true },
         { label: t('models.detail.size'), value: formatBytes(voice.value.size) },
         { label: t('models.detail.info2'), value: voice.value.info || '—' },
+        ...provenanceRows(voice.value.provenance),
       ]
     : [],
 );

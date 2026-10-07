@@ -50,3 +50,31 @@ def test_long_audio_is_chunked(tmp_path: Path, tiny_runtime) -> None:
     seconds = conv.t_max / 16000 + 3
     out, _ = conv.convert(tone(seconds), voice, VoiceParams(f0_method="pm"))
     assert abs(out.shape[0] - int(seconds * 40000)) <= 800
+
+
+def _voiced_then_noise() -> np.ndarray:
+    rng = np.random.default_rng(1)
+    return np.concatenate([tone(0.6), 0.05 * rng.standard_normal(9600).astype(np.float32), tone(0.6)])
+
+
+def test_protect_acts_on_unvoiced_frames_unless_original(tmp_path: Path, tiny_runtime) -> None:
+    """Protect keeps the input's own features where the index would replace them, on unvoiced frames."""
+    import torch
+
+    from tests.tiny import make_tiny_index
+
+    voice = tiny_runtime.voice(make_tiny_voice(tmp_path / "v.pth"))
+    index = tiny_runtime.index(make_tiny_index(tmp_path / "v.index", 768))
+    conv = OfflineConverter(tiny_runtime)
+    x = _voiced_then_noise()
+
+    def run(**kw) -> np.ndarray:
+        torch.manual_seed(0)
+        return conv.convert(x, voice, VoiceParams(f0_method="pm", index_rate=1.0, **kw), index=index)[0]
+
+    run()  # loads HuBERT and pm, whose construction draws from the RNG
+    original = run(protect=0.0, unvoiced="original")
+    assert not np.array_equal(original, run(protect=0.0, unvoiced="protect"))
+    # Protect off: "protect" fills the frames as the original does, so nothing changes.
+    assert np.array_equal(run(protect=0.5, unvoiced="original"), run(protect=0.5, unvoiced="protect"))
+    assert run(protect=0.0, unvoiced="zero").shape == original.shape

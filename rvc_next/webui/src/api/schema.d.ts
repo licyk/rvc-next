@@ -2004,6 +2004,7 @@ export interface components {
             info: string;
             /** Iteration */
             iteration: number | null;
+            provenance: components["schemas"]["Provenance"];
         };
         /** ClearedJobs */
         ClearedJobs: {
@@ -3551,6 +3552,22 @@ export interface components {
              */
             voice_id: string | null;
         };
+        /**
+         * Provenance
+         * @description Training details a voice file carries (written by Applio and by rvc-next's exports).
+         */
+        Provenance: {
+            /** Author */
+            author: string | null;
+            /** Epoch */
+            epoch: number | null;
+            /** Step */
+            step: number | null;
+            /** Created */
+            created: string | null;
+            /** Dataset Length */
+            dataset_length: string | null;
+        };
         /** RemixStep */
         RemixStep: {
             /**
@@ -4258,6 +4275,7 @@ export interface components {
              * @default
              */
             info: string;
+            provenance: components["schemas"]["Provenance"];
             /**
              * Hidden
              * @default false
@@ -4318,6 +4336,13 @@ export interface components {
              * @default 0.25
              */
             rms_mix_rate: number;
+            /**
+             * Unvoiced
+             * @description Frames without pitch: protect applies to them (protect); they also get no pitch, as classic RVC and Applio (zero); or RVC 2026's rule, where protect has no effect (original)
+             * @default protect
+             * @enum {string}
+             */
+            unvoiced: "protect" | "zero" | "original";
         };
         /**
          * VoiceParamsModel
@@ -4367,6 +4392,13 @@ export interface components {
              * @default 0.25
              */
             rms_mix_rate?: number;
+            /**
+             * Unvoiced
+             * @description Frames without pitch: protect applies to them (protect); they also get no pitch, as classic RVC and Applio (zero); or RVC 2026's rule, where protect has no effect (original)
+             * @default protect
+             * @enum {string}
+             */
+            unvoiced?: "protect" | "zero" | "original";
         };
         /**
          * VoiceParamsModel
@@ -4416,6 +4448,13 @@ export interface components {
              * @default 0.25
              */
             rms_mix_rate: number;
+            /**
+             * Unvoiced
+             * @description Frames without pitch: protect applies to them (protect); they also get no pitch, as classic RVC and Applio (zero); or RVC 2026's rule, where protect has no effect (original)
+             * @default protect
+             * @enum {string}
+             */
+            unvoiced: "protect" | "zero" | "original";
         };
         /** VoicePlan */
         "VoicePlan-Input": {

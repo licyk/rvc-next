@@ -119,7 +119,7 @@ def load_checkpoint(checkpoint_path: str, model: Any, optimizer: Any = None, loa
     import torch
 
     assert os.path.isfile(checkpoint_path)
-    checkpoint_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    checkpoint_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     saved_state_dict = checkpoint_dict["model"]
     target = model.module if hasattr(model, "module") else model
     state_dict = target.state_dict()
@@ -165,7 +165,7 @@ def load_pretrained_generator(model: Any, path: str) -> Any:
     import torch
 
     target = model.module if hasattr(model, "module") else model
-    saved_state = torch.load(path, map_location="cpu", weights_only=False)["model"]
+    saved_state = torch.load(path, map_location="cpu", weights_only=True)["model"]
     current_state = target.state_dict()
     key = "emb_g.weight"
     if key in saved_state and key in current_state and saved_state[key].shape != current_state[key].shape:
@@ -343,9 +343,9 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
 
     f0 = hps.if_f0 == 1
     train_dataset = TextAudioLoaderMultiNSFsid(hps.data.training_files, hps.data) if f0 else TextAudioLoader(hps.data.training_files, hps.data)
-    train_sampler = DistributedBucketSampler(
-        train_dataset, hps.train.batch_size * n_procs, [100, 200, 300, 400, 500, 600, 700, 800, 900], num_replicas=n_procs, rank=rank, shuffle=True
-    )
+    # Each rank draws batches of the sampler's batch size, so it gets the per-GPU size (the original
+    # passed ``batch_size * n_gpus``, which gave every GPU n times the batch it was set to).
+    train_sampler = DistributedBucketSampler(train_dataset, hps.train.batch_size, [100, 200, 300, 400, 500, 600, 700, 800, 900], num_replicas=n_procs, rank=rank, shuffle=True)
     collate_fn = TextAudioCollateMultiNSFsid() if f0 else TextAudioCollate()
     workers = int(hps.num_workers)
     loader_kwargs: dict[str, Any] = {"persistent_workers": True, "prefetch_factor": 8} if workers > 0 else {}
@@ -392,7 +392,7 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
             if rank == 0:
                 sink.log(f"Base discriminator: {hps.pretrainD}")
             target: Any = net_d.module if hasattr(net_d, "module") else net_d
-            target.load_state_dict(torch.load(hps.pretrainD, map_location="cpu", weights_only=False)["model"])
+            target.load_state_dict(torch.load(hps.pretrainD, map_location="cpu", weights_only=True)["model"])
     for opt in (optim_g, optim_d):
         for group in opt.param_groups:
             group.setdefault("initial_lr", hps.train.learning_rate)

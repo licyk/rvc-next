@@ -62,6 +62,16 @@ export const PARAM_SPECS: Record<'voice' | 'stream', Record<string, ParamSpec>> 
       "min": 0,
       "max": 1,
       "help": "Loudness match; 1 keeps the converted loudness unchanged"
+    },
+    "unvoiced": {
+      "type": "string",
+      "default": "protect",
+      "options": [
+        "protect",
+        "zero",
+        "original"
+      ],
+      "help": "Frames without pitch: protect applies to them (protect); they also get no pitch, as classic RVC and Applio (zero); or RVC 2026's rule, where protect has no effect (original)"
     }
   },
   "stream": {

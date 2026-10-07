@@ -148,3 +148,23 @@ def test_prewarm_takes_every_path_and_leaves_nothing_behind(tiny_runtime, voice,
         torch.manual_seed(0)
         outs.append(np.concatenate(_run(engine, x, 3)))
     np.testing.assert_array_equal(outs[1], outs[2])
+
+
+def test_protect_in_the_stream(tmp_path: Path, tiny_runtime, voice) -> None:
+    import torch
+
+    from tests.tiny import make_tiny_index
+
+    index = tiny_runtime.index(make_tiny_index(tmp_path / "v.index", 768))
+    rng = np.random.default_rng(2)
+    x = np.concatenate([tone(0.4, sr=48000), 0.05 * rng.standard_normal(9600).astype(np.float32), tone(0.4, sr=48000)])
+
+    def run(**kw) -> np.ndarray:
+        torch.manual_seed(0)
+        engine = StreamEngine(tiny_runtime, voice, VoiceParams(f0_method="pm", index_rate=1.0, rms_mix_rate=1, **kw), STREAM, 48000, index)
+        return np.concatenate(_run(engine, x, 8))
+
+    run()  # loads HuBERT and pm, whose construction draws from the RNG
+    assert np.array_equal(run(protect=0.5, unvoiced="original"), run(protect=0.5, unvoiced="protect"))
+    assert not np.array_equal(run(protect=0.0, unvoiced="original"), run(protect=0.0, unvoiced="protect"))
+    assert run(protect=0.0, unvoiced="zero").shape[0] == 8 * int(0.1 * 48000)

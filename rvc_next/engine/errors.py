@@ -14,7 +14,11 @@ class MissingAssetError(EngineError):
 
 
 class ModelFormatError(EngineError):
-    """A ``.pth`` is neither an RVC small model nor a G checkpoint."""
+    """A ``.pth`` is neither an RVC small model nor a G checkpoint. ``detail`` says why, for clients."""
+
+    def __init__(self, message: str, detail: dict | None = None) -> None:
+        super().__init__(message)
+        self.detail = detail or {}
 
 
 class AudioError(EngineError):

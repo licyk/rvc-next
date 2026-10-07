@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from rvc_next.engine.stream.params import StreamParams
 
 F0Method = Literal["pm", "rmvpe", "fcpe"]
+UnvoicedMode = Literal["protect", "zero", "original"]
 
 
 class VoiceParamsModel(Record):
@@ -30,6 +31,10 @@ class VoiceParamsModel(Record):
     index_rate: float = Field(default=0.75, ge=0, le=1, description="Index strength: how much of the voice's own timbre is drawn from the index")
     protect: float = Field(default=0.33, ge=0, le=0.5, description="Consonant protection; 0.5 turns it off")
     rms_mix_rate: float = Field(default=0.25, ge=0, le=1, description="Loudness match; 1 keeps the converted loudness unchanged")
+    unvoiced: UnvoicedMode = Field(
+        default="protect",
+        description="Frames without pitch: protect applies to them (protect); they also get no pitch, as classic RVC and Applio (zero); or RVC 2026's rule, where protect has no effect (original)",
+    )
 
     def to_engine(self) -> VoiceParams:
         from rvc_next.engine.convert.params import VoiceParams

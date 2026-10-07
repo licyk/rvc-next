@@ -141,6 +141,7 @@ def live_run(
     index_rate: ParamOptions.index_rate = None,
     protect: ParamOptions.protect = None,
     rms_mix: ParamOptions.rms_mix = None,
+    unvoiced: ParamOptions.unvoiced = None,
     block_ms: Annotated[int | None, typer.Option(help="Block length in ms")] = None,
     crossfade_ms: Annotated[int | None, typer.Option(help="Crossfade in ms")] = None,
     context_ms: Annotated[int | None, typer.Option(help="Extra context in ms")] = None,
@@ -158,7 +159,7 @@ def live_run(
             raise typer.BadParameter("Give --voice")
         v = services.models.resolve(ref, allow_path=False)
         base = services.presets.resolve(preset, v.id).params if preset else (live.last_params if v.id == live.last_voice else services.presets.default_for(v.id).params)
-        params = build_params(base, speaker=speaker, pitch=pitch, formant=formant, f0=f0, index_rate=index_rate, protect=protect, rms_mix=rms_mix)
+        params = build_params(base, speaker=speaker, pitch=pitch, formant=formant, f0=f0, index_rate=index_rate, protect=protect, rms_mix=rms_mix, unvoiced=unvoiced)
         stream = live.stream.model_copy(
             update={k: val for k, val in {"block_ms": block_ms, "crossfade_ms": crossfade_ms, "context_ms": context_ms, "threshold_db": threshold_db}.items() if val is not None}
         )

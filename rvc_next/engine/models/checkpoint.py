@@ -18,6 +18,25 @@ from rvc_next.engine.errors import ModelFormatError
 SAMPLE_RATES = {"32k": 32000, "40k": 40000, "48k": 48000}
 MAX_SPEAKER_ID = 109
 
+# Applio writes these extra keys; rvc-next reads them, and writes the provenance ones on export.
+PROVENANCE_KEYS = ("author", "epoch", "step", "creation_date", "dataset_length")
+# Decoder modules of vocoders other than RVC's NSF HiFi-GAN (Applio's "MRF HiFi-GAN" and RefineGAN).
+_FOREIGN_DECODER = ("dec.mrfs.", "dec.upsamples.", "dec.upsample_blocks.", "dec.downsample_blocks.", "dec.mel_conv.")
+HIFIGAN = "HiFi-GAN"
+# Content features a voice was trained on (Applio's ``embedder_model``); RVC's HuBERT base is ContentVec.
+CONTENTVEC = "contentvec"
+
+
+def foreign_vocoder(state: dict[str, Any], declared: Any = None) -> str | None:
+    """The vocoder a state dict was trained with, when it is not RVC's NSF HiFi-GAN; else None."""
+    if declared not in (None, "", HIFIGAN):
+        return str(declared)
+    if any(k.startswith(("dec.upsample_blocks.", "dec.downsample_blocks.", "dec.mel_conv.")) for k in state):
+        return "RefineGAN"
+    if any(k.startswith(_FOREIGN_DECODER) for k in state):
+        return "MRF HiFi-GAN"
+    return None
+
 
 def normalize_speaker_info(speaker_info: Any, slots: int = MAX_SPEAKER_ID + 1) -> list[dict[str, Any]]:
     """Keep well-formed ``{id, name}`` entries with unique ids below ``slots``, sorted by id."""
@@ -37,10 +56,19 @@ def normalize_speaker_info(speaker_info: Any, slots: int = MAX_SPEAKER_ID + 1) -
 
 
 def torch_load(path: Path | str) -> Any:
+    """Read a ``.pth`` as data only: tensors, numbers, strings and containers.
+
+    ``weights_only`` refuses pickled code, so a crafted model cannot run anything when it is
+    imported; every RVC voice, G/D checkpoint and base model is plain data and loads unchanged.
+    """
+    import pickle
+
     import torch
 
     try:
-        return torch.load(str(path), map_location="cpu", weights_only=False)
+        return torch.load(str(path), map_location="cpu", weights_only=True)
+    except pickle.UnpicklingError as e:
+        raise ModelFormatError(f"{Path(path).name} holds Python objects besides weights; it is refused, as loading it could run code") from e
     except Exception as e:
         raise ModelFormatError(f"Cannot read {Path(path).name}: {e}") from e
 
@@ -78,6 +106,11 @@ class SmallModel:
     def speaker_slots(self) -> int:
         return int(self.weight["emb_g.weight"].shape[0])
 
+    @property
+    def provenance(self) -> dict[str, str]:
+        """Who trained it and how far (Applio's keys, and rvc-next's own exports): only those present."""
+        return {k: str(self.extra[k]) for k in PROVENANCE_KEYS if self.extra.get(k) not in (None, "")}
+
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = OrderedDict()
         out["weight"] = self.weight
@@ -106,6 +139,7 @@ class CheckpointSummary:
     speaker_info: list[dict[str, Any]]
     info: str
     iteration: int | None = None
+    provenance: dict[str, str] = field(default_factory=dict)
 
 
 def _parse_small(data: Any, name: str) -> SmallModel:
@@ -117,7 +151,17 @@ def _parse_small(data: Any, name: str) -> SmallModel:
     config = list(data["config"])
     if len(config) != 18:
         raise ModelFormatError(f"{name} has a config of {len(config)} values, not 18")
+    vocoder = foreign_vocoder(weight, data.get("vocoder"))
+    if vocoder:
+        raise ModelFormatError(f"{name} was trained with the {vocoder} vocoder (Applio); only RVC's HiFi-GAN voices can be used", {"reason": "vocoder", "vocoder": vocoder})
+    embedder = data.get("embedder_model")
+    if embedder not in (None, "", CONTENTVEC):
+        raise ModelFormatError(
+            f"{name} was trained on {embedder} features (Applio); rvc-next extracts ContentVec features, so it would convert badly",
+            {"reason": "embedder", "embedder": str(embedder)},
+        )
     slots = int(weight["emb_g.weight"].shape[0])
+    speaker_info = data.get("speaker_info") or _numbered_speakers(data.get("speakers_id"), slots)
     known = {"weight", "config", "info", "sr", "f0", "version", "speaker_info"}
     return SmallModel(
         weight=weight,
@@ -126,9 +170,18 @@ def _parse_small(data: Any, name: str) -> SmallModel:
         sr=data.get("sr", ""),
         pitch_guidance=bool(int(data.get("f0", 1))),
         version=str(data.get("version", "v1")),
-        speaker_info=normalize_speaker_info(data.get("speaker_info", []), slots),
+        speaker_info=normalize_speaker_info(speaker_info, slots),
         extra={k: v for k, v in data.items() if k not in known},
     )
+
+
+def _numbered_speakers(count: Any, slots: int) -> list[dict[str, Any]]:
+    """Applio marks a multi-speaker voice with ``speakers_id`` (a count) and no names: number them."""
+    try:
+        n = min(int(count), slots)
+    except (TypeError, ValueError):
+        return []
+    return [{"id": i, "name": f"Speaker {i}"} for i in range(n)] if n > 1 else []
 
 
 def read_small_model(path: Path | str) -> SmallModel:
@@ -160,16 +213,7 @@ def summarize(path: Path | str) -> CheckpointSummary:
             info="",
             iteration=int(data["iteration"]) if "iteration" in data else None,
         )
-    small = _parse_small(data, path.name)
-    return CheckpointSummary(
-        kind="small",
-        sample_rate=small.target_sample_rate,
-        version=small.version,
-        pitch_guidance=small.pitch_guidance,
-        speaker_slots=small.speaker_slots,
-        speaker_info=small.speaker_info,
-        info=small.info,
-    )
+    return summarize_small(_parse_small(data, path.name))
 
 
 # Generator geometry → sample rate: the spectrogram width (512 or 1024 FFT bins + 1) and the
@@ -189,7 +233,7 @@ class CheckpointInspection:
     """What a ``.pth`` is: a voice, a training generator (G) or discriminator (D), or neither."""
 
     kind: str
-    """small, G, D or unknown."""
+    """small, G, D, unsupported (an RVC-family file rvc-next cannot use) or unknown."""
     version: str | None = None
     sample_rate: str | None = None
     """"32k", "40k" or "48k"; None when the file does not tell (a D)."""
@@ -232,7 +276,7 @@ def inspect_checkpoint(path: Path | str) -> CheckpointInspection:
         try:
             small = _parse_small(data, path.name)
         except ModelFormatError as e:
-            return CheckpointInspection("unknown", note=str(e))
+            return CheckpointInspection("unsupported" if e.detail.get("reason") in ("vocoder", "embedder") else "unknown", note=str(e))
         summary = summarize_small(small)
         rate = {32000: "32k", 40000: "40k", 48000: "48k"}.get(small.target_sample_rate)
         return CheckpointInspection("small", small.version, rate, small.pitch_guidance, summary)
@@ -240,8 +284,14 @@ def inspect_checkpoint(path: Path | str) -> CheckpointInspection:
     if state is None:
         return CheckpointInspection("unknown", note=f"{path.name} is not an RVC model or checkpoint")
     if any(k.startswith("discriminators.") for k in state):
+        if any(k.startswith("discriminators.") and k.endswith("weight_v") and tuple(state[k].shape[2:]) == (3, 9) for k in state):
+            # Applio's v3 discriminator adds UnivNet's multi-resolution ones; it also has 9 sub-discriminators.
+            return CheckpointInspection("unsupported", note=f"{path.name} is Applio's RefineGAN discriminator; only RVC's HiFi-GAN base models can be used")
         count = len({k.split(".")[1] for k in state if k.startswith("discriminators.")})
         return CheckpointInspection("D", _D_VERSION.get(count))
+    vocoder = foreign_vocoder(state)
+    if vocoder:
+        return CheckpointInspection("unsupported", note=f"{path.name} is a {vocoder} generator (Applio); only RVC's HiFi-GAN base models can be used")
     if any(k.startswith("dec.") for k in state):
         version, rate, f0 = inspect_generator(state)
         return CheckpointInspection("G", version, rate, f0)
@@ -257,6 +307,7 @@ def summarize_small(small: SmallModel) -> CheckpointSummary:
         speaker_slots=small.speaker_slots,
         speaker_info=small.speaker_info,
         info=small.info,
+        provenance=small.provenance,
     )
 
 

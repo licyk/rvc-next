@@ -32,6 +32,7 @@ from rvc_next.core.models.models import (
     IndexSuggestion,
     LegacyScanResult,
     MergeRequest,
+    Provenance,
     Speaker,
     VoiceModel,
     VoiceUpdate,
@@ -139,6 +140,7 @@ class VoiceModelService:
             has_index=any(Path(p).is_file() for p in indexes.values()),
             size=r["size"],
             info=r["info"],
+            provenance=Provenance.model_validate(json.loads(r["meta"] or "{}").get("provenance", {})),
             hidden=bool(r["hidden"]),
             catalog_id=r["catalog_id"],
             created_at=r["created_at"],
@@ -251,11 +253,11 @@ class VoiceModelService:
         speakers = speaker_names if speaker_names is not None else [s.model_dump() for s in summary.speakers]
         now = now_iso()
         self._db.execute(
-            """INSERT INTO voice_models(id, name, description, tags, location, model_path, sample_rate, version, pitch_guidance, speakers, speaker_slots, indexes, size, mtime_ns, info, hidden, catalog_id, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """INSERT INTO voice_models(id, name, description, tags, location, model_path, sample_rate, version, pitch_guidance, speakers, speaker_slots, indexes, size, mtime_ns, info, meta, hidden, catalog_id, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description, tags=excluded.tags, location=excluded.location, model_path=excluded.model_path,
                sample_rate=excluded.sample_rate, version=excluded.version, pitch_guidance=excluded.pitch_guidance, speakers=excluded.speakers, speaker_slots=excluded.speaker_slots,
-               indexes=excluded.indexes, size=excluded.size, mtime_ns=excluded.mtime_ns, info=excluded.info, hidden=excluded.hidden, catalog_id=excluded.catalog_id,
+               indexes=excluded.indexes, size=excluded.size, mtime_ns=excluded.mtime_ns, info=excluded.info, meta=excluded.meta, hidden=excluded.hidden, catalog_id=excluded.catalog_id,
                updated_at=excluded.updated_at""",
             (
                 voice_id,
@@ -273,6 +275,7 @@ class VoiceModelService:
                 st.st_size,
                 st.st_mtime_ns,
                 summary.info,
+                json.dumps({"provenance": summary.provenance.model_dump(exclude_none=True)}),
                 int(hidden),
                 catalog_id,
                 created_at or now,
@@ -298,6 +301,7 @@ class VoiceModelService:
             speaker_slots=s.speaker_slots,
             info=s.info,
             iteration=s.iteration,
+            provenance=Provenance.from_file(s.provenance),
         )
 
     def inspect(self, path: str) -> CheckpointInfo:

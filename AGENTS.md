@@ -142,8 +142,9 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   overwritten, by the next save; every change publishes `settings_changed` with the changed keys
   (`core/context.py`), and a `paths.*` change rescans the library.
 - **Events** carry snapshots; job progress is throttled to 4/s and job logs batched (≤ 50 lines).
-- **Database** (`rvc-next.db`): two migrations (1: `voice_models presets jobs outputs audio_files
-  client_state`; 2: `voice_models.catalog_id`). It is a cache for voices (rebuilt from `models/` and legacy roots by
+- **Database** (`rvc-next.db`): three migrations (1: `voice_models presets jobs outputs audio_files
+  client_state`; 2: `voice_models.catalog_id`; 3: `voice_models.meta`, JSON with the file's
+  `provenance`, and every row re-read). It is a cache for voices (rebuilt from `models/` and legacy roots by
   `models.rescan()`), and the record of jobs and outputs. Experiments are folders, not rows.
 
 ## 5. Engine
@@ -177,7 +178,20 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   speaker; the index is rebuilt when the features' fingerprint changes and loaded once; pm, rmvpe
   and fcpe everywhere for conversion; formant shift offline (the realtime method: pitch at
   `key − formant`, generate `ceil(n·2^(f/12))` frames with NSF pitch scaled, resample back);
-  any path; inference off the audio callback; block/crossfade/context changes rebuffer.
+  any path; inference off the audio callback; block/crossfade/context changes rebuffer; the
+  training batch size is per GPU (the original passed `batch_size × n_gpus` to a sampler that
+  gives each rank batches of that size).
+- **Protect and unvoiced frames** (`VoiceParams.unvoiced`): the 2026 package interpolates unvoiced
+  F0 before the protect mask (`pitchf < 1`) is built, so protect never applied (and its realtime
+  path has none). `"original"` keeps that arithmetic (engine default, the golden runs);
+  `"protect"` (the core's default) builds the mask from the detector's voicing (`offline_f0`
+  returns it) and still feeds the filled F0; `"zero"` keeps 0 Hz, as classic RVC and Applio
+  (voices trained on zeros). `StreamEngine` blends the same way from `cache_voiced`. Protect only
+  holds back the index: with no index it changes nothing.
+- **Untrusted files:** every `.pth` loads with `weights_only=True` (`checkpoint.torch_load`, the
+  training loop); an imported separation checkpoint must load that way too
+  (`separate/runner.ensure_plain_checkpoint`, demucs class names allowed as pymss's stand-ins)
+  before pymss, which reads demucs/apollo with `weights_only=False`, sees it.
 - Offline output is up to two 10 ms frames shorter than the input — the original's flooring.
 - **Late blocks** (`AudioSession`): a block slower than the block length used to leave its backlog
   in the output buffer for good (duplex has no drift correction; split's settle target adopted it).
@@ -285,6 +299,12 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
 - **Base models** (`core/models/base.py`): official ones from the assets plus imported G (+ D)
   pairs; `GET /models/base?sample_rate&version&pitch_guidance` lists only those that fit, and
   `FitSettings.base_model` (`train run --base`) picks one; `check_fits` rejects a mismatch.
+- **Applio voices** (`engine/models/checkpoint.py`): Applio's HiFi-GAN voices are RVC v2 voices
+  with extra keys. A `vocoder` other than HiFi-GAN (or MRF/RefineGAN decoder keys), or an
+  `embedder_model` other than `contentvec`, is refused as `ModelFormat` (`detail.reason`
+  `vocoder`/`embedder`; imports stage it `unsupported`), as are their G and v3 (MRD, kernels 3×9)
+  D files. `speakers_id > 1` without names becomes numbered speakers; `author epoch step
+  creation_date dataset_length` become `VoiceModel.provenance` (About).
 - **Separation models** (`core/separation/library.py`): checkpoint + YAML, each one a one-step preset
   (`source: "imported"`, id `user-<slug>`); the import runs the separate worker's `check` action to
   load the model once before accepting it (`separation_load`).

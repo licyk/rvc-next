@@ -5,9 +5,10 @@ The maths is ported from the original ``infer/rtrvc.py`` (``RVC.infer``) and ``r
 input and output TorchGate, the resample to 16 kHz, HuBERT over the whole context with retrieval on
 the new frames only, pitch on the tail rolled into a 1024-frame cache, ``skip_head`` /
 ``return_length`` generation, formant resample, RMS mix and the SOLA crossfade. The original's
-three copies (GUI callback, ``rtrvc``, VST worker) become this one class. Two changes: the speaker
-id is honoured (the original fixed ``sid = 0``), and changing block, crossfade or context rebuffers
-without reloading the voice.
+three copies (GUI callback, ``rtrvc``, VST worker) become this one class. Three changes: the speaker
+id is honoured (the original fixed ``sid = 0``), changing block, crossfade or context rebuffers
+without reloading the voice, and ``protect`` applies when ``unvoiced`` is not "original" (the
+original has no protect step in realtime).
 """
 
 from __future__ import annotations
@@ -82,6 +83,7 @@ class StreamEngine:
         self.resample_kernel: dict[int, Any] = {}
         self.cache_pitch = torch.zeros(PITCH_CACHE, device=self.device, dtype=torch.long)
         self.cache_pitchf = torch.zeros(PITCH_CACHE, device=self.device, dtype=torch.float32)
+        self.cache_voiced = torch.zeros(PITCH_CACHE, device=self.device, dtype=torch.bool)
         self.tg = TorchGate(sr=self.sample_rate, n_fft=4 * self.zc, prop_decrease=0.9).to(self.device)
         self._set_voice(voice)
         self._build()
@@ -144,6 +146,7 @@ class StreamEngine:
         self.resampler = Resample(orig_freq=sr, new_freq=16000, dtype=torch.float32).to(dev)
         self.cache_pitch.zero_()
         self.cache_pitchf.zero_()
+        self.cache_voiced.zero_()
 
     def update(self, params: VoiceParams) -> None:
         """Hot: applies from the next block."""
@@ -171,7 +174,7 @@ class StreamEngine:
     def reset(self) -> None:
         """Clear every buffer, as after a device change."""
         with self._lock:
-            for t in (self.input_wav, self.input_wav_denoise, self.input_wav_res, self.output_buffer, self.nr_buffer, self.cache_pitch, self.cache_pitchf):
+            for t in (self.input_wav, self.input_wav_denoise, self.input_wav_res, self.output_buffer, self.nr_buffer, self.cache_pitch, self.cache_pitchf, self.cache_voiced):
                 t.zero_()
             self.sola.reset()
             self.rms_buffer[:] = 0
@@ -298,6 +301,8 @@ class StreamEngine:
         padding_mask = torch.BoolTensor(feats.shape).to(self.device).fill_(False)
         feats = extract_features(hubert, feats, voice.version, padding_mask=padding_mask)
         feats = torch.cat((feats, feats[:, -1:, :]), 1)
+        protect = voice.if_f0 and params.unvoiced != "original" and params.protect < 0.5
+        feats0 = feats.clone() if protect else None
         skip_head, return_length = self.skip_head, self.return_length
         index = self._index
         if index is not None and params.index_rate != 0:
@@ -318,16 +323,23 @@ class StreamEngine:
             f0_extractor_frame = self.block_frame_16k + 800
             if params.f0_method == "rmvpe":
                 f0_extractor_frame = 5120 * ((f0_extractor_frame - 1) // 5120 + 1) - 160
-            pitch, pitchf = self._get_f0(input_wav[-f0_extractor_frame:], params.pitch - params.formant, params.f0_method)
+            pitch, pitchf, voiced = self._get_f0(input_wav[-f0_extractor_frame:], params.pitch - params.formant, params.f0_method, params.unvoiced)
             shift = self.block_frame_16k // 160
             self.cache_pitch[:-shift] = self.cache_pitch[shift:].clone()
             self.cache_pitchf[:-shift] = self.cache_pitchf[shift:].clone()
+            self.cache_voiced[:-shift] = self.cache_voiced[shift:].clone()
             self.cache_pitch[4 - pitch.shape[0] :] = pitch[3:-1]
             self.cache_pitchf[4 - pitch.shape[0] :] = pitchf[3:-1]
+            self.cache_voiced[4 - pitch.shape[0] :] = voiced[3:-1]
             cache_pitch = self.cache_pitch[None, -p_len:]
             cache_pitchf = self.cache_pitchf[None, -p_len:] * return_length2 / return_length
         feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
         feats = feats[:, :p_len, :]
+        if feats0 is not None:
+            # The offline protect blend, on the frames the detector found unvoiced.
+            feats0 = F.interpolate(feats0.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)[:, :p_len, :]
+            mask = torch.where(self.cache_voiced[-p_len:], 1.0, params.protect).to(feats.dtype)[None, :, None]
+            feats = feats * mask + feats0 * (1 - mask)
         p_len_tensor = torch.LongTensor([p_len]).to(self.device)
         speaker = min(max(int(params.speaker_id), 0), max(voice.n_spk - 1, 0))
         sid = torch.LongTensor([speaker]).to(self.device)
@@ -362,8 +374,9 @@ class StreamEngine:
             infered = self.resample_kernel[upp_res](infered[:, : return_length * upp_res])
         return infered.squeeze()
 
-    def _get_f0(self, x: Any, semitones: float, method: str) -> tuple[Any, Any]:
-        """Pitch for the tail of the 16 kHz buffer, interpolated and shifted, as (coarse, Hz) on the device."""
+    def _get_f0(self, x: Any, semitones: float, method: str, unvoiced: str = "original") -> tuple[Any, Any, Any]:
+        """Pitch for the tail of the 16 kHz buffer, interpolated (unless ``unvoiced`` is "zero") and
+        shifted, as (coarse, Hz, voiced) on the device."""
         # The providers' models take the tensor already on the device; their ``compute`` would copy it to numpy.
         if method == "pm":
             f0 = self._pm(x.cpu().numpy())
@@ -375,11 +388,14 @@ class StreamEngine:
             f0 = fcpe.model.infer(x.unsqueeze(0).float(), sr=16000, decoder_mode="local_argmax", threshold=0.006).squeeze().detach().cpu().numpy()
         else:
             raise ValueError(f"Unsupported F0 method: {method}")
+        import torch
+
         uv = f0 == 0
-        if np.any(~uv):
+        voiced = torch.from_numpy(~np.asarray(uv)).to(self.device)
+        if np.any(~uv) and unvoiced != "zero":
             f0[uv] = np.interp(np.where(uv)[0], np.where(~uv)[0], f0[~uv])
         f0 *= pow(2, semitones / 12)
-        return self._f0_post(f0)
+        return (*self._f0_post(f0), voiced)
 
     @staticmethod
     def _pm(x: np.ndarray) -> np.ndarray:

@@ -14,7 +14,7 @@ def map_engine_error(e: BaseException) -> RvcNextError | None:
     if isinstance(e, ee.MissingAssetError):
         return AssetMissingError(str(e), e.assets)
     if isinstance(e, ee.ModelFormatError):
-        return ModelFormatError(str(e))
+        return ModelFormatError(str(e), e.detail)
     if isinstance(e, ee.AudioError):
         return ValidationError(str(e), {"reason": "audio"})
     from rvc_next.engine.runtime import is_oom
