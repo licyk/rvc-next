@@ -38,10 +38,10 @@ def test_offline_f0_reports_voicing_and_keeps_zeros_on_request() -> None:
     from rvc_next.engine.f0.base import offline_f0
 
     provider = _Fixed([0, 200, 0, 200, 0])
-    coarse, hz, voiced = offline_f0(provider, np.zeros(800), 5, 0)
+    coarse, hz, voiced, _ = offline_f0(provider, np.zeros(800), 5, 0)
     assert voiced.tolist() == [False, True, False, True, False]
     assert hz.min() == 200  # filled: the original's rule
-    coarse, hz, voiced = offline_f0(provider, np.zeros(800), 5, 12, unvoiced="zero")
+    coarse, hz, voiced, _ = offline_f0(provider, np.zeros(800), 5, 12, unvoiced="zero")
     assert hz.tolist() == [0, 400, 0, 400, 0] and coarse[0] == 1 and coarse[1] > 1
 
 
@@ -110,3 +110,30 @@ def test_swift_provider_on_the_10_ms_grid() -> None:
     f0 = SwiftProvider("cpu").compute(tone(1.0, freq=220), 101)
     assert f0.shape == (101,) and abs(np.median(f0[f0 > 0]) - 220) < 5
     assert not SwiftProvider("cpu").compute(np.zeros(16000, np.float32), 101).any()
+
+
+def test_autotune_snaps_voiced_frames_only() -> None:
+    from rvc_next.engine.f0.base import autotune
+
+    f0 = np.array([0.0, 450.0, 435.0, 300.0])
+    voiced = np.array([False, True, True, False])
+    out = autotune(f0.copy(), voiced, 1.0)
+    assert out[0] == 0 and out[3] == 300.0 and np.allclose(out[1:3], 440.0)
+    half = autotune(f0.copy(), voiced, 0.5)
+    assert 440 < half[1] < 450
+    # Heard a semitone higher after the formant shift: the snap lands on a note there.
+    shifted = autotune(np.array([440.0]), np.array([True]), 1.0, offset=0.5)
+    assert np.isclose(69 + 12 * np.log2(shifted[0] / 440) + 0.5, 69.0) or np.isclose(69 + 12 * np.log2(shifted[0] / 440) + 0.5, 70.0)
+
+
+def test_auto_key_aims_the_median() -> None:
+    from rvc_next.engine.f0.base import auto_key, offline_f0
+
+    f0 = np.array([110.0, 0.0, 110.0, 116.5])
+    voiced = f0 > 0
+    assert auto_key(f0, voiced, 220.0, "semitone") == 12
+    assert auto_key(f0, voiced, 300.0, "octave") == 12  # 17 semitones up rounds to one octave
+    assert auto_key(f0, voiced, 300.0, "semitone") == 17
+    assert auto_key(f0, voiced, 220.0, "off") == 0
+    track = offline_f0(_Fixed([110.0, 0.0, 110.0, 110.0]), np.zeros(640), 4, 0, auto_pitch="semitone", auto_pitch_target=220.0)
+    assert track.key == 12 and np.allclose(track.hz[[0, 2, 3]], 220.0)

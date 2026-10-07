@@ -142,6 +142,7 @@ def live_run(
     protect: ParamOptions.protect = None,
     rms_mix: ParamOptions.rms_mix = None,
     unvoiced: ParamOptions.unvoiced = None,
+    autotune: ParamOptions.autotune = None,
     block_ms: Annotated[int | None, typer.Option(help="Block length in ms")] = None,
     crossfade_ms: Annotated[int | None, typer.Option(help="Crossfade in ms")] = None,
     context_ms: Annotated[int | None, typer.Option(help="Extra context in ms")] = None,
@@ -163,7 +164,9 @@ def live_run(
             raise typer.BadParameter("Give --voice")
         v = services.models.resolve(ref, allow_path=False)
         base = services.presets.resolve(preset, v.id).params if preset else (live.last_params if v.id == live.last_voice else services.presets.default_for(v.id).params)
-        params = build_params(base, speaker=speaker, pitch=pitch, formant=formant, f0=f0, index_rate=index_rate, protect=protect, rms_mix=rms_mix, unvoiced=unvoiced)
+        params = build_params(
+            base, speaker=speaker, pitch=pitch, formant=formant, f0=f0, index_rate=index_rate, protect=protect, rms_mix=rms_mix, unvoiced=unvoiced, autotune=autotune
+        )
         if record is not None and record not in ("both", "converted", "input"):
             raise typer.BadParameter("--record is both, converted or input")
         changes = {

@@ -26,5 +26,5 @@ class SeparationPreset(Record):
 class SeparateRequest(Record):
     inputs: list[AudioRef] = Field(min_length=1)
     preset: str
-    output_format: Literal["wav", "flac", "mp3", "m4a"] | None = None
+    output_format: Literal["wav", "flac", "mp3", "m4a", "ogg"] | None = None
     output_dir: str | None = None

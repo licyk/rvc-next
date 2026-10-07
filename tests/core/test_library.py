@@ -122,7 +122,7 @@ def test_provenance_from_the_file(services, tmp_path):
     data.update(author="Ana", epoch=120, step=2400, dataset_length="00:12:30")
     torch.save(data, str(src))
     voice = services.models.import_paths([src]).voices[0]
-    assert voice.provenance.model_dump() == {"author": "Ana", "epoch": 120, "step": 2400, "created": None, "dataset_length": "00:12:30"}
+    assert voice.provenance.model_dump() == {"author": "Ana", "epoch": 120, "step": 2400, "created": None, "dataset_length": "00:12:30", "pitch_median": None}
     assert services.models.inspect(str(src)).provenance.author == "Ana"
 
 

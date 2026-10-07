@@ -325,7 +325,7 @@ class StreamEngine:
             f0_extractor_frame = self.block_frame_16k + 800
             if params.f0_method == "rmvpe":
                 f0_extractor_frame = 5120 * ((f0_extractor_frame - 1) // 5120 + 1) - 160
-            pitch, pitchf, voiced = self._get_f0(input_wav[-f0_extractor_frame:], params.pitch - params.formant, params.f0_method, params.unvoiced)
+            pitch, pitchf, voiced = self._get_f0(input_wav[-f0_extractor_frame:], params.pitch - params.formant, params.f0_method, params.unvoiced, params.autotune, params.formant)
             shift = self.block_frame_16k // 160
             self.cache_pitch[:-shift] = self.cache_pitch[shift:].clone()
             self.cache_pitchf[:-shift] = self.cache_pitchf[shift:].clone()
@@ -376,9 +376,9 @@ class StreamEngine:
             infered = self.resample_kernel[upp_res](infered[:, : return_length * upp_res])
         return infered.squeeze()
 
-    def _get_f0(self, x: Any, semitones: float, method: str, unvoiced: str = "original") -> tuple[Any, Any, Any]:
-        """Pitch for the tail of the 16 kHz buffer, interpolated (unless ``unvoiced`` is "zero") and
-        shifted, as (coarse, Hz, voiced) on the device."""
+    def _get_f0(self, x: Any, semitones: float, method: str, unvoiced: str = "original", autotune: float = 0.0, formant: float = 0.0) -> tuple[Any, Any, Any]:
+        """Pitch for the tail of the 16 kHz buffer, interpolated (unless ``unvoiced`` is "zero"),
+        shifted and optionally autotuned, as (coarse, Hz, voiced) on the device."""
         # The providers' models take the tensor already on the device; their ``compute`` would copy it to numpy.
         if method == "pm":
             f0 = self._pm(x.cpu().numpy())
@@ -399,6 +399,10 @@ class StreamEngine:
         if np.any(~uv) and unvoiced != "zero":
             f0[uv] = np.interp(np.where(uv)[0], np.where(~uv)[0], f0[~uv])
         f0 *= pow(2, semitones / 12)
+        if autotune > 0:
+            from rvc_next.engine.f0.base import autotune as snap
+
+            f0 = snap(np.asarray(f0, dtype=np.float64), ~np.asarray(uv), autotune, formant)
         return (*self._f0_post(f0), voiced)
 
     @staticmethod

@@ -29,7 +29,7 @@ logger = logging.getLogger("rvc_next.separate")
 DML_CHUNK_SIZE = 88200
 DML_OVERLAP_SIZE = 22050
 DEFAULT_CHUNK_SIZE = 352800
-OUTPUT_FORMATS = ("wav", "flac", "mp3", "m4a")
+OUTPUT_FORMATS = ("wav", "flac", "mp3", "m4a", "ogg")
 
 
 class RetryInFp32(Exception):

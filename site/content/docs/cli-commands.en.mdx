@@ -110,13 +110,17 @@ rvc-next convert [OPTIONS] INPUTS...
 | `--protect <float>` | Consonant protection, `[0, 0.5]`; 0.5 turns it off | From the preset |
 | `--rms-mix <float>` | Loudness match, `[0, 1]`; 1 keeps the converted loudness | From the preset |
 | `--unvoiced <mode>` | Frames without pitch: `protect`, `zero` or `original`; see [Frames without pitch](/docs/guide-parameters#unvoiced) | From the preset |
+| `--autotune <float>` | Pull notes to the nearest semitone, `[0, 1]`; 0 turns it off | From the preset |
+| `--auto-pitch <mode>` | `off`, `semitone` or `octave`: add the key that brings the input's median pitch to the target; see [Automatic key](/docs/guide-parameters#auto-pitch) | From the preset |
+| `--auto-pitch-target <float>` | Hz the automatic key aims at, `[0, 1000]`; 0: the voice's own, else 155 | From the preset |
 | `--high-register <mode>` | RMVPE above about 1040 Hz: `off`, `true_pitch` or `fold`; see [Very high notes](/docs/guide-parameters#high-register) | From the preset |
 | `--f0-ceiling <float>` | Highest pitch `true_pitch` writes, `[1000, 2000]` Hz | From the preset |
 | `--separate <str>` | Separate first with this preset and convert the vocals | — |
 | `--remix` | Add the accompaniment back (needs `--separate`) | Off |
 | `--remix-gain <float>` | Accompaniment gain in dB | `0.0` |
-| `--format <str>` | `wav`, `flac`, `mp3`, or `m4a` | `convert.output_format` in settings (`wav`) |
+| `--format <str>` | `wav`, `flac`, `mp3`, `m4a`, or `ogg` (Opus) | `convert.output_format` in settings (`wav`) |
 | `--resample <int>` | Resample the result to this rate, at least 16000 | The voice's own sample rate |
+| `--denoise <float>` | Noise reduction over the converted voice, `[0, 1]`; 0 turns it off | 0 |
 | `--recursive / --no-recursive` | Look into subfolders of folder inputs | `--no-recursive` |
 | `--overwrite / --no-overwrite` | Replace existing files in the output folder | `--no-overwrite` |
 | `--preview <float>` | Convert only the first N seconds, `[1, 120]` | — |
@@ -146,7 +150,7 @@ rvc-next separate [OPTIONS] [INPUTS]...
 | --- | --- | --- |
 | `-p, --preset <str>` | Preset ID; see `--list` | `separation.default_preset` in settings (`vocals`) |
 | `-o, --output <directory>` | Output folder | The job's folder in the data directory |
-| `--format <str>` | `wav`, `flac`, `mp3`, or `m4a` | `separation.output_format` in settings (`flac`) |
+| `--format <str>` | `wav`, `flac`, `mp3`, `m4a`, or `ogg` (Opus) | `separation.output_format` in settings (`flac`) |
 | `--recursive / --no-recursive` | Look into subfolders | `--no-recursive` |
 | `--list` | List the presets and exit | Off |
 | `--json` | Print JSON | Off |
@@ -535,6 +539,9 @@ rvc-next preset save [OPTIONS] NAME
 | `--protect <float>` | Consonant protection, `[0, 0.5]`; 0.5 turns it off |
 | `--rms-mix <float>` | Loudness match, `[0, 1]`; 1 keeps the converted loudness |
 | `--unvoiced <mode>` | Frames without pitch: `protect`, `zero` or `original`; see [Frames without pitch](/docs/guide-parameters#unvoiced) |
+| `--autotune <float>` | Pull notes to the nearest semitone, `[0, 1]`; 0 turns it off |
+| `--auto-pitch <mode>` | `off`, `semitone` or `octave`: add the key that brings the input's median pitch to the target; see [Automatic key](/docs/guide-parameters#auto-pitch) |
+| `--auto-pitch-target <float>` | Hz the automatic key aims at, `[0, 1000]`; 0: the voice's own, else 155 |
 | `--high-register <mode>` | RMVPE above about 1040 Hz: `off`, `true_pitch` or `fold`; see [Very high notes](/docs/guide-parameters#high-register) |
 | `--f0-ceiling <float>` | Highest pitch `true_pitch` writes, `[1000, 2000]` Hz |
 
@@ -783,6 +790,7 @@ Convert live with the server's devices until <kbd>ctrl</kbd>+<kbd>c</kbd>, with 
 | `--protect <float>` | Consonant protection, `[0, 0.5]`; 0.5 turns it off | From the starting parameters |
 | `--rms-mix <float>` | Loudness match, `[0, 1]`; 1 keeps the converted loudness | From the starting parameters |
 | `--unvoiced <mode>` | Frames without pitch: `protect`, `zero` or `original`; see [Frames without pitch](/docs/guide-parameters#unvoiced) | From the starting parameters |
+| `--autotune <float>` | Pull notes to the nearest semitone, `[0, 1]`; 0 turns it off | From the starting parameters |
 | `--block-ms <int>` | Block length in milliseconds, `[20, 1500]` | Saved value (250) |
 | `--crossfade-ms <int>` | Crossfade in milliseconds, `[10, 150]` | Saved value (50) |
 | `--context-ms <int>` | Extra context in milliseconds, `[50, 5000]` | Saved value (2500) |

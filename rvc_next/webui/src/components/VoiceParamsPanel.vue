@@ -68,6 +68,7 @@ const f0 = computed({ get: () => model.value.f0_method as string | null, set: (v
 const CHOICES = [
   { key: 'unvoiced', label: 'params.unvoiced', help: 'params.unvoicedHelp', options: 'params.unvoicedOptions', offlineOnly: false, method: null },
   { key: 'f0_high_register', label: 'params.highRegister', help: 'params.highRegisterHelp', options: 'params.highRegisterOptions', offlineOnly: true, method: 'rmvpe' },
+  { key: 'auto_pitch', label: 'params.autoPitch', help: 'params.autoPitchHelp', options: 'params.autoPitchOptions', offlineOnly: true, method: null },
 ] as const;
 const choices = computed(() =>
   CHOICES.filter((c) => !(c.offlineOnly && props.live)).map((c) => ({
@@ -80,6 +81,17 @@ const ceiling = computed(() => {
   const s = spec('voice', 'f0_ceiling');
   return { min: s.min, max: s.max, default: s.default as number };
 });
+const autotune = computed(() => {
+  const s = spec('voice', 'autotune');
+  return { min: s.min, max: s.max, default: s.default as number };
+});
+const target = computed(() => {
+  const s = spec('voice', 'auto_pitch_target');
+  return { min: s.min, max: s.max, default: s.default as number };
+});
+const ownPitch = computed(() => props.voice?.provenance?.pitch_median ?? null);
+const targetHelp = computed(() => (model.value.auto_pitch_target ? t('params.targetHelp') : ownPitch.value ? t('params.targetOwn', { hz: Math.round(ownPitch.value) }) : t('params.targetDefault')));
+const showTarget = computed(() => !props.live && model.value.auto_pitch !== 'off');
 const showCeiling = computed(() => !props.live && model.value.f0_high_register === 'true_pitch' && model.value.f0_method === 'rmvpe');
 const detailsOpen = ref(false);
 
@@ -157,6 +169,35 @@ function save() {
           :options="c.options"
           :disabled="disabled || c.off"
           @update:model-value="$event && setField(c.key, $event)"
+        />
+        <ParamSlider
+          :model-value="model.autotune"
+          :label="t('params.autotune')"
+          :help="t('params.autotuneHelp')"
+          :min="autotune.min"
+          :max="autotune.max"
+          :step="0.05"
+          unit=""
+          :default-value="autotune.default"
+          :disabled="disabled"
+          :reset-label="t('common.reset')"
+          @update:model-value="setField('autotune', $event, false)"
+          @commit="setField('autotune', $event)"
+        />
+        <ParamSlider
+          v-if="showTarget"
+          :model-value="model.auto_pitch_target"
+          :label="t('params.target')"
+          :help="targetHelp"
+          :min="target.min"
+          :max="target.max"
+          :step="5"
+          unit="Hz"
+          :default-value="target.default"
+          :disabled="disabled"
+          :reset-label="t('common.reset')"
+          @update:model-value="setField('auto_pitch_target', $event, false)"
+          @commit="setField('auto_pitch_target', $event)"
         />
         <ParamSlider
           v-if="showCeiling"

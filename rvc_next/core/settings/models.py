@@ -60,7 +60,7 @@ class DownloadSettings(Record):
     verify_checksums: bool = True
 
 
-OutputFormat = Literal["wav", "flac", "mp3", "m4a"]
+OutputFormat = Literal["wav", "flac", "mp3", "m4a", "ogg"]
 
 
 class ConvertSettings(Record):

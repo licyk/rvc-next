@@ -37,6 +37,9 @@ def preset_save(
     protect: ParamOptions.protect = None,
     rms_mix: ParamOptions.rms_mix = None,
     unvoiced: ParamOptions.unvoiced = None,
+    autotune: ParamOptions.autotune = None,
+    auto_pitch: ParamOptions.auto_pitch = None,
+    auto_pitch_target: ParamOptions.auto_pitch_target = None,
     high_register: ParamOptions.high_register = None,
     f0_ceiling: ParamOptions.f0_ceiling = None,
 ) -> None:
@@ -56,6 +59,9 @@ def preset_save(
             protect=protect,
             rms_mix=rms_mix,
             unvoiced=unvoiced,
+            autotune=autotune,
+            auto_pitch=auto_pitch,
+            auto_pitch_target=auto_pitch_target,
             high_register=high_register,
             f0_ceiling=f0_ceiling,
         )

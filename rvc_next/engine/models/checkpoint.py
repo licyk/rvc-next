@@ -19,7 +19,7 @@ SAMPLE_RATES = {"32k": 32000, "40k": 40000, "48k": 48000}
 MAX_SPEAKER_ID = 109
 
 # Applio writes these extra keys; rvc-next reads them, and writes the provenance ones on export.
-PROVENANCE_KEYS = ("author", "epoch", "step", "creation_date", "dataset_length")
+PROVENANCE_KEYS = ("author", "epoch", "step", "creation_date", "dataset_length", "f0_median")
 # Decoder modules of vocoders other than RVC's NSF HiFi-GAN (Applio's "MRF HiFi-GAN" and RefineGAN).
 _FOREIGN_DECODER = ("dec.mrfs.", "dec.upsamples.", "dec.upsample_blocks.", "dec.downsample_blocks.", "dec.mel_conv.")
 HIFIGAN = "HiFi-GAN"

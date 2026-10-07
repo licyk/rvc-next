@@ -6,7 +6,7 @@ from typing import Annotated, Any, get_args
 
 import typer
 
-from rvc_next.core.params import F0Method, HighRegisterMode, UnvoicedMode, VoiceParamsModel
+from rvc_next.core.params import AutoPitchMode, F0Method, HighRegisterMode, UnvoicedMode, VoiceParamsModel
 
 F0_METHODS = get_args(F0Method)
 
@@ -28,6 +28,11 @@ class ParamOptions:
         typer.Option("--high-register", help="RMVPE above ~1040 Hz: off, true_pitch (correct its octave errors) or fold (correct, an octave down); offline only"),
     ]
     f0_ceiling = Annotated[float | None, typer.Option("--f0-ceiling", min=1000, max=2000, help="Highest pitch --high-register true_pitch writes, in Hz")]
+    autotune = Annotated[float | None, typer.Option("--autotune", min=0, max=1, help="Pull notes to the nearest semitone: 0 off, 1 snap")]
+    auto_pitch = Annotated[
+        str | None, typer.Option("--auto-pitch", help="off, semitone or octave: add the key that brings the input's median pitch to --auto-pitch-target (offline)")
+    ]
+    auto_pitch_target = Annotated[float | None, typer.Option("--auto-pitch-target", min=0, max=1000, help="Hz the automatic key aims at; 0: the voice's own, else 155")]
 
 
 def build_params(base: VoiceParamsModel, **overrides: Any) -> VoiceParamsModel:
@@ -38,6 +43,8 @@ def build_params(base: VoiceParamsModel, **overrides: Any) -> VoiceParamsModel:
         raise typer.BadParameter(f"--f0 is one of {', '.join(F0_METHODS)}")
     if "unvoiced" in patch and patch["unvoiced"] not in get_args(UnvoicedMode):
         raise typer.BadParameter(f"--unvoiced is one of {', '.join(get_args(UnvoicedMode))}")
+    if "auto_pitch" in patch and patch["auto_pitch"] not in get_args(AutoPitchMode):
+        raise typer.BadParameter(f"--auto-pitch is one of {', '.join(get_args(AutoPitchMode))}")
     if "f0_high_register" in patch and patch["f0_high_register"] not in get_args(HighRegisterMode):
         raise typer.BadParameter(f"--high-register is one of {', '.join(get_args(HighRegisterMode))}")
     return VoiceParamsModel.model_validate({**base.model_dump(), **patch})

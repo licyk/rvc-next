@@ -163,7 +163,7 @@ const previewShown = ref(true);
             <Switch :model-value="s.training.pitch_guidance" :label="t('train.pitchGuidance')" @update:model-value="patch({ training: { pitch_guidance: $event } })" />
             <Switch :model-value="s.training.cache_in_gpu" :label="t('train.cacheInGpu')" @update:model-value="patch({ training: { cache_in_gpu: $event } })" />
             <SelectField :model-value="s.separation.default_preset" :label="t('settings.defaultPreset')" :options="(sepPresets.data.value ?? []).map((p) => ({ value: p.id, label: p.title }))" @update:model-value="patch({ separation: { default_preset: $event } })" />
-            <SelectField :model-value="s.convert.output_format" :label="t('settings.outputFormat')" :options="['wav', 'flac', 'mp3', 'm4a'].map((v) => ({ value: v, label: v.toUpperCase() }))" @update:model-value="patch({ convert: { output_format: $event } })" />
+            <SelectField :model-value="s.convert.output_format" :label="t('settings.outputFormat')" :options="['wav', 'flac', 'mp3', 'm4a', 'ogg'].map((v) => ({ value: v, label: v.toUpperCase() }))" @update:model-value="patch({ convert: { output_format: $event } })" />
           </template>
           <template v-else-if="section === 'appearance'">
             <!-- As Hanaikada's Appearance: the name on the left, the control at its own width on the right. -->

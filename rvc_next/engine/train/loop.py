@@ -508,7 +508,9 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
 
     def save_small(path: str, epoch: int) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        stamp = {"epoch": epoch, "step": global_step, "creation_date": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        stamp: dict[str, Any] = {"epoch": epoch, "step": global_step, "creation_date": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        if pitch_median:
+            stamp["f0_median"] = round(pitch_median, 1)
         if getattr(hps, "author", ""):
             stamp["author"] = hps.author
         save_small_from_state(
@@ -524,6 +526,7 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
         )
         sink.output(path, "small")
 
+    pitch_median = _dataset_pitch_median(hps.model_dir) if rank == 0 and f0 else None
     preview_entry = _preview_entry(train_dataset) if rank == 0 and getattr(hps, "previews", False) else None
     preview_dir = os.path.join(hps.model_dir, PREVIEW_DIR)
 
@@ -715,3 +718,22 @@ def _render_preview(net_g: Any, dataset: Any, entry: list[str], f0: bool, device
     os.makedirs(os.path.dirname(path), exist_ok=True)
     sf.write(path, data, sample_rate, subtype="PCM_16")
     return path
+
+
+def _dataset_pitch_median(exp_dir: str, limit: int = 4000) -> float | None:
+    """The training data's median pitch (Hz, over voiced frames of ``2b-f0nsf``): written into the
+    voice, so the automatic key can aim at the voice's own register."""
+    import numpy as np
+
+    folder = Path(exp_dir) / "2b-f0nsf"
+    values = []
+    for path in sorted(folder.glob("*.npy"))[:limit]:
+        try:
+            f0 = np.load(path, allow_pickle=False)
+        except (OSError, ValueError):
+            continue
+        values.append(np.log2(f0[f0 > 0]))
+    if not values:
+        return None
+    joined = np.concatenate(values)
+    return float(np.exp2(np.median(joined))) if joined.size else None

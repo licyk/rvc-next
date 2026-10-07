@@ -136,7 +136,7 @@ For detailed device and precision rules, see [Hardware and performance](/docs/ad
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
-| `convert.output_format` | `wav`/`flac`/`mp3`/`m4a` | `wav` | Result format |
+| `convert.output_format` | `wav`/`flac`/`mp3`/`m4a`/`ogg` | `wav` | Result format |
 | `convert.output_dir` | str | Empty | Output folder; takes precedence over `paths.outputs_dir` when nonempty |
 | `convert.keep_outputs_days` | int | `0` | Days to keep results; `0` means forever. Expired results are cleaned up when the server starts |
 | `convert.default_params` | Object | See below | Parameters copied into a voice's default preset on import |
@@ -158,7 +158,7 @@ For detailed device and precision rules, see [Hardware and performance](/docs/ad
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | `separation.default_preset` | str | `vocals` | Default separation preset |
-| `separation.output_format` | `wav`/`flac`/`mp3`/`m4a` | `flac` | Stem format |
+| `separation.output_format` | `wav`/`flac`/`mp3`/`m4a`/`ogg` | `flac` | Stem format |
 
 ### `training`: training defaults
 

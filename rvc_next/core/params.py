@@ -20,6 +20,9 @@ if TYPE_CHECKING:
 F0Method = Literal["pm", "rmvpe", "fcpe", "crepe", "crepe-tiny", "swift"]
 UnvoicedMode = Literal["protect", "zero", "original"]
 HighRegisterMode = Literal["off", "true_pitch", "fold"]
+AutoPitchMode = Literal["off", "semitone", "octave"]
+DEFAULT_PITCH_TARGET = 155.0
+"""Hz the automatic key aims at when the voice does not record its own pitch (Applio's male target)."""
 
 
 def f0_assets(method: str, directml: bool = False) -> list[str]:
@@ -48,11 +51,20 @@ class VoiceParamsModel(Record):
         description="RMVPE above about 1040 Hz (offline): a second pass corrects its octave errors and writes the true pitch up to the ceiling (true_pitch), or half of it (fold)",
     )
     f0_ceiling: float = Field(default=1250.0, ge=1000, le=2000, description="Highest pitch the high-register correction writes, in Hz")
+    autotune: float = Field(default=0.0, ge=0, le=1, description="Pull notes to the nearest semitone; 0 turns it off, 1 snaps")
+    auto_pitch: AutoPitchMode = Field(
+        default="off", description="Offline: add the key that brings the input's median pitch to the target, in semitones or in whole octaves (which keeps a song's key)"
+    )
+    auto_pitch_target: float = Field(default=0.0, ge=0, le=1000, description="Pitch the automatic key aims at, in Hz; 0: the voice's own (from its training), else 155 Hz")
 
-    def to_engine(self) -> VoiceParams:
+    def to_engine(self, pitch_median: float | None = None) -> VoiceParams:
+        """The engine's parameters; ``pitch_median`` (the voice's own, in Hz) resolves an automatic-key target of 0."""
         from rvc_next.engine.convert.params import VoiceParams
 
-        return VoiceParams(**self.model_dump())
+        values = self.model_dump()
+        if not values["auto_pitch_target"]:
+            values["auto_pitch_target"] = pitch_median or DEFAULT_PITCH_TARGET
+        return VoiceParams(**values)
 
 
 class StreamParamsModel(Record):

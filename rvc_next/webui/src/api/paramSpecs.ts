@@ -92,6 +92,30 @@ export const PARAM_SPECS: Record<'voice' | 'stream', Record<string, ParamSpec>> 
       "min": 1000,
       "max": 2000,
       "help": "Highest pitch the high-register correction writes, in Hz"
+    },
+    "autotune": {
+      "type": "number",
+      "default": 0.0,
+      "min": 0,
+      "max": 1,
+      "help": "Pull notes to the nearest semitone; 0 turns it off, 1 snaps"
+    },
+    "auto_pitch": {
+      "type": "string",
+      "default": "off",
+      "options": [
+        "off",
+        "semitone",
+        "octave"
+      ],
+      "help": "Offline: add the key that brings the input's median pitch to the target, in semitones or in whole octaves (which keeps a song's key)"
+    },
+    "auto_pitch_target": {
+      "type": "number",
+      "default": 0.0,
+      "min": 0,
+      "max": 1000,
+      "help": "Pitch the automatic key aims at, in Hz; 0: the voice's own (from its training), else 155 Hz"
     }
   },
   "stream": {

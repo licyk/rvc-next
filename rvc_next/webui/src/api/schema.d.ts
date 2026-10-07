@@ -2234,7 +2234,12 @@ export interface components {
             separate?: components["schemas"]["SeparationStep"] | null;
             remix?: components["schemas"]["RemixStep"] | null;
             /** Output Format */
-            output_format?: ("wav" | "flac" | "mp3" | "m4a") | null;
+            output_format?: ("wav" | "flac" | "mp3" | "m4a" | "ogg") | null;
+            /**
+             * Output Denoise
+             * @default 0
+             */
+            output_denoise?: number;
             /** Resample To */
             resample_to?: number | null;
             /** Preview Seconds */
@@ -2259,7 +2264,7 @@ export interface components {
              * @default wav
              * @enum {string}
              */
-            output_format: "wav" | "flac" | "mp3" | "m4a";
+            output_format: "wav" | "flac" | "mp3" | "m4a" | "ogg";
             /**
              * Output Dir
              * @default
@@ -3757,6 +3762,8 @@ export interface components {
             created: string | null;
             /** Dataset Length */
             dataset_length: string | null;
+            /** Pitch Median */
+            pitch_median: number | null;
         };
         /** RecordingRequest */
         RecordingRequest: {
@@ -3853,7 +3860,7 @@ export interface components {
             /** Preset */
             preset: string;
             /** Output Format */
-            output_format?: ("wav" | "flac" | "mp3" | "m4a") | null;
+            output_format?: ("wav" | "flac" | "mp3" | "m4a" | "ogg") | null;
             /** Output Dir */
             output_dir?: string | null;
         };
@@ -3981,7 +3988,7 @@ export interface components {
              * @default flac
              * @enum {string}
              */
-            output_format: "wav" | "flac" | "mp3" | "m4a";
+            output_format: "wav" | "flac" | "mp3" | "m4a" | "ogg";
         };
         /** SeparationStep */
         SeparationStep: {
@@ -4601,6 +4608,25 @@ export interface components {
              * @default 1250
              */
             f0_ceiling: number;
+            /**
+             * Autotune
+             * @description Pull notes to the nearest semitone; 0 turns it off, 1 snaps
+             * @default 0
+             */
+            autotune: number;
+            /**
+             * Auto Pitch
+             * @description Offline: add the key that brings the input's median pitch to the target, in semitones or in whole octaves (which keeps a song's key)
+             * @default off
+             * @enum {string}
+             */
+            auto_pitch: "off" | "semitone" | "octave";
+            /**
+             * Auto Pitch Target
+             * @description Pitch the automatic key aims at, in Hz; 0: the voice's own (from its training), else 155 Hz
+             * @default 0
+             */
+            auto_pitch_target: number;
         };
         /**
          * VoiceParamsModel
@@ -4670,6 +4696,25 @@ export interface components {
              * @default 1250
              */
             f0_ceiling?: number;
+            /**
+             * Autotune
+             * @description Pull notes to the nearest semitone; 0 turns it off, 1 snaps
+             * @default 0
+             */
+            autotune?: number;
+            /**
+             * Auto Pitch
+             * @description Offline: add the key that brings the input's median pitch to the target, in semitones or in whole octaves (which keeps a song's key)
+             * @default off
+             * @enum {string}
+             */
+            auto_pitch?: "off" | "semitone" | "octave";
+            /**
+             * Auto Pitch Target
+             * @description Pitch the automatic key aims at, in Hz; 0: the voice's own (from its training), else 155 Hz
+             * @default 0
+             */
+            auto_pitch_target?: number;
         };
         /**
          * VoiceParamsModel
@@ -4739,6 +4784,25 @@ export interface components {
              * @default 1250
              */
             f0_ceiling: number;
+            /**
+             * Autotune
+             * @description Pull notes to the nearest semitone; 0 turns it off, 1 snaps
+             * @default 0
+             */
+            autotune: number;
+            /**
+             * Auto Pitch
+             * @description Offline: add the key that brings the input's median pitch to the target, in semitones or in whole octaves (which keeps a song's key)
+             * @default off
+             * @enum {string}
+             */
+            auto_pitch: "off" | "semitone" | "octave";
+            /**
+             * Auto Pitch Target
+             * @description Pitch the automatic key aims at, in Hz; 0: the voice's own (from its training), else 155 Hz
+             * @default 0
+             */
+            auto_pitch_target: number;
         };
         /** VoicePlan */
         "VoicePlan-Input": {

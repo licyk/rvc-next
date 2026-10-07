@@ -85,8 +85,9 @@ Keep in mind:
 
 ### Output
 
-- **Format**: WAV, FLAC, MP3 or M4A. The default comes from **Result format** under **Settings › Training defaults** (initially WAV).
+- **Format**: WAV, FLAC, MP3, M4A or OGG (Opus, a small file; always 48 kHz). The default comes from **Result format** under **Settings › Training defaults** (initially WAV).
 - **Sample rate**: defaults to **The voice's own** (for example, a 40 kHz voice outputs 40 kHz); you can also choose 22.05, 32, 40, 44.1 or 48 kHz, and the result is resampled to that rate.
+- **Noise reduction**: 0–1, default 0 (off). Removes hiss and background noise from the converted voice with a spectral gate that follows the noise as it changes (Applio's "clean audio"); higher values remove more and can dull the voice.
 
 ## Preview and convert
 

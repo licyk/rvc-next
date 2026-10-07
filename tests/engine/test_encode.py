@@ -21,5 +21,13 @@ def test_encode_any_model_rate(tmp_path, fmt, channels):
 
 def test_failed_encode_leaves_nothing(tmp_path):
     with pytest.raises(Exception):
-        encode(tmp_path / "x.ogg", np.zeros(100, dtype=np.float32), 16000, "ogg")
+        encode(tmp_path / "x.aiff", np.zeros(100, dtype=np.float32), 16000, "aiff")
     assert list(tmp_path.iterdir()) == []
+
+
+def test_ogg_is_opus_at_48k(tmp_path):
+    from rvc_next.engine.audio.io import probe
+
+    path = encode(tmp_path / "x.ogg", (0.1 * np.sin(np.arange(40000) / 10)).astype(np.float32), 40000, "ogg")
+    info = probe(path)
+    assert info.codec == "opus" and info.sample_rate == 48000 and abs(info.duration - 1.0) < 0.05

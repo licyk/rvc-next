@@ -27,3 +27,10 @@ class VoiceParams:
     second pass (``engine/f0/high_register.py``); "off" is the original."""
     f0_ceiling: float = 1250.0
     """Highest pitch "true_pitch" writes, in Hz."""
+    autotune: float = 0.0
+    """0–1: how far voiced frames are pulled to the nearest semitone (0 off); offline and Live."""
+    auto_pitch: str = "off"
+    """Offline: "semitone" or "octave" adds the key that brings the input's median pitch to
+    ``auto_pitch_target`` (on top of ``pitch``); "off" is the original."""
+    auto_pitch_target: float = 155.0
+    """Hz the automatic key aims at (the core resolves its "voice's own" choice to a number)."""

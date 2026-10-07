@@ -18,7 +18,7 @@ import numpy as np
 from rvc_next.engine.errors import AudioError
 
 AUDIO_EXTENSIONS = frozenset({".wav", ".flac", ".mp3", ".m4a", ".ogg", ".opus", ".aac", ".wma", ".mp4", ".mkv", ".webm", ".aif", ".aiff"})
-OUTPUT_FORMATS = ("wav", "flac", "mp3", "m4a")
+OUTPUT_FORMATS = ("wav", "flac", "mp3", "m4a", "ogg")
 
 
 @dataclass(frozen=True)
@@ -151,7 +151,7 @@ def _decode_ffmpeg(path: Path | str, sample_rate: int | None, mono: bool, max_se
 
 
 def encode(path: Path | str, audio: np.ndarray, sample_rate: int, fmt: str | None = None) -> Path:
-    """Write ``audio`` (``[T]`` or ``[C, T]``, float or int16) as wav, flac, mp3 or m4a.
+    """Write ``audio`` (``[T]`` or ``[C, T]``, float or int16) as wav, flac, mp3, m4a or ogg (Opus).
 
     The file is written beside the target and renamed into place, so a failure leaves nothing.
     """
@@ -197,16 +197,17 @@ def encoder_rate(codec_name: str, rate: int) -> int:
 
 
 def _transcode(src: io.BytesIO, dst: Path, fmt: str) -> None:
-    """WAV bytes to mp3 or m4a through PyAV (the original's ``wav2``).
+    """WAV bytes to mp3, m4a or ogg (Opus) through PyAV (the original's ``wav2``).
 
-    MP3 and AAC take a fixed set of rates; a model's 40 kHz output is resampled to 44.1 kHz, which
-    the original's ``wav2`` did not do (its mp3 and m4a export of 40k models failed).
+    MP3, AAC and Opus take a fixed set of rates; a model's 40 kHz output is resampled to 44.1 kHz
+    (48 kHz for Opus), which the original's ``wav2`` did not do (its mp3 and m4a export of 40k
+    models failed).
     """
     import av
     from av.audio.stream import AudioStream
 
     container_format = "mp4" if fmt == "m4a" else fmt
-    codec = "aac" if fmt == "m4a" else "libmp3lame"
+    codec = {"m4a": "aac", "ogg": "libopus"}.get(fmt, "libmp3lame")
     with av.open(src, "r") as inp, av.open(str(dst), "w", format=container_format) as out:
         in_stream = inp.streams.audio[0]
         channels = in_stream.codec_context.channels
@@ -216,7 +217,7 @@ def _transcode(src: io.BytesIO, dst: Path, fmt: str) -> None:
         # Older PyAV (the last for Python 3.10) types add_stream() as any kind of stream.
         assert isinstance(ostream, AudioStream)
         ostream.layout = layout
-        fmt_name = "fltp" if codec == "aac" else "s16p"
+        fmt_name = {"aac": "fltp", "libopus": "flt"}.get(codec, "s16p")
         resampler = av.AudioResampler(format=fmt_name, layout=layout, rate=rate)
         for frame in inp.decode(in_stream):
             frame.pts = None

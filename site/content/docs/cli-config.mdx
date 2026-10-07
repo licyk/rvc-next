@@ -136,7 +136,7 @@ rvc-next config set server.access_token null # 清除令牌
 
 | 设置 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `convert.output_format` | `wav`/`flac`/`mp3`/`m4a` | `wav` | 结果格式 |
+| `convert.output_format` | `wav`/`flac`/`mp3`/`m4a`/`ogg` | `wav` | 结果格式 |
 | `convert.output_dir` | str | 空 | 结果文件夹；非空时优先于 `paths.outputs_dir` |
 | `convert.keep_outputs_days` | int | `0` | 结果保留天数，`0` 为一直保留；服务器启动时清理过期结果 |
 | `convert.default_params` | 对象 | 见下 | 导入音色时复制到该音色默认预设的参数 |
@@ -158,7 +158,7 @@ rvc-next config set server.access_token null # 清除令牌
 | 设置 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `separation.default_preset` | str | `vocals` | 默认分离预设 |
-| `separation.output_format` | `wav`/`flac`/`mp3`/`m4a` | `flac` | 分轨格式 |
+| `separation.output_format` | `wav`/`flac`/`mp3`/`m4a`/`ogg` | `flac` | 分轨格式 |
 
 ### `training`：训练默认值
 

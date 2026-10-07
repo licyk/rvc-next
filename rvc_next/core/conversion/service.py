@@ -111,7 +111,7 @@ class ConversionService:
 
         runtime = self._compute.runtime()
         loaded = runtime.voice(voice.model_path)
-        params = req.params.to_engine()
+        params = req.params.to_engine(voice.provenance.pitch_median)
         index_path = self._models.index_for(voice, req.params.speaker_id)
         index = runtime.index(index_path) if index_path and req.params.index_rate > 0 else None
         if index is None and req.params.index_rate > 0:
@@ -131,7 +131,11 @@ class ConversionService:
             def on_progress(p: float, base: float = base, step: str = step) -> None:
                 ctx.progress(base + (1 - sep_share) * p / n, step)
 
-            out, sr = converter.convert(audio, loaded, params, index=index, resample_to=req.resample_to, progress=on_progress, cancel=ctx.cancel_token())
+            out, sr = converter.convert(
+                audio, loaded, params, index=index, resample_to=req.resample_to, progress=on_progress, cancel=ctx.cancel_token(), denoise=req.output_denoise
+            )
+            if params.auto_pitch != "off" and voice.pitch_guidance:
+                ctx.log(f"Automatic key: {converter.last_auto_key:+d} semitones (towards {params.auto_pitch_target:.0f} Hz)")
             stem = Path(name).stem
             kind = "preview" if preview else "converted"
             if req.remix and req.separate:

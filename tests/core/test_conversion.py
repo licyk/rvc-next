@@ -56,3 +56,16 @@ def test_each_pitch_method_requires_its_model(services, tiny_voice_file):
     assert services.conversion.required_assets(voice, "rmvpe") == ["hubert", "rmvpe"]
     assert services.conversion.required_assets(voice, "fcpe") == ["hubert", "fcpe"]
     assert services.assets.spec("fcpe").files[0].path == "fcpe/fcpe_c_v001.pt"
+
+
+def test_automatic_key_denoise_and_ogg(services, tiny_voice_file, wav_file, no_asset_checks):
+    voice = services.models.import_paths([tiny_voice_file]).voices[0]
+    params = VoiceParamsModel(f0_method="pm", auto_pitch="semitone", autotune=0.5)
+    assert params.to_engine().auto_pitch_target == 155.0 and params.to_engine(210.0).auto_pitch_target == 210.0
+    assert params.model_copy(update={"auto_pitch_target": 255.0}).to_engine(210.0).auto_pitch_target == 255.0
+    request = ConvertRequest(inputs=[AudioRef(kind="path", path=str(wav_file))], voice_id=voice.id, params=params, output_denoise=0.6, output_format="ogg", preview_seconds=1.0)
+    job = services.conversion.convert(request, foreground=True)
+    assert job.state == "completed", job.error
+    assert any("Automatic key" in line for line in services.jobs.read_log(job.id).lines)
+    out = services.audio.list_outputs(job_id=job.id).items[0]
+    assert out.path.endswith(".ogg") and out.sample_rate == 48000

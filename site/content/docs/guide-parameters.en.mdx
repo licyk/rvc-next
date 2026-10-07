@@ -12,7 +12,7 @@ The panel is titled **Voice parameters** and contains:
 
 1. **Pitch method**: a menu of the pitch methods;
 2. Five sliders: **Pitch**, **Formant**, **Index strength**, **Consonant protection** and **Loudness match**;
-3. **Pitch details**, a section that opens on click, with **Frames without pitch** and **Very high notes**;
+3. **Pitch details**, a section that opens on click, with **Frames without pitch**, **Very high notes**, **Automatic key** and **Autotune**;
 4. The **Presets** menu at the top right.
 
 Each slider shows its current value and a line of help beneath it. When the value differs from the default, a **Reset to default** (↺) button appears beside it. If a parameter has no effect on the current voice, its slider is dimmed and explains why.
@@ -35,6 +35,9 @@ The small text beneath the panel explains when changes apply:
 | **Frames without pitch** | `protect` / `zero` / `original` | `protect` | — | `--unvoiced` |
 | **Very high notes** | `off` / `true_pitch` / `fold` | `off` | — | `--high-register` |
 | **Highest corrected pitch** | 1000 to 2000 Hz | 1250 | 10 | `--f0-ceiling` |
+| **Automatic key** | `off` / `semitone` / `octave` | `off` | — | `--auto-pitch` |
+| **Aim at** | 0 to 1000 Hz (0: the voice's own) | 0 | 5 | `--auto-pitch-target` |
+| **Autotune** | 0 to 1 | 0 | 0.05 | `--autotune` |
 | **Speaker** | 0 to 109 | 0 | — | `--speaker` |
 
 The server validates these ranges, and the interface reads the server's definitions directly, so it cannot allow a value that the server rejects.
@@ -154,6 +157,22 @@ RMVPE was trained on singing that ends near C6 (about 1040 Hz). Above that it re
 
 The corrector comes from Applio.
 
+## Automatic key [#auto-pitch]
+
+Under **Pitch details**; Convert only (in Live the key would jump from block to block). It works out how far the input's usual pitch (the median of its voiced frames) is from the voice's, and shifts by that, on top of **Pitch**:
+
+| Choice | `--auto-pitch` | Shift |
+| --- | --- | --- |
+| **Off** (default) | `off` | None |
+| **To the nearest semitone** | `semitone` | The interval rounded to a semitone (at most two octaves). Good for speech. |
+| **By whole octaves** | `octave` | The interval rounded to whole octaves, so a song stays in its key. Good for singing. |
+
+**Aim at** is the target pitch. At 0 it is the voice's own: rvc-next measures the training data's median pitch when it trains a voice and shows it in the voice's **About** as **Training pitch (median)**. Voices that do not record it (most downloaded ones) aim at 155 Hz, a lower voice; set about 255 Hz for a higher one. The job's log says which key it chose. From Applio's "proposed pitch", which works per chunk; here the key is chosen once for the whole file.
+
+## Autotune [#autotune]
+
+Under **Pitch details**; Convert and Live. Pulls every voiced frame towards the nearest semitone of A4 = 440 Hz tuning: 1 snaps each frame to the note (the robotic "autotune" sound), 0.3–0.6 tightens the pitch while keeping some vibrato, 0 leaves it alone. Breaths and consonants are never given a note. It tunes the pitch you hear, after **Pitch**, **Automatic key** and **Formant**.
+
 ## Loudness match [#rms-mix]
 
 > 0 follows the input's loudness, 1 keeps the converted loudness.
@@ -213,7 +232,7 @@ rvc-next preset remove male-to-female --voice kikiV1
 
 ## Parameters in live voice conversion [#live]
 
-On **Live**, the parameter panel's help changes to “Changes apply as you drag.”: all voice parameters (**Pitch**, **Formant**, **Index strength**, **Consonant protection**, **Loudness match**, **Pitch details**) apply to the running conversion as you drag their sliders, without stopping and restarting.
+On **Live**, the parameter panel's help changes to “Changes apply as you drag.”: all voice parameters (**Pitch**, **Formant**, **Index strength**, **Consonant protection**, **Loudness match**, **Pitch details**; Live has no **Very high notes** or **Automatic key**) apply to the running conversion as you drag their sliders, without stopping and restarting.
 
 - When switching **Pitch method**, the new method's model loads in the background. If it has not been downloaded, conversion continues using the previous method and reports the missing model.
 - Switching **Speaker** also switches to that speaker's index.

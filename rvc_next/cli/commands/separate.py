@@ -13,7 +13,7 @@ def separate(
     inputs: Annotated[list[Path] | None, typer.Argument(help="Audio files or folders", exists=True)] = None,
     preset: Annotated[str | None, typer.Option("--preset", "-p", help="Preset id; see --list")] = None,
     output: Annotated[Path | None, typer.Option("-o", "--output", help="Output folder", file_okay=False)] = None,
-    fmt: Annotated[str | None, typer.Option("--format", help="wav, flac, mp3 or m4a")] = None,
+    fmt: Annotated[str | None, typer.Option("--format", help="wav, flac, mp3, m4a or ogg (Opus)")] = None,
     recursive: Annotated[bool, typer.Option(help="Look into sub-folders")] = False,
     list_presets: Annotated[bool, typer.Option("--list", help="List the presets and exit")] = False,
     json_output: Annotated[bool, typer.Option("--json")] = False,

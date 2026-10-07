@@ -7,7 +7,7 @@ The request::
       "preset": {...},                       # one entry of core/separation/presets.json
       "models": {"vocals": {...}},           # engine.separate.presets.resolve_model() for every preset step
       "output_dir": "/abs/out",
-      "output_format": "flac",               # wav | flac | mp3 | m4a
+      "output_format": "flac",               # wav | flac | mp3 | m4a | ogg
       "device": "auto",                      # compute.device: auto | cpu | cuda:N | xpu:N | dml | mps
       "precision": "auto",                   # auto | fp16 | fp32; the runner re-runs with fp32 after exit 75
       "allow_fp32_retry": true,              # DirectML only

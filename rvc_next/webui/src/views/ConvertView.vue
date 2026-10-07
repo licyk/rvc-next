@@ -40,10 +40,11 @@ const remix = ref(false);
 const remixGain = ref(0);
 const format = ref<string | null>(null);
 const resample = ref<string | null>('');
+const denoise = ref(0);
 const stepsOpen = ref(false);
 const error = ref<unknown>(null);
 
-const formatOptions = ['wav', 'flac', 'mp3', 'm4a'].map((v) => ({ value: v, label: v.toUpperCase() }));
+const formatOptions = ['wav', 'flac', 'mp3', 'm4a', 'ogg'].map((v) => ({ value: v, label: v.toUpperCase() }));
 const resampleOptions = computed(() => [{ value: '', label: t('convert.resampleOff') }, ...[22050, 32000, 40000, 44100, 48000].map((r) => ({ value: String(r), label: `${r / 1000} kHz` }))]);
 const presetOptions = computed(() => (sepPresets.data.value ?? []).map((p) => ({ value: p.id, label: p.title })));
 const chosenFormat = computed(() => format.value ?? settings.data.value?.convert.output_format ?? 'wav');
@@ -76,6 +77,7 @@ function run(preview: boolean) {
       remix: separate.value && remix.value ? { gain_db: remixGain.value, vocal_gain_db: 0 } : null,
       output_format: chosenFormat.value as 'wav',
       resample_to: resample.value ? Number(resample.value) : null,
+      output_denoise: denoise.value,
       preview_seconds: preview ? 15 : null,
     },
     { onError: (e) => (error.value = e) },
@@ -132,6 +134,7 @@ onActivated(() => {
             <div class="fields">
               <SelectField :model-value="chosenFormat" :label="t('convert.format')" :options="formatOptions" @update:model-value="format = $event" />
               <SelectField v-model="resample" :label="t('convert.resample')" :options="resampleOptions" />
+              <ParamSlider v-model="denoise" :label="t('convert.denoise')" :help="t('convert.denoiseHelp')" :min="0" :max="1" :step="0.05" unit="" :default-value="0" :reset-label="t('common.reset')" />
             </div>
           </div>
         </ExpansionPanel>

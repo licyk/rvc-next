@@ -197,7 +197,12 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
 - **Pitch extras** (offline, all off by default): `f0_high_register` (`engine/f0/high_register.py`,
   Applio's corrector: a second RMVPE pass on audio upsampled ×2 fixes octave errors above
   ~1040 Hz; never touches frames whose guide is below 460 Hz); RMVPE runs in overlapping
-  320 s chunks past `CHUNK_FRAMES` (shorter audio, the golden clips included, in one go).
+  320 s chunks past `CHUNK_FRAMES` (shorter audio, the golden clips included, in one go). `autotune` (snap
+  voiced frames to the nearest semitone of the pitch heard after the formant shift; Live too) and
+  `auto_pitch` (offline: a key from the median voiced pitch to `auto_pitch_target`, which the
+  core resolves from 0 to the voice's `f0_median`, written by rvc-next training, else 155 Hz).
+  `ConvertRequest.output_denoise`: a non-stationary TorchGate over the result. Output formats add
+  `ogg` (Opus, 48 kHz).
 - **Untrusted files:** every `.pth` loads with `weights_only=True` (`checkpoint.torch_load`, the
   training loop); an imported separation checkpoint must load that way too
   (`separate/runner.ensure_plain_checkpoint`, demucs class names allowed as pymss's stand-ins)

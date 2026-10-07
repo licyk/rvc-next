@@ -40,7 +40,7 @@ watch(
 watch(preset, (p) => (prefs.prefs.separatePreset = p));
 
 const chosen = computed(() => (presets.data.value ?? []).find((p) => p.id === preset.value) ?? null);
-const formatOptions = ['wav', 'flac', 'mp3', 'm4a'].map((v) => ({ value: v, label: v.toUpperCase() }));
+const formatOptions = ['wav', 'flac', 'mp3', 'm4a', 'ogg'].map((v) => ({ value: v, label: v.toUpperCase() }));
 const chosenFormat = computed(() => format.value ?? settings.data.value?.separation.output_format ?? 'flac');
 const refs = computed(() => readyRefs(inputs.value));
 const sessionJobs = computed(() => jobs.fromScreen('separate').filter((j) => !isFinished(j.state)));

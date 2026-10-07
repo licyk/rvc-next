@@ -25,7 +25,9 @@ class ConvertRequest(Record):
     params: VoiceParamsModel = Field(default_factory=VoiceParamsModel)
     separate: SeparationStep | None = None
     remix: RemixStep | None = None
-    output_format: Literal["wav", "flac", "mp3", "m4a"] | None = None
+    output_format: Literal["wav", "flac", "mp3", "m4a", "ogg"] | None = None
+    output_denoise: float = Field(default=0.0, ge=0, le=1)
+    """Noise reduction over the converted voice (a non-stationary spectral gate); 0 turns it off."""
     """None: ``convert.output_format``."""
     resample_to: int | None = Field(default=None, ge=16000, le=192000)
     preview_seconds: float | None = Field(default=None, gt=0, le=120)

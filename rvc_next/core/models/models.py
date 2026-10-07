@@ -22,6 +22,8 @@ class Provenance(Record):
     """When the file was made, as written (ISO 8601)."""
     dataset_length: str | None = None
     """Length of the training audio, as written (``HH:MM:SS``)."""
+    pitch_median: float | None = None
+    """The training data's median pitch, in Hz (rvc-next writes it); the automatic key's "voice's own"."""
 
     @classmethod
     def from_file(cls, values: dict[str, str]) -> "Provenance":
@@ -31,7 +33,18 @@ class Provenance(Record):
             except (KeyError, ValueError):
                 return None
 
-        return cls(author=values.get("author"), epoch=number("epoch"), step=number("step"), created=values.get("creation_date"), dataset_length=values.get("dataset_length"))
+        try:
+            median = float(values["f0_median"])
+        except (KeyError, ValueError):
+            median = None
+        return cls(
+            author=values.get("author"),
+            epoch=number("epoch"),
+            step=number("step"),
+            created=values.get("creation_date"),
+            dataset_length=values.get("dataset_length"),
+            pitch_median=median,
+        )
 
 
 class VoiceModel(Record):

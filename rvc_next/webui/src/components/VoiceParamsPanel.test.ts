@@ -17,7 +17,7 @@ vi.mock('@/api/queries/presets', () => ({
 
 const voice = (p: Partial<VoiceModel> = {}): VoiceModel => ({
   id: 'v1', name: 'Alto', description: '', tags: [], location: 'library', legacy: false, model_path: '/m.pth', sample_rate: 40000, version: 'v2', pitch_guidance: true,
-  speakers: [], speaker_slots: 109, indexes: {}, has_index: true, size: 1, info: '', provenance: { author: null, epoch: null, step: null, created: null, dataset_length: null }, hidden: false, catalog_id: null, created_at: '', updated_at: '', ...p,
+  speakers: [], speaker_slots: 109, indexes: {}, has_index: true, size: 1, info: '', provenance: { author: null, epoch: null, step: null, created: null, dataset_length: null, pitch_median: null }, hidden: false, catalog_id: null, created_at: '', updated_at: '', ...p,
 });
 
 function mountPanel(v: VoiceModel) {

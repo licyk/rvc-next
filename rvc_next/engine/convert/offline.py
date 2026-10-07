@@ -56,6 +56,8 @@ class OfflineConverter:
         self.t_center = SR_16K * chunk.x_center
         self.t_max = SR_16K * chunk.x_max
         self.x_pad = chunk.x_pad
+        self.last_auto_key = 0
+        """Semitones the automatic key chose in the last conversion."""
 
     def convert(
         self,
@@ -67,8 +69,10 @@ class OfflineConverter:
         resample_to: int | None = None,
         progress: Callable[[float], None] | None = None,
         cancel: CancelToken | None = None,
+        denoise: float = 0.0,
     ) -> tuple[np.ndarray, int]:
-        """Convert 16 kHz mono audio; return int16 samples and their rate."""
+        """Convert 16 kHz mono audio; return int16 samples and their rate. ``denoise`` (0–1) runs a
+        non-stationary spectral gate over the result (Applio's "clean audio"; 0 leaves it as is)."""
         import torch
 
         audio = prepare_input(audio_16k)
@@ -97,9 +101,21 @@ class OfflineConverter:
             if cancel:
                 cancel.check()
             provider = self.runtime.f0(params.f0_method)
-            coarse, hz, is_voiced = offline_f0(
-                provider, audio_pad, p_len, params.pitch - params.formant, params.unvoiced, high_register=params.f0_high_register, ceiling=params.f0_ceiling
+            track = offline_f0(
+                provider,
+                audio_pad,
+                p_len,
+                params.pitch - params.formant,
+                params.unvoiced,
+                high_register=params.f0_high_register,
+                ceiling=params.f0_ceiling,
+                autotune_strength=params.autotune,
+                formant=params.formant,
+                auto_pitch=params.auto_pitch,
+                auto_pitch_target=params.auto_pitch_target,
             )
+            coarse, hz, is_voiced = track.coarse, track.hz, track.voiced
+            self.last_auto_key = track.key
             pitch = torch.tensor(coarse[:p_len], device=self.device).unsqueeze(0).long()
             pitchf = torch.tensor(hz[:p_len].astype(np.float32), device=self.device).unsqueeze(0).float()
             if params.unvoiced != "original":
@@ -134,6 +150,8 @@ class OfflineConverter:
         result = np.concatenate(audio_opt)
         if params.rms_mix_rate != 1:
             result = change_rms(audio, SR_16K, result, tgt_sr, params.rms_mix_rate)
+        if denoise > 0:
+            result = self._denoise(result, tgt_sr, denoise)
         out_sr = tgt_sr
         if resample_to and resample_to >= 16000 and resample_to != tgt_sr:
             result = resample(result, tgt_sr, resample_to)
@@ -237,6 +255,16 @@ class OfflineConverter:
         del feats, p_len_t, padding_mask
         self._empty_cache()
         return audio1
+
+    def _denoise(self, audio: np.ndarray, sample_rate: int, strength: float) -> np.ndarray:
+        import torch
+
+        from rvc_next.engine.audio.denoise import TorchGate
+
+        gate = TorchGate(sr=sample_rate, nonstationary=True, prop_decrease=min(max(strength, 0.0), 1.0)).to(self.device)
+        with torch.no_grad():
+            x = torch.from_numpy(np.ascontiguousarray(audio, dtype=np.float32)).to(self.device).unsqueeze(0)
+            return gate(x).squeeze(0).float().cpu().numpy()
 
     def _formant_resample(self, audio: np.ndarray, tgt_sr: int, frames: int, factor: float) -> np.ndarray:
         """Squeeze audio generated at ``factor`` times the length back to ``frames`` frames, raising formants by ``factor``."""
