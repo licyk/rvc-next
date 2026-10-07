@@ -105,7 +105,7 @@ rvc-next convert [OPTIONS] INPUTS...
 | `--speaker <int>` | Speaker ID of a multi-speaker voice, `[0, 109]` | From the preset |
 | `--pitch <float>` | Pitch shift in semitones, `[-24, 24]` | From the preset |
 | `--formant <float>` | Formant shift in semitones, `[-2, 2]` | From the preset |
-| `--f0 <str>` | Pitch method: `pm`, `rmvpe`, or `fcpe` | From the preset |
+| `--f0 <str>` | Pitch method: `pm`, `rmvpe`, `fcpe`, `crepe`, `crepe-tiny` or `swift` | From the preset |
 | `--index-rate <float>` | Index strength, `[0, 1]` | From the preset |
 | `--protect <float>` | Consonant protection, `[0, 0.5]`; 0.5 turns it off | From the preset |
 | `--rms-mix <float>` | Loudness match, `[0, 1]`; 1 keeps the converted loudness | From the preset |
@@ -233,11 +233,11 @@ rvc-next assets download [OPTIONS] [IDS]...
 
 | Option | Description | Default |
 | --- | --- | --- |
-| `--group <str>` | `inference` (HuBERT, RMVPE, and FCPE), `training`, `separation`, or `all` | `inference` when neither IDs nor a group are given |
+| `--group <str>` | `inference` (HuBERT and the pitch models), `training`, `separation`, or `all` | `inference` when neither IDs nor a group are given |
 | `--source <str>` | Endpoint: `huggingface`, `hf-mirror`, or `custom` (saved to settings) | `downloads.source` in settings |
 | `--repository <str>` | `rvc-model` or `official` (saved to settings) | `downloads.repository` in settings |
 
-Asset IDs: `hubert`, `rmvpe`, `rmvpe-onnx`, `fcpe`, `pretrained-v1-32k`, `pretrained-v1-40k`, `pretrained-v1-48k`, `pretrained-v2-32k`, `pretrained-v2-40k`, `pretrained-v2-48k`, `separation-vocals`, `separation-vocals-aggressive`, `separation-dereverb`, `separation-dereverb-aggressive`, `separation-karaoke`. No group includes `rmvpe-onnx`, which is used only on DirectML; the `inference` group contains `hubert`, `rmvpe`, and `fcpe`.
+Asset IDs: `hubert`, `rmvpe`, `rmvpe-onnx`, `fcpe`, `crepe`, `crepe-tiny`, `pretrained-v1-32k`, `pretrained-v1-40k`, `pretrained-v1-48k`, `pretrained-v2-32k`, `pretrained-v2-40k`, `pretrained-v2-48k`, `separation-vocals`, `separation-vocals-aggressive`, `separation-dereverb`, `separation-dereverb-aggressive`, `separation-karaoke`. No group includes `rmvpe-onnx`, which is used only on DirectML; the `inference` group contains `hubert`, `rmvpe`, `fcpe`, `crepe` and `crepe-tiny`.
 
 ```bash
 rvc-next assets download
@@ -259,7 +259,7 @@ rvc-next assets verify [OPTIONS] [IDS]...
 
 | Option | Description |
 | --- | --- |
-| `--group <str>` | `inference` (HuBERT, RMVPE, and FCPE), `training`, `separation`, or `all` |
+| `--group <str>` | `inference` (HuBERT and the pitch models), `training`, `separation`, or `all` |
 
 ## Models: `model`
 
@@ -514,7 +514,7 @@ rvc-next preset save [OPTIONS] NAME
 | `--speaker <int>` | Speaker ID of a multi-speaker voice, `[0, 109]` |
 | `--pitch <float>` | Pitch shift in semitones, `[-24, 24]` |
 | `--formant <float>` | Formant shift in semitones, `[-2, 2]` |
-| `--f0 <str>` | Pitch method: `pm`, `rmvpe`, or `fcpe` |
+| `--f0 <str>` | Pitch method: `pm`, `rmvpe`, `fcpe`, `crepe`, `crepe-tiny` or `swift` |
 | `--index-rate <float>` | Index strength, `[0, 1]` |
 | `--protect <float>` | Consonant protection, `[0, 0.5]`; 0.5 turns it off |
 | `--rms-mix <float>` | Loudness match, `[0, 1]`; 1 keeps the converted loudness |
@@ -757,7 +757,7 @@ Convert live with the server's devices until <kbd>ctrl</kbd>+<kbd>c</kbd>, with 
 | `--speaker <int>` | Speaker ID of a multi-speaker voice, `[0, 109]` | From the starting parameters |
 | `--pitch <float>` | Pitch shift in semitones, `[-24, 24]` | From the starting parameters |
 | `--formant <float>` | Formant shift in semitones, `[-2, 2]` | From the starting parameters |
-| `--f0 <str>` | Pitch method: `pm`, `rmvpe`, or `fcpe` | From the starting parameters |
+| `--f0 <str>` | Pitch method: `pm`, `rmvpe`, `fcpe`, `crepe`, `crepe-tiny` or `swift` | From the starting parameters |
 | `--index-rate <float>` | Index strength, `[0, 1]` | From the starting parameters |
 | `--protect <float>` | Consonant protection, `[0, 0.5]`; 0.5 turns it off | From the starting parameters |
 | `--rms-mix <float>` | Loudness match, `[0, 1]`; 1 keeps the converted loudness | From the starting parameters |

@@ -16,7 +16,7 @@ This means `sounddevice` (the Python wrapper for PortAudio) is not installed in 
 1. Open **Live** in the left navigation.
 2. In **Audio devices**, select **Input** (microphone) and **Output** (headphones or a virtual audio device). Speak into the microphone: the **Input level** meter should move. Click **Test** beside **Output**; you should hear a tone.
 3. Choose a voice in the **Voice** picker and adjust **Voice parameters** as needed (for example, set **Pitch** to about +12 for a male-to-female voice conversion).
-4. On first use, the start button may be replaced by **Needs …** and a **Download (size)** button. Live voice conversion always needs HuBERT. If the voice has pitch guidance and the pitch method is RMVPE or FCPE, it also needs that model (pm needs no extra download). Click download; the button returns when it finishes.
+4. On first use, the start button may be replaced by **Needs …** and a **Download (size)** button. Live voice conversion always needs HuBERT. If the voice has pitch guidance and the pitch method is RMVPE, FCPE or CREPE, it also needs that model (pm and SwiftF0 need no extra download). Click download; the button returns when it finishes.
 5. Click **Start** at the bottom. The button shows each step as it happens (checking the audio devices, loading PyTorch, the voice and the models, then **Warming up…**). Once it shows **Running**, you can start speaking.
 6. Click **Stop** when finished.
 
@@ -129,7 +129,7 @@ When you click **Start**, if the saved **Output** device is missing but the syst
 
 The middle section contains the **Voice** picker and **Voice parameters** panel, using the same controls as **Convert**. See [Voice parameters](/docs/guide-parameters) for their meanings. On the Live page:
 
-- The panel says **Changes apply as you drag.** While running, adjusting **Pitch**, **Formant**, **Index strength**, **Consonant protection** or **Loudness match**, or switching **Pitch method** (pm / RMVPE / FCPE), immediately affects the converted audio without interrupting it.
+- The panel says **Changes apply as you drag.** While running, adjusting **Pitch**, **Formant**, **Index strength**, **Consonant protection** or **Loudness match**, or switching **Pitch method**, immediately affects the converted audio without interrupting it.
 - Switching to a pitch model that has not been downloaded keeps the current method active and reports the missing model.
 - **Voice changes are hot swaps**: the new voice loads in the background while the old voice keeps converting. Once loaded, it switches seamlessly between blocks; HuBERT and the pitch model stay loaded. If loading fails, the original voice stays active and the picker returns to it.
 - Voices with several speakers show a **Speaker** menu that can also be changed while running. Changing voices resets the speaker to the new voice's first speaker. If that speaker has a dedicated index (`spk<N>`), it switches to that index as well.

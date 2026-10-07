@@ -4317,7 +4317,7 @@ export interface components {
              * @default rmvpe
              * @enum {string}
              */
-            f0_method: "pm" | "rmvpe" | "fcpe";
+            f0_method: "pm" | "rmvpe" | "fcpe" | "crepe" | "crepe-tiny" | "swift";
             /**
              * Index Rate
              * @description Index strength: how much of the voice's own timbre is drawn from the index
@@ -4386,7 +4386,7 @@ export interface components {
              * @default rmvpe
              * @enum {string}
              */
-            f0_method?: "pm" | "rmvpe" | "fcpe";
+            f0_method?: "pm" | "rmvpe" | "fcpe" | "crepe" | "crepe-tiny" | "swift";
             /**
              * Index Rate
              * @description Index strength: how much of the voice's own timbre is drawn from the index
@@ -4455,7 +4455,7 @@ export interface components {
              * @default rmvpe
              * @enum {string}
              */
-            f0_method: "pm" | "rmvpe" | "fcpe";
+            f0_method: "pm" | "rmvpe" | "fcpe" | "crepe" | "crepe-tiny" | "swift";
             /**
              * Index Rate
              * @description Index strength: how much of the voice's own timbre is drawn from the index

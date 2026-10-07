@@ -88,3 +88,25 @@ def test_rmvpe_high_register_on_a_real_model(real_assets_dir) -> None:
     stock = provider.compute(x, 0)
     fixed = provider.high_register(x, stock, "true_pitch", 1250.0)
     assert abs(np.median(stock[stock > 0]) - 600) < 20 and abs(np.median(fixed[fixed > 0]) - 1200) < 20
+
+
+def test_subharmonic_repair_lifts_a_doubtful_octave_drop() -> None:
+    from rvc_next.engine.f0.swift import repair_subharmonics
+
+    pitch = np.array([400.0, 400.0, 200.0, 201.0, 199.0, 400.0, 400.0])
+    confidence = np.array([0.9, 0.9, 0.6, 0.6, 0.6, 0.9, 0.9])
+    fixed, repaired = repair_subharmonics(pitch, confidence, 0.016)
+    assert repaired.tolist() == [False, False, True, True, True, False, False]
+    assert fixed[2:5].tolist() == [400.0, 402.0, 398.0]
+    # Confident frames are never touched, even an octave apart.
+    sure = np.array([0.99] * 7)
+    assert not repair_subharmonics(pitch, sure, 0.016)[1].any()
+
+
+def test_swift_provider_on_the_10_ms_grid() -> None:
+    from rvc_next.engine.f0.swift import SwiftProvider
+    from tests.tiny import tone
+
+    f0 = SwiftProvider("cpu").compute(tone(1.0, freq=220), 101)
+    assert f0.shape == (101,) and abs(np.median(f0[f0 > 0]) - 220) < 5
+    assert not SwiftProvider("cpu").compute(np.zeros(16000, np.float32), 101).any()

@@ -84,6 +84,7 @@ include = ["rvc_next*"]
 "rvc_next.core.assets" = ["catalog.json"]
 "rvc_next.core.separation" = ["presets.json"]
 "rvc_next.engine.train" = ["data/mute/**/*"]
+"rvc_next.engine.f0" = ["data/*.pt"]
 "rvc_next.engine.separate" = ["configs/*.yaml"]
 
 [tool.setuptools.dynamic]

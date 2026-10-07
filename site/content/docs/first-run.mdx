@@ -71,7 +71,7 @@ SERVER_READY url=http://127.0.0.1:7868
 - **HuBERT**（约 180 MB）：提取语音内容特征，每次转换都需要；
 - **RMVPE**（约 173 MB）：默认的音高算法，转换带音高引导的音色时需要。
 
-另外还有一个可选的 **FCPE**（约 41 MB），只有在音高算法中选了 FCPE 时才需要；`pm` 算法则不需要下载任何文件。
+另外还有几个可选的音高模型，只有在音高算法中选了对应算法时才需要：**FCPE**（约 41 MB）、**CREPE**（约 85 MB）和 **CREPE tiny**（约 2 MB）。`pm` 和 **SwiftF0** 不需要下载任何文件（SwiftF0 的小模型随 RVC Next 一起提供）。
 
 你可以任选一种方式下载：
 
@@ -93,7 +93,7 @@ RVC Next 不会让你在缺少模型时碰到报错。只要页面上的操作�
 <Tab value="命令行">
 
 ```bash
-rvc-next assets download          # 不带参数时下载 HuBERT、RMVPE 和 FCPE（约 394 MB）
+rvc-next assets download          # 不带参数时下载 HuBERT 和各音高模型（约 485 MB）
 rvc-next assets list              # 查看每个资源的状态
 ```
 

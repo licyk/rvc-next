@@ -27,7 +27,18 @@ FCPE / torchfcpe (https://github.com/CNChTu/FCPE)
 Applio (https://github.com/IAHispano/Applio)
   MIT License. Copyright (c) 2026 AI Hispano.
   Ported: the RMVPE high-register corrector (rvc_next/engine/f0/high_register.py, contributed to
-  Applio by dhayanithi-svaromance).
+  Applio by dhayanithi-svaromance) and SwiftF0's subharmonic repair (rvc_next/engine/f0/swift.py).
+
+torchcrepe (https://github.com/maxrmorrison/torchcrepe)
+  MIT License. Copyright (c) 2020 Max Morrison. CREPE: https://github.com/marl/crepe, MIT License,
+  Copyright (c) 2018 Jong Wook Kim.
+  Ported: the CREPE network, framing, decoders and filters RVC uses (rvc_next/engine/f0/crepe_model.py).
+  Its weights (full.pth, tiny.pth) are downloaded as the "crepe" and "crepe-tiny" assets.
+
+SwiftF0 (https://github.com/lars76/swift-f0)
+  MIT License. Copyright (c) 2025 Lars Nieradzik.
+  Ported: the swift-f0 0.3.0 ONNX graph as a PyTorch module (rvc_next/engine/f0/swift_model.py);
+  its weights ship as rvc_next/engine/f0/data/swift_f0.pt (scripts/extract_swift_f0.py).
 
 PyMSS (music source separation), used as a dependency, MIT License.
 

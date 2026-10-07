@@ -4,7 +4,7 @@ import { usePresetMutations, usePresets } from '@/api/queries/presets';
 import type { Preset, VoiceModel, VoiceParams } from '@/api/types';
 import { VOICE_FIELDS, spec } from '@/components/paramFields';
 import { useI18n } from '@/i18n';
-import { AppButton, AppDialog, AppMenu, Checkbox, ExpansionPanel, ParamSlider, SegmentedControl, SelectField, TextField, icons, useSnackbar, type MenuItem } from '@/ui';
+import { AppButton, AppDialog, AppMenu, Checkbox, ExpansionPanel, ParamSlider, SelectField, TextField, icons, useSnackbar, type MenuItem } from '@/ui';
 
 /**
  * The one parameter panel: the same labels, ranges (from the server's schema),
@@ -61,8 +61,8 @@ const fields = computed(() =>
     return { ...f, min: s.min, max: s.max, default: s.default as number, disabledReason };
   }),
 );
-const f0Options = computed(() => (spec('voice', 'f0_method').options ?? ['pm', 'rmvpe', 'fcpe']).map((v) => ({ value: v, label: t(`params.f0.${v}`) })));
-const f0 = computed({ get: () => model.value.f0_method, set: (v) => setField('f0_method', v) });
+const f0Options = computed(() => (spec('voice', 'f0_method').options ?? ['rmvpe']).map((v) => ({ value: v, label: t(`params.f0.${v}`) })));
+const f0 = computed({ get: () => model.value.f0_method as string | null, set: (v) => v && setField('f0_method', v) });
 
 /** The choices under "Pitch details", options from the schema; some apply offline only, or to one pitch method. */
 const CHOICES = [
@@ -125,8 +125,7 @@ function save() {
     </header>
     <p class="type-body-small muted note">{{ live ? t('params.appliesLive') : t('params.appliesNext') }}</p>
     <div class="f0">
-      <span class="type-body-large">{{ t('params.f0Method') }}</span>
-      <SegmentedControl v-model="f0" :options="f0Options" :class="{ off: noPitch }" />
+      <SelectField v-model="f0" :label="t('params.f0Method')" :options="f0Options" :supporting-text="t('params.f0Help')" :class="{ off: noPitch }" />
     </div>
     <div class="fields">
       <ParamSlider
@@ -193,7 +192,7 @@ function save() {
 .head { display: flex; align-items: center; gap: var(--app-space-2); }
 .title { flex: 1; margin: 0; }
 .note { margin: 0; }
-.f0 { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--app-space-3); min-height: 56px; }
+.f0 { display: grid; grid-template-columns: minmax(min(320px, 100%), max-content); }
 .off { opacity: var(--app-disabled-content-opacity); }
 /* The sliders wrap: a wide page shows more of them per row, never longer ones. */
 .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: var(--app-space-2) var(--app-space-6); align-items: start; }

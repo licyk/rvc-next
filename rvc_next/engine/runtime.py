@@ -404,6 +404,10 @@ class AssetPaths:
     def fcpe(self) -> Path:
         return self.root / "fcpe" / "fcpe_c_v001.pt"
 
+    def crepe(self, capacity: str) -> Path:
+        """torchcrepe's weights: ``full.pth`` or ``tiny.pth``."""
+        return self.root / "crepe" / f"{capacity}.pth"
+
     def pretrained(self, version: str, f0: bool, kind: str, sample_rate: str) -> Path:
         folder = "pretrained_v2" if version == "v2" else "pretrained"
         return self.root / folder / f"{'f0' if f0 else ''}{kind}{sample_rate}.pth"
@@ -471,7 +475,7 @@ class Runtime:
             return self._hubert.value
 
     def f0(self, method: str) -> F0Provider:
-        """The pitch extractor for ``method`` (pm, rmvpe or fcpe)."""
+        """The pitch extractor for ``method`` (``engine.f0.METHODS``)."""
         from rvc_next.engine.f0 import create_provider
 
         with self._lock:

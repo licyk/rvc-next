@@ -387,7 +387,9 @@ class StreamEngine:
             fcpe: Any = self.runtime.f0("fcpe")
             f0 = fcpe.model.infer(x.unsqueeze(0).float(), sr=16000, decoder_mode="local_argmax", threshold=0.006).squeeze().detach().cpu().numpy()
         else:
-            raise ValueError(f"Unsupported F0 method: {method}")
+            # The other providers (CREPE, SwiftF0) take numpy and return Hz per 10 ms frame.
+            xn = x.detach().float().cpu().numpy()
+            f0 = self.runtime.f0(method).compute(xn, xn.shape[0] // 160 + 1)
         import torch
 
         uv = f0 == 0

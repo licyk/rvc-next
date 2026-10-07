@@ -1,10 +1,10 @@
 ---
 title: "Assets and model repositories"
-description: "Assets are model files RVC Next needs at runtime but does not distribute with its Python package: HuBERT, RMVPE (including ONNX), FCPE, training base models, and vocal separation weights."
+description: "Assets are model files RVC Next needs at runtime but does not distribute with its Python package: HuBERT, RMVPE (including ONNX), FCPE, CREPE, training base models, and vocal separation weights."
 icon: Package
 ---
 
-Assets are model files RVC Next needs at runtime but does not distribute with its Python package: HuBERT, RMVPE (including ONNX), FCPE, training base models, and vocal separation weights. A set of demo voices is also available to download. This page describes the `catalog.json` asset catalog format, the two download repositories, download and verification implementation, and how to add or update assets. See [Core services](/docs/development-core) for how other core services call `AssetService`.
+Assets are model files RVC Next needs at runtime but does not distribute with its Python package: HuBERT, RMVPE (including ONNX), FCPE, CREPE, training base models, and vocal separation weights. A set of demo voices is also available to download. This page describes the `catalog.json` asset catalog format, the two download repositories, download and verification implementation, and how to add or update assets. See [Core services](/docs/development-core) for how other core services call `AssetService`.
 
 ## The asset catalog: `catalog.json`
 
@@ -58,12 +58,13 @@ Assets are model files RVC Next needs at runtime but does not distribute with it
 | `rmvpe` | inference | `rmvpe/rmvpe.pt` | RMVPE pitch (default method) |
 | `rmvpe-onnx` | inference | `rmvpe/rmvpe.onnx` | RMVPE on DirectML |
 | `fcpe` | inference | `fcpe/fcpe_c_v001.pt` | FCPE pitch; only in rvc-model |
+| `crepe`, `crepe-tiny` | inference | `crepe/full.pth`, `crepe/tiny.pth` | CREPE pitch (torchcrepe 0.0.24's weights); only in rvc-model |
 | `pretrained-{v1,v2}-{32k,40k,48k}` | training | `pretrained[_v2]/[f0]{G,D}<rate>.pth` | Training base models, 4 files per asset (G/D pairs with and without pitch) |
 | `separation-<model>` | separation | `pymss_weights/<checkpoint>.ckpt` | Five separation models: `dereverb`, `dereverb-aggressive`, `vocals`, `vocals-aggressive`, `karaoke`; YAML is bundled (`engine/separate/configs/`) |
 
-There are 15 assets and 35 files, totaling about 4.8 GiB. Base models are split by version × sample rate instead of the planned two assets `pretrained-v1`/`pretrained-v2`: training at one rate requires downloading 4 files rather than 12 (AGENTS.md §8). Separation weights live in `pymss_weights/` instead of the planned `separation/`, also to match the original layout.
+There are 17 assets and 37 files, totaling about 4.9 GiB. SwiftF0's 165 KB weights are not an asset: they ship inside the package (`engine/f0/data/swift_f0.pt`). Base models are split by version × sample rate instead of the planned two assets `pretrained-v1`/`pretrained-v2`: training at one rate requires downloading 4 files rather than 12 (AGENTS.md §8). Separation weights live in `pymss_weights/` instead of the planned `separation/`, also to match the original layout.
 
-`ids_for_group()` determines what `rvc-next assets download --group` includes: assets matching the catalog's `group`, or all assets for `all`, excluding the DirectML-only `rmvpe-onnx` (downloaded on demand). Thus `inference` (the default without arguments) includes `hubert`, `rmvpe`, and `fcpe`.
+`ids_for_group()` determines what `rvc-next assets download --group` includes: assets matching the catalog's `group`, or all assets for `all`, excluding the DirectML-only `rmvpe-onnx` (downloaded on demand). Thus `inference` (the default without arguments) includes `hubert`, `rmvpe`, `fcpe`, `crepe` and `crepe-tiny`.
 
 <Callout type="info" title="Why keep the original assets/ layout">
 
@@ -75,11 +76,11 @@ There are 15 assets and 35 files, totaling about 4.8 GiB. Base models are split 
 | Repository ID | Hugging Face repository | Contents |
 | --- | --- | --- |
 | `rvc-model` (default) | [licyk/rvc-model](https://huggingface.co/licyk/rvc-model) | Every file RVC Next uses, organized by category, plus demo voices and `manifest.json` |
-| `official` | [lj1995/VoiceConversionWebUI](https://huggingface.co/lj1995/VoiceConversionWebUI) | The official RVC repository; no demo voices or FCPE weights |
+| `official` | [lj1995/VoiceConversionWebUI](https://huggingface.co/lj1995/VoiceConversionWebUI) | The official RVC repository; no demo voices, FCPE or CREPE weights |
 
 Two settings determine download URLs (`AssetService.url()`):
 
-- `downloads.repository` (`rvc-model` or `official`) selects the **repository**. If a file is absent from the selected repository (no matching key in `sources`), use another listed repository automatically—demo voices and FCPE therefore always download from rvc-model, even when the official repository is selected.
+- `downloads.repository` (`rvc-model` or `official`) selects the **repository**. If a file is absent from the selected repository (no matching key in `sources`), use another listed repository automatically—demo voices, FCPE and CREPE therefore always download from rvc-model, even when the official repository is selected.
 - `downloads.source` selects the **endpoint**: `huggingface` (`https://huggingface.co`), `hf-mirror` (`https://hf-mirror.com`), or `custom` (`downloads.endpoint`). Both repositories use the same endpoint.
 
 The resulting URL is `<endpoint>/<repo>/resolve/<revision>/<sources[repository]>`. Both repositories currently use `main` as `revision`.
@@ -93,6 +94,7 @@ Why rvc-model exists: the official repository retains an early flat layout, mixi
 | `hubert/hubert_base/` | HuBERT (transformers format) | Official repository `hubert_base/` |
 | `rmvpe/` | `rmvpe.pt`, `rmvpe.onnx` | Official repository root |
 | `fcpe/` | `fcpe_c_v001.pt` | Weights bundled with torchfcpe 0.0.4 (the model RVC uses through `spawn_bundled_infer_model`) |
+| `crepe/` | `full.pth`, `tiny.pth`, `LICENSE-CREPE.txt` | Weights bundled with torchcrepe 0.0.24 (MIT) |
 | `pretrained/v1/`, `pretrained/v2/` | `[f0]G`, `[f0]D` for each sample rate | Official repository `pretrained/`, `pretrained_v2/` |
 | `separation/` | Five separation checkpoints | Official repository `pymss_weights/` |
 | `voices/<name>/` | Demo voice `.pth` and `.index` | Extracted from official `RVC*.7z` distributions |

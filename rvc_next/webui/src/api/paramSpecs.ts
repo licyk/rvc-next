@@ -38,7 +38,10 @@ export const PARAM_SPECS: Record<'voice' | 'stream', Record<string, ParamSpec>> 
       "options": [
         "pm",
         "rmvpe",
-        "fcpe"
+        "fcpe",
+        "crepe",
+        "crepe-tiny",
+        "swift"
       ],
       "help": "Pitch extraction method"
     },

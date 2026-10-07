@@ -78,3 +78,19 @@ def test_protect_acts_on_unvoiced_frames_unless_original(tmp_path: Path, tiny_ru
     # Protect off: "protect" fills the frames as the original does, so nothing changes.
     assert np.array_equal(run(protect=0.5, unvoiced="original"), run(protect=0.5, unvoiced="protect"))
     assert run(protect=0.0, unvoiced="zero").shape == original.shape
+
+
+def test_convert_with_swift(tmp_path: Path, tiny_runtime) -> None:
+    """SwiftF0 ships with rvc-next (no asset)."""
+    voice = tiny_runtime.voice(make_tiny_voice(tmp_path / "v.pth"))
+    out, sr = OfflineConverter(tiny_runtime).convert(tone(1.0), voice, VoiceParams(f0_method="swift"))
+    assert sr == 40000 and 40000 - 800 <= out.shape[0] <= 40000
+
+
+def test_convert_with_crepe_tiny(tmp_path: Path, tiny_runtime, monkeypatch) -> None:
+    torchcrepe = pytest.importorskip("torchcrepe", reason="the CREPE weights come from torchcrepe here")
+    weights = Path(torchcrepe.__file__).parent / "assets" / "tiny.pth"
+    monkeypatch.setattr(type(tiny_runtime.assets), "crepe", lambda self, capacity: weights)
+    voice = tiny_runtime.voice(make_tiny_voice(tmp_path / "v.pth"))
+    out, sr = OfflineConverter(tiny_runtime).convert(tone(1.0), voice, VoiceParams(f0_method="crepe-tiny"))
+    assert sr == 40000 and 40000 - 800 <= out.shape[0] <= 40000

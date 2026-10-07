@@ -22,7 +22,7 @@ This page explains what each engine module does and why. For rules on line-by-li
 | `runtime.py` | GPU rules, `ChunkConfig`, asset paths, model caches, GPU memory release and OOM detection | GPU rules in `configs/config.py` |
 | `graph.py` | CUDA Graph capture and replay cache | `tools/cuda_graph.py` (copied) |
 | `features/hubert.py` | transformers HuBERT, v1 layer 9 + `final_proj`, v2 final layer | `infer/hubert.py` |
-| `f0/` | `F0Provider` interface and shared postprocessing; `pm`, `rmvpe` (including ONNX), `fcpe` | `infer/rmvpe.py`, `infer/fcpe.py`, three pm implementations; FCPE network from torchfcpe |
+| `f0/` | `F0Provider` interface and shared postprocessing; `pm`, `rmvpe` (including ONNX), `fcpe`, `crepe`/`crepe-tiny`, `swift`; Applio's RMVPE high-register corrector | `infer/rmvpe.py`, `infer/fcpe.py`, three pm implementations; FCPE network from torchfcpe; CREPE from torchcrepe; SwiftF0 from swift-f0's ONNX graph |
 | `index/` | `retrieval.py` (load once, top-8 blending), `inspect.py` (read only dimensions and vector count), `build.py` (index stage) | Retrieval in `infer/vc/pipeline.py`, `train/train_index.py` |
 | `models/` | Synthesizer and discriminator networks (copied), `.pth` reading/writing and identification, loading, merging, extraction | `infer/module/*.py`, `train/process_ckpt.py` |
 | `convert/` | `VoiceParams`, `OfflineConverter` | `infer/vc/pipeline.py` |
@@ -70,7 +70,7 @@ Golden tests run on CPU fp32, and the original's side uses the last row (`_Origi
 | Method | Cache key | Policy |
 | --- | --- | --- |
 | `hubert()` | Single entry | Load once |
-| `f0(method)` | `pm`/`rmvpe`/`fcpe` | Load each once (`engine/f0/__init__.py:create_provider`) |
+| `f0(method)` | `engine.f0.METHODS` | Load each once (`engine/f0/__init__.py:create_provider`) |
 | `voice(path)` | Resolved path + `st_mtime_ns` | LRU, retains the last `max_voices` (default 3); eviction clears the network's CUDA Graph cache |
 | `index(path)` | Path + `st_mtime_ns` | Load each file once |
 
@@ -128,6 +128,8 @@ The streaming engine has its own `_get_f0`/`_f0_post` to handle tensors on the d
 | `pm` | `PmProvider`: parselmouth `to_pitch_ac`, 10 ms time step, voicing threshold 0.6, 50–1100 Hz, zero-pad both ends to `p_len` | CPU | None |
 | `rmvpe` | `RmvpeProvider` → `f0/rmvpe.py:RMVPE` (copied), `infer_from_audio(x, thred=0.03)` | PyTorch on CUDA/CPU; onnxruntime's `DmlExecutionProvider` on DirectML | `rmvpe` (`rmvpe/rmvpe.pt`); `rmvpe-onnx` (`rmvpe/rmvpe.onnx`) on DirectML |
 | `fcpe` | `FcpeProvider` → `f0/fcpe.py:FCPEInfer` → `f0/fcpe_model.py`, `local_argmax` decoding, threshold 0.006 | All; mel and decoding on CPU for DirectML | `fcpe` (`fcpe/fcpe_c_v001.pt`) |
+| `crepe`, `crepe-tiny` | `CrepeProvider` → `f0/crepe_model.py:crepe_f0`: Viterbi decoding, periodicity median-filtered over 3 frames, f0 mean-filtered over 3, 0 below periodicity 0.1, 50–1100 Hz (RVC's and Applio's torchcrepe call) | All; CPU on DirectML | `crepe` (`crepe/full.pth`), `crepe-tiny` (`crepe/tiny.pth`) |
+| `swift` | `SwiftProvider` → `f0/swift_model.py` (SwiftF0 0.3.0), Applio's subharmonic repair, 16 ms frames interpolated in log frequency to 10 ms, voiced at confidence ≥ 0.5 | All; CPU on DirectML | None: `f0/data/swift_f0.pt` ships in the package |
 
 `RmvpeProvider` checks the appropriate file for the device and raises `MissingAssetError` with the correct asset id if missing, so the UI offers ONNX or PyTorch weights as appropriate. `RMVPE` uses half precision only on CUDA (already decided by the runtime's GPU rules).
 

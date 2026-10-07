@@ -105,7 +105,7 @@ rvc-next convert [OPTIONS] INPUTS...
 | `--speaker <int>` | 多说话人音色的说话人 id，`[0, 109]` | 取自预设 |
 | `--pitch <float>` | 音高偏移（半音），`[-24, 24]` | 取自预设 |
 | `--formant <float>` | 共振峰偏移（半音），`[-2, 2]` | 取自预设 |
-| `--f0 <str>` | 音高算法：`pm`、`rmvpe` 或 `fcpe` | 取自预设 |
+| `--f0 <str>` | 音高算法：`pm`、`rmvpe`、`fcpe`、`crepe`、`crepe-tiny` 或 `swift` | 取自预设 |
 | `--index-rate <float>` | 索引强度，`[0, 1]` | 取自预设 |
 | `--protect <float>` | 辅音保护，`[0, 0.5]`；0.5 为关闭 | 取自预设 |
 | `--rms-mix <float>` | 响度匹配，`[0, 1]`；1 保持转换后的响度 | 取自预设 |
@@ -233,11 +233,11 @@ rvc-next assets download [OPTIONS] [IDS]...
 
 | 选项 | 说明 | 默认值 |
 | --- | --- | --- |
-| `--group <str>` | `inference`（HuBERT、RMVPE 和 FCPE）、`training`、`separation` 或 `all` | 既没有 id 也没有分组时为 `inference` |
+| `--group <str>` | `inference`（HuBERT 和各音高模型）、`training`、`separation` 或 `all` | 既没有 id 也没有分组时为 `inference` |
 | `--source <str>` | 下载端点：`huggingface`、`hf-mirror` 或 `custom`（保存到设置） | 设置 `downloads.source` |
 | `--repository <str>` | `rvc-model` 或 `official`（保存到设置） | 设置 `downloads.repository` |
 
-资源 id：`hubert`、`rmvpe`、`rmvpe-onnx`、`fcpe`、`pretrained-v1-32k`、`pretrained-v1-40k`、`pretrained-v1-48k`、`pretrained-v2-32k`、`pretrained-v2-40k`、`pretrained-v2-48k`、`separation-vocals`、`separation-vocals-aggressive`、`separation-dereverb`、`separation-dereverb-aggressive`、`separation-karaoke`。任何分组都不包括只在 DirectML 上使用的 `rmvpe-onnx`；`inference` 分组是 `hubert`、`rmvpe` 和 `fcpe`。
+资源 id：`hubert`、`rmvpe`、`rmvpe-onnx`、`fcpe`、`crepe`、`crepe-tiny`、`pretrained-v1-32k`、`pretrained-v1-40k`、`pretrained-v1-48k`、`pretrained-v2-32k`、`pretrained-v2-40k`、`pretrained-v2-48k`、`separation-vocals`、`separation-vocals-aggressive`、`separation-dereverb`、`separation-dereverb-aggressive`、`separation-karaoke`。任何分组都不包括只在 DirectML 上使用的 `rmvpe-onnx`；`inference` 分组是 `hubert`、`rmvpe`、`fcpe`、`crepe` 和 `crepe-tiny`。
 
 ```bash
 rvc-next assets download
@@ -259,7 +259,7 @@ rvc-next assets verify [OPTIONS] [IDS]...
 
 | 选项 | 说明 |
 | --- | --- |
-| `--group <str>` | `inference`（HuBERT、RMVPE 和 FCPE）、`training`、`separation` 或 `all` |
+| `--group <str>` | `inference`（HuBERT 和各音高模型）、`training`、`separation` 或 `all` |
 
 ## 模型：`model`
 
@@ -514,7 +514,7 @@ rvc-next preset save [OPTIONS] NAME
 | `--speaker <int>` | 多说话人音色的说话人 id，`[0, 109]` |
 | `--pitch <float>` | 音高偏移（半音），`[-24, 24]` |
 | `--formant <float>` | 共振峰偏移（半音），`[-2, 2]` |
-| `--f0 <str>` | 音高算法：`pm`、`rmvpe` 或 `fcpe` |
+| `--f0 <str>` | 音高算法：`pm`、`rmvpe`、`fcpe`、`crepe`、`crepe-tiny` 或 `swift` |
 | `--index-rate <float>` | 索引强度，`[0, 1]` |
 | `--protect <float>` | 辅音保护，`[0, 0.5]`；0.5 为关闭 |
 | `--rms-mix <float>` | 响度匹配，`[0, 1]`；1 保持转换后的响度 |
@@ -757,7 +757,7 @@ rvc-next live test-tone [OPTIONS] [DEVICE]
 | `--speaker <int>` | 多说话人音色的说话人 id，`[0, 109]` | 取自起点参数 |
 | `--pitch <float>` | 音高偏移（半音），`[-24, 24]` | 取自起点参数 |
 | `--formant <float>` | 共振峰偏移（半音），`[-2, 2]` | 取自起点参数 |
-| `--f0 <str>` | 音高算法：`pm`、`rmvpe` 或 `fcpe` | 取自起点参数 |
+| `--f0 <str>` | 音高算法：`pm`、`rmvpe`、`fcpe`、`crepe`、`crepe-tiny` 或 `swift` | 取自起点参数 |
 | `--index-rate <float>` | 索引强度，`[0, 1]` | 取自起点参数 |
 | `--protect <float>` | 辅音保护，`[0, 0.5]`；0.5 为关闭 | 取自起点参数 |
 | `--rms-mix <float>` | 响度匹配，`[0, 1]`；1 保持转换后的响度 | 取自起点参数 |

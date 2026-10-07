@@ -123,7 +123,7 @@ These changes are intentional (all other numerical calculations correspond line 
 | Speaker in live voice conversion | Fixed to speaker 0 | Uses the selected speaker; multi-speaker voices work with live voice conversion |
 | Index rebuilding | Skipped whenever `added_*.index` exists | Records feature file fingerprints (name, size, modification time) and rebuilds when they change |
 | Index loading | Rereads the index for every file | Caches by path and modification time; loads only once |
-| Pitch methods | Only pm and rmvpe on the command line | Conversion, the command line, and live voice conversion all support pm, rmvpe, and fcpe (training still uses pm and rmvpe) |
+| Pitch methods | Only pm and rmvpe on the command line | Conversion, the command line, and live voice conversion all support pm, rmvpe, fcpe, and also CREPE (full and tiny) and SwiftF0 (training still uses pm and rmvpe) |
 | Formant | Supported only in live voice conversion | Also supported offline, using the live method; a formant value of 0 gives bit-identical results to the original |
 | Paths | The live GUI rejects non-ASCII paths | Any path accepted by the system |
 | Live inference | Runs in the audio callback | The callback only moves data; inference runs on a separate thread |

@@ -79,7 +79,7 @@ export default {
     formantHelp: '改变声道的音色而不改变音高。',
     f0Method: '音高算法',
     f0Help: '如何跟踪输入的音高。',
-    f0: { pm: 'pm（快速）', rmvpe: 'RMVPE（最佳）', fcpe: 'FCPE' },
+    f0: { pm: 'pm（快速）', rmvpe: 'RMVPE（最佳）', fcpe: 'FCPE', crepe: 'CREPE（平滑，较慢）', 'crepe-tiny': 'CREPE tiny（快速）', swift: 'SwiftF0（快速）' },
     indexRate: '索引强度',
     indexHelp: '从音色的索引中取用多少它自身的音色特征。',
     noIndex: '此音色没有索引，索引强度不起作用。可在“模型”中附加索引。',

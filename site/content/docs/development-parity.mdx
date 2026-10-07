@@ -79,7 +79,7 @@ HuBERT、RMVPE 和 FCPE 的权重初始化（随后被检查点覆盖）会从�
 | Live 使用说话人 | `infer/rtrvc.py` 中 `sid` 写死为 0 | 用 `VoiceParams.speaker_id` | 多说话人音色在实时里可以选人 |
 | 索引按数据重建 | `train/train_index.py` 只要有任何 `added_*.index` 就跳过 | 按特征文件指纹（`index_fingerprint.json`）判断 | 换了数据重新训练时原版仍用旧索引 |
 | 索引只加载一次 | `infer/vc/pipeline.py` 每个文件都 `faiss.read_index` + `reconstruct_n` | `Runtime.index()` 按路径和修改时间缓存 | 批量转换慢 |
-| 处处都有 pm、rmvpe、fcpe | 原版 CLI 只接受 pm 和 rmvpe，推理界面有 fcpe | 界面、命令行、API、Live 都提供三种；训练仍只有 pm 和 rmvpe | 同一个参数在各处行为一致 |
+| 处处都有 pm、rmvpe、fcpe | 原版 CLI 只接受 pm 和 rmvpe，推理界面有 fcpe | 界面、命令行、API、Live 都提供这三种，另有 CREPE 和 SwiftF0（来自 Applio 提供的算法）；训练仍只有 pm 和 rmvpe | 同一个参数在各处行为一致 |
 | HuBERT 归一化 | 训练特征提取在 `do_normalize` 为真时 `layer_norm`，推理从不 | 一个函数 `features/hubert.normalize_input`，训练和推理共用 | 真实资源 `do_normalize: false`，所以两边都不归一化，数值不变 |
 | 离线共振峰 | 只有实时有 | 离线用实时的方法（`key − formant` 移调，生成 `ceil(n·2^(f/12))` 帧并缩放 NSF 音高，再重采样回来） | 同一个参数在 Convert 和 Live 里一样；`formant = 0` 时逐位相同 |
 | 任意路径 | 实时 GUI 拒绝含非 ASCII 字符的路径；`clean_path` 剥引号 | 操作系统接受的路径都可以 | — |

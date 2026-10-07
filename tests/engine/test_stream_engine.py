@@ -168,3 +168,9 @@ def test_protect_in_the_stream(tmp_path: Path, tiny_runtime, voice) -> None:
     assert np.array_equal(run(protect=0.5, unvoiced="original"), run(protect=0.5, unvoiced="protect"))
     assert not np.array_equal(run(protect=0.0, unvoiced="original"), run(protect=0.0, unvoiced="protect"))
     assert run(protect=0.0, unvoiced="zero").shape[0] == 8 * int(0.1 * 48000)
+
+
+def test_swift_in_the_stream(tiny_runtime, voice) -> None:
+    engine = StreamEngine(tiny_runtime, voice, VoiceParams(f0_method="swift"), STREAM, 48000)
+    outs = _run(engine, tone(0.5, sr=48000), 4)
+    assert all(o.shape == (engine.block_size,) for o in outs)

@@ -10,7 +10,7 @@ This page explains each parameter and how to use presets.
 
 The panel is titled **Voice parameters** and contains:
 
-1. **Pitch method**: a segmented control with three choices;
+1. **Pitch method**: a menu of the pitch methods;
 2. Five sliders: **Pitch**, **Formant**, **Index strength**, **Consonant protection** and **Loudness match**;
 3. **Pitch details**, a section that opens on click, with **Frames without pitch** and **Very high notes**;
 4. The **Presets** menu at the top right.
@@ -26,7 +26,7 @@ The small text beneath the panel explains when changes apply:
 
 | Parameter | Range | Default | Slider step | Command-line option |
 | --- | --- | --- | --- | --- |
-| **Pitch method** | `pm` / `rmvpe` / `fcpe` | `rmvpe` | — | `--f0` |
+| **Pitch method** | `pm` / `rmvpe` / `fcpe` / `crepe` / `crepe-tiny` / `swift` | `rmvpe` | — | `--f0` |
 | **Pitch** | −24 to +24 semitones | 0 | 1 | `--pitch` |
 | **Formant** | −2 to +2 semitones | 0 | 0.1 | `--formant` |
 | **Index strength** | 0 to 1 | 0.75 | 0.01 | `--index-rate` |
@@ -43,21 +43,25 @@ The server validates these ranges, and the interface reads the server's definiti
 
 > How the pitch of the input is followed.
 
-RVC first extracts pitch (F0) for each input frame, then has the voice generate sound at that pitch (plus the **Pitch** shift). There are three methods:
+RVC first extracts pitch (F0) for each input frame, then has the voice generate sound at that pitch (plus the **Pitch** shift). The methods:
 
 | Option | Characteristics | Required download |
 | --- | --- | --- |
 | **pm (fast)** | Traditional Praat-based method, fastest and CPU-friendly; can mistrack singing, breathy voices and noisy recordings | None |
 | **RMVPE (best)** | Neural pitch model, most accurate and noise-resistant, suitable for singing; the default | RMVPE (about 173 MB) |
 | **FCPE** | Lightweight neural pitch model, fast with a small model file | FCPE (about 41 MB) |
+| **CREPE (smooth, slow)** | The neural pitch tracker many RVC voices were trained with; a smooth contour on singing, but about real time on a CPU | CREPE (about 85 MB) |
+| **CREPE tiny (fast)** | CREPE's small model: much faster, a little less accurate | CREPE tiny (about 2 MB) |
+| **SwiftF0 (fast)** | A very small, very fast neural pitch model (about 100× real time on one CPU core) that its benchmark puts level with RMVPE, up to 2093 Hz; a repair step from Applio lifts notes it briefly reads an octave low | None (comes with RVC Next) |
 
 Suggestions:
 
 - Keep **RMVPE** in most cases.
-- Without a GPU, if speed matters, try **FCPE**, or **pm** for clean speech.
+- Without a GPU, if speed matters, try **SwiftF0**, **FCPE** or **CREPE tiny**, or **pm** for clean speech.
+- For a voice trained with CREPE pitch (common among voices shared online), **CREPE** may follow its training most closely; with a GPU it is fast enough for Live too.
 - Sudden off-key notes, voice breaks or erratic pitch usually indicate pitch-tracking errors; switching to **RMVPE** often resolves them.
 
-If the selected method's model is not downloaded, the run button is replaced by “**Needs RMVPE**” or “**Needs FCPE**” and a **Download** button.
+If the selected method's model is not downloaded, the run button is replaced by “**Needs RMVPE**” (or the method's other model) and a **Download** button.
 
 Voices with **no pitch guidance** (trained with pitch guidance disabled) do not use pitch. This row is dimmed, the selected method has no effect, and no pitch model download is required.
 

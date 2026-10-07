@@ -1,10 +1,10 @@
 ---
 title: "资源与模型仓库"
-description: "「资源」（asset）指 RVC Next 运行时需要、但不随 Python 包分发的模型文件：HuBERT、RMVPE（及其 ONNX 版）、FCPE、训练底模和人声分离权重。"
+description: "「资源」（asset）指 RVC Next 运行时需要、但不随 Python 包分发的模型文件：HuBERT、RMVPE（及其 ONNX 版）、FCPE、CREPE、训练底模和人声分离权重。"
 icon: Package
 ---
 
-「资源」（asset）指 RVC Next 运行时需要、但不随 Python 包分发的模型文件：HuBERT、RMVPE（及其 ONNX 版）、FCPE、训练底模和人声分离权重。另有一组可下载的示例音色。本页说明资源目录 `catalog.json` 的格式、两个下载仓库、下载与校验的实现，以及增改资源的流程。核心层里 `AssetService` 如何被其他服务调用见 [核心服务](/docs/development-core)。
+「资源」（asset）指 RVC Next 运行时需要、但不随 Python 包分发的模型文件：HuBERT、RMVPE（及其 ONNX 版）、FCPE、CREPE、训练底模和人声分离权重。另有一组可下载的示例音色。本页说明资源目录 `catalog.json` 的格式、两个下载仓库、下载与校验的实现，以及增改资源的流程。核心层里 `AssetService` 如何被其他服务调用见 [核心服务](/docs/development-core)。
 
 ## 资源目录 `catalog.json`
 
@@ -58,12 +58,13 @@ icon: Package
 | `rmvpe` | inference | `rmvpe/rmvpe.pt` | RMVPE 音高（默认方法） |
 | `rmvpe-onnx` | inference | `rmvpe/rmvpe.onnx` | DirectML 上的 RMVPE |
 | `fcpe` | inference | `fcpe/fcpe_c_v001.pt` | FCPE 音高；只在 rvc-model 仓库中 |
+| `crepe`、`crepe-tiny` | inference | `crepe/full.pth`、`crepe/tiny.pth` | CREPE 音高（torchcrepe 0.0.24 的权重）；只在 rvc-model 仓库中 |
 | `pretrained-{v1,v2}-{32k,40k,48k}` | training | `pretrained[_v2]/[f0]{G,D}<rate>.pth` | 训练底模，每个资源 4 个文件（有无音高各一对 G/D） |
 | `separation-<model>` | separation | `pymss_weights/<checkpoint>.ckpt` | `dereverb`、`dereverb-aggressive`、`vocals`、`vocals-aggressive`、`karaoke` 五个分离模型；YAML 随包分发（`engine/separate/configs/`） |
 
-共 15 个资源、35 个文件，约 4.8 GiB。底模按「版本 × 采样率」拆分而不是计划里的 `pretrained-v1`/`pretrained-v2` 两个：训练某一采样率只需下载 4 个文件，而不是 12 个（AGENTS.md §8）。分离权重放在 `pymss_weights/` 而非计划中的 `separation/`，同样是为了与原版布局一致。
+共 17 个资源、37 个文件，约 4.9 GiB。SwiftF0 的 165 KB 权重不是资源：它随包分发（`engine/f0/data/swift_f0.pt`）。底模按「版本 × 采样率」拆分而不是计划里的 `pretrained-v1`/`pretrained-v2` 两个：训练某一采样率只需下载 4 个文件，而不是 12 个（AGENTS.md §8）。分离权重放在 `pymss_weights/` 而非计划中的 `separation/`，同样是为了与原版布局一致。
 
-`ids_for_group()` 决定 `rvc-next assets download --group` 的内容：按目录中的 `group` 取资源，`all` 取全部，都不含只给 DirectML 用的 `rmvpe-onnx`（按需下载）。`inference`（不带参数时的默认）因此是 `hubert`、`rmvpe` 和 `fcpe`。
+`ids_for_group()` 决定 `rvc-next assets download --group` 的内容：按目录中的 `group` 取资源，`all` 取全部，都不含只给 DirectML 用的 `rmvpe-onnx`（按需下载）。`inference`（不带参数时的默认）因此是 `hubert`、`rmvpe`、`fcpe`、`crepe` 和 `crepe-tiny`。
 
 <Callout type="info" title="为什么沿用原版的 assets/ 布局">
 
@@ -93,6 +94,7 @@ icon: Package
 | `hubert/hubert_base/` | HuBERT（transformers 格式） | 官方仓库 `hubert_base/` |
 | `rmvpe/` | `rmvpe.pt`、`rmvpe.onnx` | 官方仓库根目录 |
 | `fcpe/` | `fcpe_c_v001.pt` | torchfcpe 0.0.4 包内自带的权重（RVC 通过 `spawn_bundled_infer_model` 使用的那一个） |
+| `crepe/` | `full.pth`、`tiny.pth`、`LICENSE-CREPE.txt` | torchcrepe 0.0.24 包内自带的权重（MIT） |
 | `pretrained/v1/`、`pretrained/v2/` | 各采样率的 `[f0]G`、`[f0]D` | 官方仓库 `pretrained/`、`pretrained_v2/` |
 | `separation/` | 五个分离检查点 | 官方仓库 `pymss_weights/` |
 | `voices/<name>/` | 示例音色 `.pth` 与 `.index` | 从官方 `RVC*.7z` 发行包中提取 |

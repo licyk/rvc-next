@@ -37,5 +37,5 @@ export function latencyShare(key: string, value: number, crossfade: number): num
 /** The pitch model a voice needs for ``method``, as an asset id (the server's ``required_assets``); pm needs none. */
 export function pitchAssets(pitchGuidance: boolean | undefined, method: string | undefined): string[] {
   if (!pitchGuidance) return [];
-  return method === 'rmvpe' ? ['rmvpe'] : method === 'fcpe' ? ['fcpe'] : [];
+  return method === 'rmvpe' ? ['rmvpe'] : method === 'fcpe' || method === 'crepe' || method === 'crepe-tiny' ? [method] : [];
 }

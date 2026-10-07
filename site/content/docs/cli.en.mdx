@@ -62,7 +62,7 @@ When a command fails, the log prints an error message and the exit code indicate
 | 2 | Not found (`not_found`) | Voice, job, experiment, or file does not exist. Note: Click also exits with 2 for invalid command-line arguments (unknown options or out-of-range values) |
 | 3 | Conflict or busy (`conflict`, `busy`) | Name already exists; a stage of the same experiment is running; `webui` cannot find an available port; `model import` has indexes whose pairing is uncertain |
 | 4 | Invalid input (`invalid_input`, `invalid_path`, `invalid_model`) | Parameter out of range, path not allowed, `.pth` is not an RVC model; `webui` binds to a non-local address without an access token |
-| 7 | Missing asset (`asset_missing`) | HuBERT, RMVPE, FCPE, or a base model is not installed; also suggests `rvc-next assets download <id>` |
+| 7 | Missing asset (`asset_missing`) | HuBERT, a pitch model (RMVPE, FCPE, CREPE) or a base model is not installed; also suggests `rvc-next assets download <id>` |
 | 8 | Audio device unavailable (`device_unavailable`) | `live check` fails, or `live run` stops because of a device error |
 | 9 | Compute device unavailable (`compute_unavailable`) | The selected GPU is unavailable or out of memory |
 | 130 | Cancelled | Interrupted with <kbd>ctrl</kbd>+<kbd>c</kbd>, or the job was cancelled |
@@ -102,7 +102,7 @@ Reopen the terminal after installation to complete commands, subcommands, and op
 
 ```bash
 rvc-next doctor                    # Check torch and its GPU backend, audio devices, and assets
-rvc-next assets download           # No arguments: download HuBERT and all pitch models (RMVPE, FCPE)
+rvc-next assets download           # No arguments: download HuBERT and all pitch models (RMVPE, FCPE, CREPE)
 rvc-next model catalog             # List downloadable demo voices
 rvc-next model download --all      # Download all demo voices (including indexes)
 ```

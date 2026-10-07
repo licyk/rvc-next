@@ -1,4 +1,4 @@
-"""Pitch extraction: one interface over pm, RMVPE and FCPE."""
+"""Pitch extraction: one interface over pm, RMVPE, FCPE, CREPE and SwiftF0."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from rvc_next.engine.f0.base import F0Provider
 if TYPE_CHECKING:
     from rvc_next.engine.runtime import Runtime
 
-METHODS = ("pm", "rmvpe", "fcpe")
+METHODS = ("pm", "rmvpe", "fcpe", "crepe", "crepe-tiny", "swift")
 
 
 def create_provider(method: str, runtime: Runtime) -> F0Provider:
@@ -25,6 +25,15 @@ def create_provider(method: str, runtime: Runtime) -> F0Provider:
         from rvc_next.engine.f0.fcpe import FcpeProvider
 
         return FcpeProvider(runtime.assets.fcpe, runtime.device)
+    if method in ("crepe", "crepe-tiny"):
+        from rvc_next.engine.f0.crepe import CrepeProvider
+
+        capacity = "full" if method == "crepe" else "tiny"
+        return CrepeProvider(runtime.assets.crepe(capacity), capacity, runtime.device)
+    if method == "swift":
+        from rvc_next.engine.f0.swift import SwiftProvider
+
+        return SwiftProvider(runtime.device)
     raise ValueError(f"Unsupported F0 method: {method}")
 
 

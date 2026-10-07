@@ -79,7 +79,7 @@ export default {
     formantHelp: 'Shifts the vocal tract colour without changing pitch.',
     f0Method: 'Pitch method',
     f0Help: 'How the pitch of the input is followed.',
-    f0: { pm: 'pm (fast)', rmvpe: 'RMVPE (best)', fcpe: 'FCPE' },
+    f0: { pm: 'pm (fast)', rmvpe: 'RMVPE (best)', fcpe: 'FCPE', crepe: 'CREPE (smooth, slow)', 'crepe-tiny': 'CREPE tiny (fast)', swift: 'SwiftF0 (fast)' },
     indexRate: 'Index strength',
     indexHelp: "How much of the voice's own timbre is drawn from its index.",
     noIndex: 'This voice has no index, so index strength has no effect. Attach one in Models.',

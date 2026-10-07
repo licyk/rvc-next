@@ -71,7 +71,7 @@ Conversion needs two foundational models:
 - **HuBERT** (about 180 MB): extracts speech content features; required for every conversion;
 - **RMVPE** (about 173 MB): the default pitch method; required when converting with a voice that has pitch guidance.
 
-There is also an optional **FCPE** model (about 41 MB), needed only when you select FCPE as the pitch method; the `pm` method requires no downloads.
+There are also optional pitch models, needed only when you select their method: **FCPE** (about 41 MB), **CREPE** (about 85 MB) and **CREPE tiny** (about 2 MB). The `pm` and **SwiftF0** methods need no download (SwiftF0's small model comes with RVC Next).
 
 Choose any of these download methods:
 
@@ -93,7 +93,7 @@ For installed files, click **Verify** to check their SHA-256 again.
 <Tab value="Command line">
 
 ```bash
-rvc-next assets download          # With no arguments, download HuBERT, RMVPE and FCPE (about 394 MB)
+rvc-next assets download          # With no arguments, download HuBERT and the pitch models (about 485 MB)
 rvc-next assets list              # View the status of each asset
 ```
 

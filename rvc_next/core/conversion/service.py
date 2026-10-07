@@ -18,6 +18,7 @@ from rvc_next.core.jobs.models import Job, JobStep
 from rvc_next.core.jobs.service import JobContext, JobService, JobSpec
 from rvc_next.core.models.models import VoiceModel
 from rvc_next.core.models.service import VoiceModelService
+from rvc_next.core.params import f0_assets
 from rvc_next.core.separation.service import SeparationService
 from rvc_next.core.settings import SettingsService
 
@@ -48,10 +49,8 @@ class ConversionService:
 
     def required_assets(self, voice: VoiceModel, f0_method: str) -> list[str]:
         ids = ["hubert"]
-        if voice.pitch_guidance and f0_method == "rmvpe":
-            ids.append("rmvpe-onnx" if self._settings.settings.compute.device == "dml" else "rmvpe")
-        elif voice.pitch_guidance and f0_method == "fcpe":
-            ids.append("fcpe")
+        if voice.pitch_guidance:
+            ids += f0_assets(f0_method, self._settings.settings.compute.device == "dml")
         return ids
 
     def validate(self, request: ConvertRequest) -> VoiceModel:

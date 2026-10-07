@@ -42,7 +42,7 @@ from rvc_next.core.live.models import (
 )
 from rvc_next.core.live.supervisor import LiveSupervisor
 from rvc_next.core.models.service import VoiceModelService
-from rvc_next.core.params import StreamParamsModel, VoiceParamsModel
+from rvc_next.core.params import StreamParamsModel, VoiceParamsModel, f0_assets
 from rvc_next.core.settings import SettingsService
 from rvc_next.protocol import live as P
 from rvc_next.protocol.messages import OUT_OF_MEMORY
@@ -584,10 +584,8 @@ class LiveService:
     def _require_assets(self, voice_id: str, params: VoiceParamsModel) -> None:
         voice = self._models.get(voice_id)
         ids = ["hubert"]
-        if voice.pitch_guidance and params.f0_method == "rmvpe":
-            ids.append("rmvpe-onnx" if self._settings.settings.compute.device == "dml" else "rmvpe")
-        elif voice.pitch_guidance and params.f0_method == "fcpe":
-            ids.append("fcpe")
+        if voice.pitch_guidance:
+            ids += f0_assets(params.f0_method, self._settings.settings.compute.device == "dml")
         self._assets.require(ids, "Live conversion")
 
     def start(self, config: LiveConfig | None = None) -> LiveState:

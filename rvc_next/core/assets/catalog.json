@@ -98,6 +98,38 @@
       ]
     },
     {
+      "id": "crepe",
+      "title": "CREPE",
+      "description": "Pitch extraction with CREPE full (smooth on singing; slow without a GPU)",
+      "group": "inference",
+      "files": [
+        {
+          "path": "crepe/full.pth",
+          "size": 88991291,
+          "sha256": "133225604dedd2e4005f8bbd1bd0a2ec073ba8b7a6cd31ff6d5edbbfa3539986",
+          "sources": {
+            "rvc-model": "crepe/full.pth"
+          }
+        }
+      ]
+    },
+    {
+      "id": "crepe-tiny",
+      "title": "CREPE tiny",
+      "description": "Pitch extraction with CREPE tiny (the small CREPE model; fast)",
+      "group": "inference",
+      "files": [
+        {
+          "path": "crepe/tiny.pth",
+          "size": 1962363,
+          "sha256": "d4993eea36ed1a0ad9ac549c740dae5265b049ce72004f00c2f59e01c0be8432",
+          "sources": {
+            "rvc-model": "crepe/tiny.pth"
+          }
+        }
+      ]
+    },
+    {
       "id": "pretrained-v1-32k",
       "title": "Base models v1 32k",
       "description": "Starting weights for training v1 voices at 32k, with and without pitch guidance",

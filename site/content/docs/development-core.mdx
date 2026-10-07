@@ -116,7 +116,7 @@ icon: Boxes
 `AssetService`（`core/assets/service.py`）读取随包分发的 `catalog.json`，计算每个资源的状态，以 `download` 任务下载或校验，并管理示例音色。目录格式、两个下载仓库、断点续传与校验缓存详见 [资源与模型仓库](/docs/development-assets)。这里只记录其他服务如何使用它：
 
 - `require(ids, what)`：任何需要资源的操作在**提交任务前**调用，缺失时抛 `AssetMissingError`（409，退出码 7），`detail.assets` 列出资源 id，`detail.size` 给出还需下载的字节数，界面的 `AssetGate` 据此原地提供下载。任务运行时会再检查一次，因为排队期间资源可能被删除。
-- 转换与实时变声所需资源：`hubert`；有音高引导的音色再加 `rmvpe`（`compute.device == "dml"` 时为 `rmvpe-onnx`）或 `fcpe`；pm 不需要资源。训练前置检查见下文「训练」一节。
+- 转换与实时变声所需资源：`hubert`；有音高引导的音色再加所选音高算法的资源（`core/params.f0_assets`）：`rmvpe`（`compute.device == "dml"` 时为 `rmvpe-onnx`）、`fcpe`、`crepe` 或 `crepe-tiny`；pm 和 swift 不需要资源。训练前置检查见下文「训练」一节。
 
 ## 音色库
 

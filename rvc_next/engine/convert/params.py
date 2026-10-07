@@ -11,7 +11,7 @@ class VoiceParams:
     formant: float = 0.0
     """Semitones."""
     f0_method: str = "rmvpe"
-    """pm, rmvpe or fcpe."""
+    """``engine.f0.METHODS``: pm, rmvpe, fcpe, crepe, crepe-tiny or swift."""
     index_rate: float = 0.75
     protect: float = 0.33
     """0.5 turns protection off."""

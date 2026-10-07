@@ -17,9 +17,16 @@ if TYPE_CHECKING:
     from rvc_next.engine.convert.params import VoiceParams
     from rvc_next.engine.stream.params import StreamParams
 
-F0Method = Literal["pm", "rmvpe", "fcpe"]
+F0Method = Literal["pm", "rmvpe", "fcpe", "crepe", "crepe-tiny", "swift"]
 UnvoicedMode = Literal["protect", "zero", "original"]
 HighRegisterMode = Literal["off", "true_pitch", "fold"]
+
+
+def f0_assets(method: str, directml: bool = False) -> list[str]:
+    """The assets a pitch method needs (pm and SwiftF0, which ships with rvc-next, need none)."""
+    if method == "rmvpe":
+        return ["rmvpe-onnx" if directml else "rmvpe"]
+    return {"fcpe": ["fcpe"], "crepe": ["crepe"], "crepe-tiny": ["crepe-tiny"]}.get(method, [])
 
 
 class VoiceParamsModel(Record):

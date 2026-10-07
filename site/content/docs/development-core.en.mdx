@@ -116,7 +116,7 @@ Logs are written to `jobs/<id>.log`. `read_log(job_id, offset, limit_bytes=256 K
 `AssetService` (`core/assets/service.py`) reads packaged `catalog.json`, calculates each asset's state, downloads or verifies through `download` jobs, and manages demo voices. See [Assets and model repositories](/docs/development-assets) for catalog format, the two repositories, resumable downloads and verification cache. This section records how other services use it:
 
 - `require(ids, what)`: operations needing assets call this **before submitting a job**; missing assets raise `AssetMissingError` (409, exit code 7), with ids in `detail.assets` and bytes still needed in `detail.size`, letting the UI's `AssetGate` offer downloads in place. Jobs check again when running because assets may be deleted while queued.
-- Conversion and live voice conversion need `hubert`; pitch-guided voices also need `rmvpe` (`rmvpe-onnx` when `compute.device == "dml"`) or `fcpe`; pm needs no asset. See “Training” below for training preflight checks.
+- Conversion and live voice conversion need `hubert`; pitch-guided voices also need their pitch method's asset (`core/params.f0_assets`): `rmvpe` (`rmvpe-onnx` when `compute.device == "dml"`), `fcpe`, `crepe` or `crepe-tiny`; pm and swift need none. See “Training” below for training preflight checks.
 
 ## Voice library
 

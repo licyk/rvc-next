@@ -188,6 +188,12 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   returns it) and still feeds the filled F0; `"zero"` keeps 0 Hz, as classic RVC and Applio
   (voices trained on zeros). `StreamEngine` blends the same way from `cache_voiced`. Protect only
   holds back the index: with no index it changes nothing.
+- **Pitch methods** (`engine/f0/METHODS`): pm, rmvpe, fcpe (the original's) plus `crepe`/`crepe-tiny`
+  (`crepe_model.py`, torchcrepe ported bit-identically without torchaudio; weights are the
+  `crepe`/`crepe-tiny` assets in rvc-model) and `swift` (`swift_model.py`, SwiftF0 0.3.0's ONNX
+  graph in torch with onnxruntime's own trig tables; weights are package data, no asset) with
+  Applio's subharmonic repair. `core/params.f0_assets` maps a method to its assets. Live calls the
+  new ones through `compute()` on numpy.
 - **Pitch extras** (offline, all off by default): `f0_high_register` (`engine/f0/high_register.py`,
   Applio's corrector: a second RMVPE pass on audio upsampled ×2 fixes octave errors above
   ~1040 Hz; never touches frames whose guide is below 460 Hz); RMVPE runs in overlapping
