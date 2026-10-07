@@ -11,8 +11,8 @@ on:
 permissions:
   contents: read
 
-# github.workflow is the caller's name when Release runs this file, so a push to main that also
-# changes the version runs both instead of one cancelling the other.
+# github.workflow is the caller's name when Release runs this file, so the two runs never share a
+# group (and one never cancels the other).
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -24,8 +24,21 @@ env:
   UV_SYSTEM_PYTHON: 1
 
 jobs:
+  # A push to main that changes rvc_next/version.py starts Release, which runs this file as its
+  # checks; CI's own run of that push skips this job, and with it every job below. github.workflow
+  # is "Release" inside that call, so the call itself always runs.
+  gate:
+    name: Not checked by Release
+    if: >-
+      github.workflow != 'CI' || github.event_name != 'push' ||
+      !contains(toJSON(github.event.commits.*.modified), '"rvc_next/version.py"')
+    runs-on: ubuntu-latest
+    steps:
+      - run: 'true'
+
   lint:
     name: Lint and format
+    needs: gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
@@ -41,6 +54,7 @@ jobs:
 
   types:
     name: ty / Python ${{ matrix.python }} / ${{ matrix.os }}
+    needs: gate
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -66,6 +80,7 @@ jobs:
 
   tests:
     name: Tests / Python ${{ matrix.python }}
+    needs: gate
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -86,6 +101,7 @@ jobs:
 
   web:
     name: Web UI
+    needs: gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
@@ -113,6 +129,7 @@ jobs:
 
   site:
     name: Documentation site
+    needs: gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
