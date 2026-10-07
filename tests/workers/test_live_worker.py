@@ -87,8 +87,11 @@ class Client:
     def wait(self, predicate: Any, timeout: float = 30.0) -> bool:
         end = time.monotonic() + timeout
         while time.monotonic() < end:
-            if predicate():
-                return True
+            try:
+                if predicate():
+                    return True
+            except IndexError:  # the message it reads has not arrived yet
+                pass
             time.sleep(0.02)
         return False
 
