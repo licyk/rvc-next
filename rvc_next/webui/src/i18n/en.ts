@@ -168,7 +168,7 @@ export default {
     downloadAll: 'Download all',
     missing: 'The file is gone',
     deleted: 'Result deleted',
-    kinds: { converted: 'converted', stem: 'stem', remix: 'remix', preview: 'preview', recording: 'recording' },
+    kinds: { converted: 'converted', stem: 'stem', remix: 'remix', preview: 'preview', recording: 'recording', sample: 'training sample' },
   },
   jobs: {
     transfer: '{done} of {total}',
@@ -194,7 +194,7 @@ export default {
     noLog: 'No log lines',
     states: { queued: 'Queued', waiting: 'Waiting', running: 'Running', cancelling: 'Cancelling', cancelled: 'Cancelled', failed: 'Failed', completed: 'Done', interrupted: 'Interrupted' },
     waitingFor: { gpu: 'Waiting for the GPU', cpu: 'Waiting for the CPU', asset: 'Waiting for a download' },
-    kinds: { convert: 'Convert', separate: 'Separate', train: 'Train', index: 'Index', download: 'Download', merge: 'Merge', extract: 'Extract', import: 'Import' },
+    kinds: { convert: 'Convert', separate: 'Separate', train: 'Train', index: 'Index', download: 'Download', fetch: 'Download links', merge: 'Merge', extract: 'Extract', import: 'Import' },
     filters: { all: 'All', active: 'Active', finished: 'Finished' },
   },
   assets: {
@@ -390,6 +390,8 @@ export default {
     unavailable: 'Training is not available on this server yet.',
   },
   models: {
+    links: 'Or add from a link',
+    linksHint: 'Hugging Face (a file, a repository or a folder), Google Drive, or any download link; several separated by spaces',
     title: 'Models',
     tabs: { voices: 'Voices', base: 'Base models', separation: 'Separation models', assets: 'Assets', tools: 'Tools' },
     import: 'Import',

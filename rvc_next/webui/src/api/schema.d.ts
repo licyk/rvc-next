@@ -347,6 +347,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/models/imports/{session_id}/urls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Import Urls
+         * @description Download links into the import as a job: Hugging Face files, repositories and folders, Google
+         *     Drive files, or any http(s) file. Links must point at public addresses (a reverse proxy can make
+         *     a remote browser look local, so the web never reaches the server's own network; the command
+         *     line can). When the job is done, the plan includes the files.
+         */
+        post: operations["add_import_urls"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/models/imports/{session_id}": {
         parameters: {
             query?: never;
@@ -3034,7 +3057,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "convert" | "separate" | "train" | "index" | "download" | "merge" | "extract" | "export";
+            kind: "convert" | "separate" | "train" | "index" | "download" | "fetch" | "merge" | "extract" | "export";
             /** Title */
             title: string;
             /**
@@ -4088,6 +4111,11 @@ export interface components {
             job_id: string | null;
             /** Error */
             error: string | null;
+        };
+        /** StageUrlsRequest */
+        StageUrlsRequest: {
+            /** Urls */
+            urls: string[];
         };
         /**
          * StagedFile
@@ -5738,6 +5766,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StagedFile"][];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_import_urls: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StageUrlsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
                 };
             };
             /** @description Bad Request */

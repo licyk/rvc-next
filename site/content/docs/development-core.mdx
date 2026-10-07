@@ -188,6 +188,7 @@ icon: Boxes
 会话是 `uploads/imports/<sid>/`，含 `session.json` 和 `files/<file id>/<原文件名>`；创建新会话时顺带清除 24 小时（`SESSION_TTL`）未动的旧会话。
 
 - 上传：原始请求体流式写入 `.part`，再移入会话。
+- 链接（`add_urls`，`POST /imports/{sid}/urls`）：一个 `fetch` 任务；`core/net/fetch.resolve` 把每个链接变成文件（Hugging Face 的文件，或通过 Hub API 列出的仓库或文件夹并按可导入的扩展名过滤，都经过 `downloads.source`；Google Drive 文件；或链接本身），`fetch` 逐个下载，对每一跳重定向和实际连接的对端检查是否为回环、私有、链路本地、组播和保留地址，然后像上传一样暂存（分组为链接的主机和路径）。API 从不允许私有地址（反向代理会让远程浏览器看起来像本机）；命令行允许。
 - 服务器路径：优先硬链接，失败则复制（大文件不复制两次）。文件夹会被递归收集；若是原版 RVC 安装（有 `assets/weights/`），只取 `assets/weights/*.pth` 和 `assets/indices`、`logs` 下的 `added_*.index`。
 - `.zip`：逐个解出受支持的成员（跳过目录、隐藏文件、`__MACOSX`，单个成员上限 4 GiB），保留压缩包内的文件夹作为 `group`。
 

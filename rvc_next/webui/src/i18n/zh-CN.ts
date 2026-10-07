@@ -168,7 +168,7 @@ export default {
     downloadAll: '全部下载',
     missing: '文件已不存在',
     deleted: '已删除结果',
-    kinds: { converted: '已转换', stem: '分轨', remix: '混音', preview: '预览', recording: '录音' },
+    kinds: { converted: '已转换', stem: '分轨', remix: '混音', preview: '预览', recording: '录音', sample: '训练样例' },
   },
   jobs: {
     transfer: '{done} / {total}',
@@ -194,7 +194,7 @@ export default {
     noLog: '没有日志',
     states: { queued: '排队中', waiting: '等待中', running: '运行中', cancelling: '正在取消', cancelled: '已取消', failed: '失败', completed: '完成', interrupted: '已中断' },
     waitingFor: { gpu: '等待 GPU', cpu: '等待 CPU', asset: '等待下载' },
-    kinds: { convert: '转换', separate: '分离', train: '训练', index: '索引', download: '下载', merge: '融合', extract: '提取', import: '导入' },
+    kinds: { convert: '转换', separate: '分离', train: '训练', index: '索引', download: '下载', fetch: '下载链接', merge: '融合', extract: '提取', import: '导入' },
     filters: { all: '全部', active: '进行中', finished: '已结束' },
   },
   assets: {
@@ -390,6 +390,8 @@ export default {
     unavailable: '此服务器暂不支持训练。',
   },
   models: {
+    links: '或从链接添加',
+    linksHint: 'Hugging Face（文件、仓库或文件夹）、Google Drive 或任意下载链接；多个链接用空格分隔',
     title: '模型',
     tabs: { voices: '音色', base: '底模', separation: '分离模型', assets: '资源', tools: '工具' },
     import: '导入',

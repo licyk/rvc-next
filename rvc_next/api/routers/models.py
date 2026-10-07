@@ -28,6 +28,7 @@ from rvc_next.core.models.models import (
     LegacyScanResult,
     MergeRequest,
     StagedFile,
+    StageUrlsRequest,
     VoiceModel,
     VoiceUpdate,
 )
@@ -98,6 +99,15 @@ async def add_import_file(request: Request, services: ServicesDep, session_id: s
 def add_import_paths(request: Request, services: ServicesDep, session_id: str, body: StagePathsRequest) -> list[StagedFile]:
     require_trusted(request, services)
     return services.imports.add_paths(session_id, [Path(p) for p in body.paths])
+
+
+@router.post("/imports/{session_id}/urls", operation_id="add_import_urls")
+def add_import_urls(services: ServicesDep, session_id: str, body: StageUrlsRequest) -> Job:
+    """Download links into the import as a job: Hugging Face files, repositories and folders, Google
+    Drive files, or any http(s) file. Links must point at public addresses (a reverse proxy can make
+    a remote browser look local, so the web never reaches the server's own network; the command
+    line can). When the job is done, the plan includes the files."""
+    return services.imports.add_urls(session_id, body.urls)
 
 
 @router.get("/imports/{session_id}", operation_id="get_import_plan")

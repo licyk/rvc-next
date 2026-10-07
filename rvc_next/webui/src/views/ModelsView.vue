@@ -11,6 +11,7 @@ import ErrorNotice from '@/components/ErrorNotice.vue';
 import ImportReviewDialog from '@/components/ImportReviewDialog.vue';
 import IndexInbox from '@/components/IndexInbox.vue';
 import ResourceRow, { type ResourceState } from '@/components/ResourceRow.vue';
+import LinkImport from '@/components/LinkImport.vue';
 import { useModelImport } from '@/components/useModelImport';
 import ServerPathDialog from '@/components/ServerPathDialog.vue';
 import { useI18n } from '@/i18n';
@@ -55,6 +56,10 @@ const importer = useModelImport(reportImport, (e) => (error.value = e));
 function onFiles(files: File[]) {
   error.value = null;
   importer.importFiles(files);
+}
+function onLinks(text: string) {
+  error.value = null;
+  importer.importLinks(text);
 }
 function reportImport(r: ImportResult) {
   const name = (p: string) => p.split(/[\\/]/).pop() ?? p;
@@ -177,6 +182,7 @@ function extract() {
         <section v-if="tab === 'voices'" key="voices" class="pane">
           <DropZone :label="t('models.import')" :hint="t('models.importHint')" accept=".pth,.zip,.index" compact @files="onFiles" />
           <ProgressBar v-if="importer.uploading.value" :value="importer.uploading.value.progress" :label="importer.uploading.value.name" />
+          <LinkImport :fetching="importer.fetching.value" @links="onLinks" />
           <IndexInbox @error="error = $event" />
           <div class="filters">
             <SearchField v-model="query" :label="t('models.filter')" />
@@ -233,6 +239,7 @@ function extract() {
           <p class="type-body-medium muted">{{ t('models.base.hint') }}</p>
           <DropZone :label="t('models.base.import')" :hint="t('models.base.importHint')" accept=".pth,.zip" compact @files="onFiles" />
           <ProgressBar v-if="importer.uploading.value" :value="importer.uploading.value.progress" :label="importer.uploading.value.name" />
+          <LinkImport :fetching="importer.fetching.value" @links="onLinks" />
           <section class="group">
             <h2 class="type-title-small title">{{ t('models.base.imported') }}</h2>
             <p v-if="baseModels.isSuccess.value && !importedBase.length" class="type-body-small muted">{{ t('models.base.none') }}</p>
@@ -267,6 +274,7 @@ function extract() {
           <p class="type-body-medium muted">{{ t('models.separation.hint') }}</p>
           <DropZone :label="t('models.separation.import')" :hint="t('models.separation.importHint')" accept=".ckpt,.pth,.bin,.safetensors,.yaml,.yml,.zip" compact @files="onFiles" />
           <ProgressBar v-if="importer.uploading.value" :value="importer.uploading.value.progress" :label="importer.uploading.value.name" />
+          <LinkImport :fetching="importer.fetching.value" @links="onLinks" />
           <section class="group">
             <h2 class="type-title-small title">{{ t('models.separation.imported') }}</h2>
             <p v-if="sepModels.isSuccess.value && !sepModels.data.value?.length" class="type-body-small muted">{{ t('models.separation.none') }}</p>

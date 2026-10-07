@@ -188,6 +188,7 @@ All import entry points—the Web UI drop zones, `PUT /models/imports/{sid}/file
 A session is `uploads/imports/<sid>/`, containing `session.json` and `files/<file id>/<original filename>`; creating a session also removes old sessions idle for 24 hours (`SESSION_TTL`).
 
 - Upload: stream the raw request body into `.part`, then move into the session.
+- Links (`add_urls`, `POST /imports/{sid}/urls`): a `fetch` job; `core/net/fetch.resolve` turns each link into files (a Hugging Face file, or a repository or folder listed through the Hub API and filtered to importable suffixes, all through `downloads.source`; a Google Drive file; or the link itself), and `fetch` downloads each, checking every redirect hop and the connected peer against loopback, private, link-local, multicast and reserved addresses, before staging it as an upload (group: the link's host and path). The API never allows private addresses (a reverse proxy can make remote browsers look local); the command line does.
 - Server paths: prefer hard links, copying if they fail (avoids copying large files twice). Folders are collected recursively; an original RVC installation (with `assets/weights/`) contributes only `assets/weights/*.pth` and `added_*.index` under `assets/indices`, `logs`.
 - `.zip`: extract supported members individually (skip directories, hidden files, `__MACOSX`; 4 GiB limit per member), keeping archive folders as `group`.
 

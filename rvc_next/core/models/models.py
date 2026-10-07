@@ -79,6 +79,10 @@ class ImportPathRequest(Record):
     index: str | None = None
 
 
+class StageUrlsRequest(Record):
+    urls: list[str] = Field(min_length=1, max_length=50)
+
+
 class ImportResult(Record):
     voices: list[VoiceModel] = Field(default_factory=list)
     checkpoints: list[str] = Field(default_factory=list)

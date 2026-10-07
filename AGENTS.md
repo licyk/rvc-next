@@ -245,7 +245,7 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   `ctx.run_worker(module, request)` (subprocess, JSON lines, cancel = process-tree kill). A job
   still active at start-up becomes `interrupted` unless another live server owns the data dir.
   Logs are `jobs/<id>.log`, read by byte offset. Kinds: convert separate train index download
-  merge extract export. Downloads call `ctx.transfer(done, total)`: `Job.transfer` carries the bytes,
+  fetch merge extract export. Downloads call `ctx.transfer(done, total)`: `Job.transfer` carries the bytes,
   the speed over a sliding 5 s window (reset when a file restarts) and the ETA; cleared at the end.
 - **GPU memory** (`core/compute/service.py`, after ComfyUI's `comfy/model_management.py`): the
   server's runtime plus `MemoryHolder`s — Jobs and Live register one each (`busy`, `cached`,
@@ -318,6 +318,13 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   `--extract` decide). Library voices are candidates only when no staged voice fits. An index left
   unassigned goes to the inbox (`core/models/inbox.py`, `GET /models/indexes`, assign/delete).
   Every attach checks the index against the voice (`empty_index`, `version_mismatch`).
+- **Links** (`core/net/fetch.py`, `imports.add_urls`, `POST /models/imports/{sid}/urls`): a `fetch`
+  job resolves Hugging Face files/repos/folders (through `downloads.source`), Google Drive files
+  (`drive.usercontent.google.com/download?…&confirm=t`) and plain links, downloads them (≤ 8 GiB,
+  a web page is refused) and stages them like uploads. Every hop is checked: http(s) only, and the
+  host's addresses and the connected peer must be public (`allow_private` only from the CLI; the
+  API never, since a reverse proxy makes remote browsers look local; peer check skipped behind an
+  environment proxy).
 - **Base models** (`core/models/base.py`): official ones from the assets plus imported G (+ D)
   pairs; `GET /models/base?sample_rate&version&pitch_guidance` lists only those that fit, and
   `FitSettings.base_model` (`train run --base`) picks one; `check_fits` rejects a mismatch.

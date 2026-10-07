@@ -88,7 +88,7 @@ models/
 
 The **Voices**, **Base models** and **Separation models** tabs each have a drop zone at the top. All three use the same import workflow, so **any drop zone works**: rvc-next identifies each file by its **contents** (rather than its name or extension), then decides where it belongs.
 
-### Recognized files
+### Recognized files [#recognized-files]
 
 | File | Identification | After import |
 | --- | --- | --- |
@@ -107,6 +107,16 @@ Unrecognized files are skipped, with **Skipped: …** shown after import.
 2. A progress bar appears during upload.
 3. If every file's destination is clear, import finishes immediately with a notification such as **Imported \{names\} with 1 index(es)**.
 4. If anything is uncertain, **Review the import** opens for you to confirm before importing.
+
+### Add from a link [#links]
+
+Under each drop zone, **Or add from a link** takes one or more links separated by spaces; **Add** has the server download them (a **Download links** job shows the progress), and the import then goes on as for dropped files:
+
+- **Hugging Face**: a file (`…/blob/main/x.pth` or `…/resolve/main/x.pth`), a repository (`huggingface.co/owner/repo`), or a folder in one (`…/tree/main/folder`): every `.pth`, `.index`, `.zip` and separation file in it is downloaded. Hugging Face links go through the download source chosen in **Settings › Downloads** (for example hf-mirror).
+- **Google Drive**: a shared file link (`drive.google.com/file/d/…`). Drive changes how its downloads work from time to time; if a link stops working, download the file in the browser and drop it.
+- **Any other link** to a file.
+
+Links must point at the internet: a link to the server's own machine or its local network (such as `127.0.0.1`, `192.168.…`, `10.…`), including one a site redirects to, is refused, so the web interface cannot be used to reach other services next to the server. The command line (`rvc-next model import <link>`) may download from local addresses. Files over 8 GiB and links that lead to a web page instead of a file are refused. As with any file, a model from the internet is only read as data (see [Recognized files](#recognized-files)); its licence is yours to check.
 
 Possible notifications after import:
 

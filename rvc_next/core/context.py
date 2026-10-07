@@ -104,6 +104,7 @@ def build_services(
     base_models = BaseModelService(settings, events, assets)
     separation_models = SeparationLibrary(settings, events)
     imports.base = base_models
+    imports.attach_jobs(jobs, http)
     imports.separation = separation_models
     training.base = base_models
     separation.library = separation_models

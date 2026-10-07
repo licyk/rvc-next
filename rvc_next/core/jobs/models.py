@@ -6,7 +6,7 @@ from pydantic import Field
 
 from rvc_next.core.record import Record
 
-JobKind = Literal["convert", "separate", "train", "index", "download", "merge", "extract", "export"]
+JobKind = Literal["convert", "separate", "train", "index", "download", "fetch", "merge", "extract", "export"]
 JobState = Literal["queued", "waiting", "running", "cancelling", "cancelled", "failed", "completed", "interrupted"]
 StepState = Literal["pending", "running", "done", "skipped", "failed", "cancelled"]
 Resource = Literal["gpu", "cpu", "io"]

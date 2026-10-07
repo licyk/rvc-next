@@ -42,8 +42,11 @@ from rvc_next.core.safety import validate_name
 from rvc_next.core.settings import SettingsService
 
 if TYPE_CHECKING:
+    from rvc_next.core.jobs.models import Job
+    from rvc_next.core.jobs.service import JobContext, JobService, JobSpec
     from rvc_next.core.models.base import BaseModelService
     from rvc_next.core.models.service import VoiceModelService
+    from rvc_next.core.net.http import HttpClientProvider
     from rvc_next.core.separation.library import SeparationLibrary
 
 logger = logging.getLogger(__name__)
@@ -71,6 +74,14 @@ class ImportService:
         self._inbox = inbox
         self.base: BaseModelService | None = None
         self.separation: SeparationLibrary | None = None
+        self.jobs: JobService | None = None
+        self.http: HttpClientProvider | None = None
+
+    def attach_jobs(self, jobs: JobService, http: HttpClientProvider) -> None:
+        """Enable links (``add_urls``): they download as ``fetch`` jobs."""
+        self.jobs = jobs
+        self.http = http
+        jobs.register("fetch", self._fetch_spec)
 
     @property
     def root(self) -> Path:
@@ -161,6 +172,74 @@ class ImportService:
             else:
                 out += self._stage(session_id, p, p.name, group=p.parent.name or None, move=False)
         return out
+
+    def add_urls(self, session_id: str, urls: list[str], allow_private: bool = False, foreground: bool = False) -> Job:
+        """Download links (Hugging Face files, repositories or folders, Google Drive files, any
+        http(s) file) into the session, as a ``fetch`` job; the plan includes them once it is done.
+
+        ``allow_private`` lets links reach local and private addresses: only for a request from
+        the server's own machine, or the command line (``core/net/fetch.py``).
+        """
+        from rvc_next.core.net.fetch import check_url
+
+        self._folder(session_id)
+        if self.jobs is None:
+            raise ValidationError("Links cannot be imported here")
+        links = [u.strip() for u in urls if u and u.strip()]
+        if not links:
+            raise ValidationError("Give at least one link")
+        for u in links:
+            check_url(u, allow_private=True)  # the scheme now; the addresses when the job connects
+        request = {"session": session_id, "urls": links, "allow_private": allow_private}
+        return self.jobs.run_now("fetch", request) if foreground else self.jobs.submit("fetch", request)
+
+    def _fetch_spec(self, request: dict[str, Any]) -> JobSpec:
+        from urllib.parse import urlparse
+
+        from rvc_next.core.jobs.service import JobSpec
+
+        urls = list(request["urls"])
+        hosts = sorted({urlparse(u).hostname or u for u in urls})
+        title = f"Download from {', '.join(hosts)}"
+
+        def run(ctx: JobContext) -> dict[str, Any]:
+            return self._run_fetch(ctx, request["session"], urls, bool(request.get("allow_private")))
+
+        return JobSpec(title=title, run=run, resources=frozenset({"io"}))
+
+    def _run_fetch(self, ctx: JobContext, session_id: str, urls: list[str], allow_private: bool) -> dict[str, Any]:
+        from rvc_next.core.assets.service import ENDPOINTS
+        from rvc_next.core.net.fetch import fetch, resolve
+
+        assert self.http is not None
+        d = self._settings.settings.downloads
+        endpoint = d.endpoint if d.source == "custom" and d.endpoint else ENDPOINTS.get(d.source, ENDPOINTS["huggingface"])
+        client = self.http.client()
+        files = []
+        for u in urls:
+            ctx.check_cancel()
+            found = resolve(u, client, endpoint, allow_private, SUPPORTED)
+            ctx.log(f"{u}: {len(found)} file{'s' if len(found) != 1 else ''}")
+            files += [(u, f) for f in found]
+        sizes = [f.size or 0 for _, f in files]
+        known = sum(sizes)
+        before = 0
+        staged: list[str] = []
+        work = self.root / session_id / f".fetch-{new_id()}"
+        try:
+            for (link, f), size in zip(files, sizes):
+
+                def on_bytes(done: int, total: int | None, base: int = before) -> None:
+                    ctx.transfer(base + done, max(known, base + (total or done)))
+
+                path = fetch(client, f, work / new_id(), allow_private, on_bytes, ctx.check_cancel)
+                before += size or path.stat().st_size
+                ctx.log(f"Downloaded {path.name}")
+                group = urlparse_group(link)
+                staged += [x.id for x in self._stage(session_id, path, path.name, group=group, move=True)]
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        return {"session": session_id, "staged": staged}
 
     def _stage(self, session_id: str, source: Path, name: str, group: str | None, move: bool) -> list[StagedFile]:
         suffix = Path(name).suffix.lower()
@@ -470,3 +549,11 @@ class ImportService:
             return self.commit(session_id, decisions)
         finally:
             shutil.rmtree(self.root / session_id, ignore_errors=True)
+
+
+def urlparse_group(link: str) -> str:
+    """The group a link's files are staged under: the link's host and path, as shown to the user."""
+    from urllib.parse import urlparse
+
+    parts = urlparse(link)
+    return f"{parts.hostname or ''}{parts.path}".rstrip("/") or link

@@ -17,6 +17,7 @@ export const importApi = {
   create: () => unwrap(api.POST('/api/v1/models/imports')),
   addFile: (sessionId: string, file: File, onProgress?: (loaded: number, total: number) => void) =>
     uploadRaw<StagedFile[]>(`/api/v1/models/imports/${encodeURIComponent(sessionId)}/files`, { name: file.name }, file, onProgress),
+  addUrls: (sessionId: string, urls: string[]) => unwrap(api.POST('/api/v1/models/imports/{session_id}/urls', { params: { path: { session_id: sessionId } }, body: { urls } })),
   plan: (sessionId: string) => unwrap(api.GET('/api/v1/models/imports/{session_id}', { params: { path: { session_id: sessionId } } })),
   commit: (sessionId: string, decisions: ImportDecisions) => unwrap(api.POST('/api/v1/models/imports/{session_id}/commit', { params: { path: { session_id: sessionId } }, body: decisions })),
   discard: (sessionId: string) => unwrap(api.DELETE('/api/v1/models/imports/{session_id}', { params: { path: { session_id: sessionId } } })),

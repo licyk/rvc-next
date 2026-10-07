@@ -74,7 +74,12 @@ def model_info(
 
 
 def model_import(
-    paths: Annotated[list[Path], typer.Argument(help="Voices (.pth), indexes, .zip archives, base models (G/D), separation models (.ckpt + .yaml), folders or an RVC install")],
+    paths: Annotated[
+        list[str],
+        typer.Argument(
+            help="Voices (.pth), indexes, .zip archives, base models (G/D), separation models (.ckpt + .yaml), folders, an RVC install, or links (Hugging Face, Google Drive, any http(s) file)"
+        ),
+    ],
     name: Annotated[str | None, typer.Option(help="Name for a single imported voice")] = None,
     index: Annotated[Path | None, typer.Option(help="An .index to attach to a single voice, whatever its name")] = None,
     pair: Annotated[list[str] | None, typer.Option("--pair", help="VOICE.pth=FILE.index[:spkN] by file name; repeat for several")] = None,
@@ -89,7 +94,13 @@ def model_import(
         imports = services.imports
         sid = imports.create()
         try:
-            imports.add_paths(sid, [p.resolve() for p in paths + ([index] if index else [])])
+            links = [p for p in paths if "://" in p]
+            files = [Path(p).expanduser().resolve() for p in paths if "://" not in p]
+            if links:
+                with job_progress(services):
+                    finish(imports.add_urls(sid, links, allow_private=True, foreground=True))
+            if files or index:
+                imports.add_paths(sid, files + ([index.resolve()] if index else []))
             plan = imports.plan(sid)
             if not (plan.voices or plan.indexes or plan.generators or plan.separations):
                 notes = "; ".join(f"{f.name}: {f.note or f.kind}" for f in plan.files) or "no model, index or separation files found"
