@@ -466,6 +466,9 @@ rule tests come from Hanaikada.
   update, which stutters at the stats rate); indeterminate ones stay `md-linear-progress`.
 - **Tabs** (Models, Settings) slide the way they moved: `shared-axis-x` with `--axis-dir` from
   `useAxisDirection`, in a `position: relative; overflow-x: clip` box, as Hanaikada's tabs.
+  Panes switched by a segmented control (Live's server devices | this browser, the single/multi
+  speaker mode in New experiment and the Dataset step) use `ui/AxisPanes`: the same slide, and the
+  box eases to the new pane's height (clipping only meanwhile, as pickers list in place).
 - **Top bar:** always the app name (RVC Next); actions end with Help (a link to the docs site in
   the UI's language: `/docs`, `/en/docs`) and the theme button, which cycles
   light → dark → follow the system (Hanaikada's), its icon showing the current choice.

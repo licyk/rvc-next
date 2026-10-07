@@ -10,6 +10,7 @@ export { default as AppDialog } from '@/ui/AppDialog.vue';
 export { default as AppIcon } from '@/ui/AppIcon.vue';
 export { default as AppMenu } from '@/ui/AppMenu.vue';
 export type { MenuItem } from '@/ui/AppMenu.vue';
+export { default as AxisPanes } from '@/ui/AxisPanes.vue';
 export { default as AppShell } from '@/ui/AppShell.vue';
 export { default as Badge } from '@/ui/Badge.vue';
 export { default as Breadcrumbs } from '@/ui/Breadcrumbs.vue';

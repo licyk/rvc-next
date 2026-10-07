@@ -21,7 +21,7 @@ import { formatBytes, formatDate } from '@/format';
 import { useHandoffStore } from '@/stores/handoff';
 import { useJobsStore } from '@/stores/jobs';
 import { useTrainStore } from '@/stores/train';
-import { AppButton, AppCard, AppDialog, Badge, ConfirmDialog, DropZone, EmptyState, ExpansionPanel, IconButton, ParamSlider, PathField, ProgressBar, SegmentedControl, SelectField, Surface, Switch, TextField, icons, useSnackbar } from '@/ui';
+import { AppButton, AppCard, AppDialog, AxisPanes, Badge, ConfirmDialog, DropZone, EmptyState, ExpansionPanel, IconButton, ParamSlider, PathField, ProgressBar, SegmentedControl, SelectField, Surface, Switch, TextField, icons, useSnackbar } from '@/ui';
 
 const props = defineProps<{ name: string }>();
 const { t, tOr, locale } = useI18n();
@@ -62,6 +62,7 @@ const report = ref<Report | null>(null);
 const browseOpen = ref(false);
 const deleteOpen = ref(false);
 
+const DATASET_MODES = ['single', 'multi'] as const;
 const modes = computed(() => [
   { value: 'single' as const, label: t('train.mode.single') },
   { value: 'multi' as const, label: t('train.mode.multi') },
@@ -211,11 +212,13 @@ const num = (v: unknown) => (v === '' || v === null || v === undefined ? null : 
         <Transition name="shared-axis-x" mode="out-in">
           <Surface v-if="step === 'dataset' && dataset" key="dataset" :level="0" class="panel">
             <SegmentedControl v-model="dataset.mode" :options="modes" />
-            <div v-if="dataset.mode === 'single'" class="folder">
-              <PathField :model-value="dataset.folder ?? ''" :label="t('train.folder')" @update:model-value="dataset.folder = $event || null" />
-              <AppButton variant="text" @click="browseOpen = true">{{ t('common.browse') }}</AppButton>
-            </div>
-            <SpeakerTable v-else v-model="dataset.speakers" @from-folders="fromFolders" />
+            <AxisPanes :value="dataset.mode" :order="DATASET_MODES">
+              <div v-if="dataset.mode === 'single'" key="single" class="folder">
+                <PathField :model-value="dataset.folder ?? ''" :label="t('train.folder')" @update:model-value="dataset.folder = $event || null" />
+                <AppButton variant="text" @click="browseOpen = true">{{ t('common.browse') }}</AppButton>
+              </div>
+              <SpeakerTable v-else key="multi" v-model="dataset.speakers" @from-folders="fromFolders" />
+            </AxisPanes>
             <DropZone
               :label="dataset.mode === 'multi' ? t('train.uploadSpeakers') : t('train.upload')"
               :hint="dataset.mode === 'multi' ? '.zip' : t('train.uploadHint')"

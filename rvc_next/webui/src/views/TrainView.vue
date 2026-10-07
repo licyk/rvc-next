@@ -7,7 +7,7 @@ import ErrorNotice from '@/components/ErrorNotice.vue';
 import ServerPathDialog from '@/components/ServerPathDialog.vue';
 import { useI18n } from '@/i18n';
 import { formatAgo } from '@/format';
-import { AppButton, AppCard, AppDialog, Badge, EmptyState, PathField, SegmentedControl, TRANSITIONS, TextField, icons, staggerStyle } from '@/ui';
+import { AppButton, AppCard, AppDialog, AxisPanes, Badge, EmptyState, PathField, SegmentedControl, TRANSITIONS, TextField, icons, staggerStyle } from '@/ui';
 
 const { t, tOr, locale } = useI18n();
 const router = useRouter();
@@ -20,6 +20,7 @@ const tone = (s: string) => ({ done: 'primary', running: 'primary', failed: 'err
 const newOpen = ref(false);
 const name = ref('');
 const mode = ref<'single' | 'multi'>('single');
+const MODES = ['single', 'multi'] as const;
 const folder = ref('');
 const browseOpen = ref(false);
 const importOpen = ref(false);
@@ -77,13 +78,18 @@ const open = (e: ExperimentSummary) => router.push(`/train/${encodeURIComponent(
     </TransitionGroup>
 
     <AppDialog v-model:open="newOpen" :title="t('train.new')" width="small" :close-label="t('common.close')">
-      <TextField v-model="name" :label="t('train.name')" />
-      <SegmentedControl v-model="mode" :options="modes" />
-      <div v-if="mode === 'single'" class="folder">
-        <PathField v-model="folder" :label="t('train.folder')" />
-        <AppButton variant="text" @click="browseOpen = true">{{ t('common.browse') }}</AppButton>
+      <div class="new-form">
+        <TextField v-model="name" :label="t('train.name')" />
+        <SegmentedControl v-model="mode" :options="modes" />
+        <AxisPanes :value="mode" :order="MODES">
+          <div v-if="mode === 'single'" key="single" class="folder">
+            <PathField v-model="folder" :label="t('train.folder')" />
+            <AppButton variant="text" @click="browseOpen = true">{{ t('common.browse') }}</AppButton>
+          </div>
+          <p v-else key="multi" class="type-body-medium muted hint">{{ t('train.multiHint') }}</p>
+        </AxisPanes>
+        <ErrorNotice v-if="error" :error="error" />
       </div>
-      <ErrorNotice v-if="error" :error="error" />
       <template #actions>
         <AppButton variant="text" @click="newOpen = false">{{ t('common.cancel') }}</AppButton>
         <AppButton :disabled="!name.trim()" :loading="m.create.isPending.value" @click="create">{{ t('common.add') }}</AppButton>
@@ -110,6 +116,9 @@ const open = (e: ExperimentSummary) => router.push(`/train/${encodeURIComponent(
 .card-head { display: flex; align-items: center; gap: var(--app-space-2); min-width: 0; }
 .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stages { display: flex; flex-wrap: wrap; gap: var(--app-space-1); }
+/* The fields of the New experiment dialog, spaced apart. */
+.new-form { display: flex; flex-direction: column; gap: var(--app-space-4); }
+.hint { margin: 0; }
 /* The folder field and Browse: the button centred on the field. */
 .folder { display: flex; align-items: center; gap: var(--app-space-2); }
 .folder > :first-child { flex: 1; min-width: 0; }

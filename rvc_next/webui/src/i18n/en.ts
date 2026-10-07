@@ -471,6 +471,7 @@ export default {
     stageStates: { pending: 'Not run', running: 'Running', done: 'Done', stale: 'Out of date', failed: 'Failed', skipped: 'Skipped' },
     steps: { dataset: 'Dataset', settings: 'Settings', run: 'Run', results: 'Results' },
     mode: { single: 'One speaker', multi: 'Several speakers' },
+    multiHint: 'Name each speaker and choose their folder on the experiment’s Dataset step, after it is created.',
     folder: 'Dataset folder',
     scan: 'Scan dataset',
     report: { clips: '{n} clips', duration: '{d} in total', rates: 'Sample rates', issues: 'Problems', noIssues: 'No problems found', problem: { too_short: 'too short', too_long: 'too long', clipped: 'clipped', silent: 'silent', unreadable: 'unreadable' } },

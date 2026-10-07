@@ -471,6 +471,7 @@ export default {
     stageStates: { pending: '未运行', running: '运行中', done: '完成', stale: '已过期', failed: '失败', skipped: '已跳过' },
     steps: { dataset: '数据集', settings: '设置', run: '运行', results: '结果' },
     mode: { single: '单说话人', multi: '多说话人' },
+    multiHint: '创建实验后，在实验的“数据集”步骤中为每个说话人命名并选择文件夹。',
     folder: '数据集文件夹',
     scan: '检查数据集',
     report: { clips: '{n} 个片段', duration: '共 {d}', rates: '采样率', issues: '问题', noIssues: '未发现问题', problem: { too_short: '过短', too_long: '过长', clipped: '削波', silent: '静音', unreadable: '无法读取' } },
