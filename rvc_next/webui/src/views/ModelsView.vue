@@ -134,7 +134,7 @@ function remove() {
 const assets = useAssets();
 const download = useDownloadAssets();
 const assetById = computed(() => Object.fromEntries((assets.data.value ?? []).map((a) => [a.id, a])));
-const GROUPS = ['inference', 'training', 'separation'] as const;
+const GROUPS = ['inference', 'embedder', 'training', 'separation'] as const;
 const groups = computed(() => GROUPS.map((g) => [g, (assets.data.value ?? []).filter((a) => a.group === g)] as const).filter(([, list]) => list.length));
 const describeAsset = (a: AssetStatus) => [a.description, formatBytes(a.size), ...(a.verified ? [t('assets.verified')] : [])].filter(Boolean).join(' · ');
 const fetchAssets = (ids: string[]) => download.mutate({ ids }, { onError: (e) => (error.value = e) });

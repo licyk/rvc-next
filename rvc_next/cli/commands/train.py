@@ -40,6 +40,10 @@ def train_new(
     version: Annotated[str | None, typer.Option(help="v1 or v2")] = None,
     no_pitch: Annotated[bool, typer.Option("--no-pitch", help="Train without pitch guidance")] = False,
     f0: Annotated[str | None, typer.Option("--f0", help="Pitch method: pm, rmvpe, fcpe, crepe, crepe-tiny or swift")] = None,
+    embedder: Annotated[
+        str | None,
+        typer.Option(help="Content features: contentvec (RVC's HuBERT, default), spin, spin-v2, chinese-hubert-base, japanese-hubert-base or korean-hubert-base (v2 only)"),
+    ] = None,
     clean: Annotated[str | None, typer.Option(help="Separate the dataset with this preset before slicing, e.g. vocals-clean")] = None,
     json_output: JsonOpt = False,
 ) -> None:
@@ -49,7 +53,7 @@ def train_new(
     with open_services() as services:
         ds = Dataset(folder=str(dataset.resolve()) if dataset and not multi_speaker else None, clean_preset=clean)
         exp = services.training.create(
-            ExperimentCreate(name=name, dataset=ds, sample_rate=sr, version=version, pitch_guidance=False if no_pitch else None, f0_method=f0)  # ty: ignore[invalid-argument-type]
+            ExperimentCreate(name=name, dataset=ds, sample_rate=sr, version=version, pitch_guidance=False if no_pitch else None, f0_method=f0, embedder=embedder)  # ty: ignore[invalid-argument-type]
         )
         if multi_speaker and dataset:
             exp = services.training.speakers_from_folders(name, str(dataset.resolve()))

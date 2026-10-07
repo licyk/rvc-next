@@ -171,6 +171,14 @@ Indexes without a paired voice appear in **Unassigned indexes** at the top of **
 
 If the library has no voice of the same version, a message such as **No v1 voice in the library yet** appears.
 
+## Voices from Applio [#applio]
+
+[Applio](https://github.com/IAHispano/Applio), another RVC application, writes a few extra details into its voices; rvc-next reads them:
+
+- Voices with Applio's default vocoder (HiFi-GAN) are RVC voices and work as they are. Their author, epoch, step and training length appear in **About**; a multi-speaker voice gets numbered speakers you can rename.
+- A voice trained on another **content-feature model** (Applio's "embedder": SPIN, SPIN v2, or the Chinese, Japanese or Korean HuBERT) converts with that model, as it was trained. **About** shows **Content features**; the first conversion asks to download the model (about 380 MB, from Applio's repository; also under **Assets › Content-feature models**).
+- Voices with Applio's **RefineGAN** or **MRF HiFi-GAN** vocoders, and voices trained on a custom content-feature model, cannot be used: importing one says why, and it is skipped.
+
 ## Original RVC installs
 
 If you still have the original RVC, you can use its voices directly without copying models. The **Original RVC installs** section at the bottom of **Voices** says: **Voices in an RVC install are used in place; Import all copies them into the library.**

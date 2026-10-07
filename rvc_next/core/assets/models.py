@@ -6,7 +6,7 @@ from pydantic import Field
 
 from rvc_next.core.record import Record
 
-AssetGroup = Literal["inference", "training", "separation", "community"]
+AssetGroup = Literal["inference", "embedder", "training", "separation", "community"]
 AssetState = Literal["installed", "missing", "partial", "corrupt", "downloading"]
 
 
@@ -101,4 +101,4 @@ class VoiceDownloadRequest(Record):
 
 class AssetDownloadRequest(Record):
     ids: list[str] = Field(default_factory=list)
-    group: Literal["inference", "training", "separation", "all"] | None = None
+    group: Literal["inference", "embedder", "training", "separation", "community", "all"] | None = None

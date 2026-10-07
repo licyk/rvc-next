@@ -15,7 +15,7 @@ import ResultsList from '@/components/ResultsList.vue';
 import ServerPathDialog from '@/components/ServerPathDialog.vue';
 import VoiceParamsPanel from '@/components/VoiceParamsPanel.vue';
 import { readyRefs, type InputItem } from '@/components/inputs';
-import { pitchAssets } from '@/components/paramFields';
+import { embedderAsset, pitchAssets } from '@/components/paramFields';
 import { useSessionOutputs } from '@/components/sessionOutputs';
 import { useI18n } from '@/i18n';
 import { useJobsStore } from '@/stores/jobs';
@@ -91,6 +91,7 @@ function provenanceRows(p: VoiceModel['provenance']): { label: string; value: st
   if (p.author) rows.push({ label: t('models.detail.author'), value: p.author });
   if (p.epoch != null) rows.push({ label: t('models.detail.trainedFor'), value: p.step != null ? t('models.detail.epochSteps', { epoch: p.epoch, step: p.step }) : t('models.detail.epochs', { epoch: p.epoch }) });
   if (p.dataset_length) rows.push({ label: t('models.detail.datasetLength'), value: p.dataset_length });
+  if (voice.value && voice.value.embedder !== 'contentvec') rows.push({ label: t('models.detail.embedder'), value: t(`train.embedders.${voice.value.embedder}`) });
   if (p.pitch_median) rows.push({ label: t('models.detail.pitchMedian'), value: `${Math.round(p.pitch_median)} Hz` });
   if (p.created) rows.push({ label: t('models.detail.created'), value: p.created.replace('T', ' ').slice(0, 19) });
   return rows;
@@ -134,7 +135,7 @@ function saveDefault() {
 // Test strip
 const testInputs = ref<InputItem[]>([]);
 const testOutputs = useSessionOutputs(`model:${props.id}`);
-const required = computed(() => ['hubert', ...pitchAssets(voice.value?.pitch_guidance, params.value?.f0_method)]);
+const required = computed(() => [embedderAsset(voice.value?.embedder), ...pitchAssets(voice.value?.pitch_guidance, params.value?.f0_method)]);
 function test() {
   const refs = readyRefs(testInputs.value);
   if (!refs.length || !params.value) return;

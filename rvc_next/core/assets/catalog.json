@@ -99,6 +99,12 @@
       "revision": "3112c49d1d8dc05033536580ddd7d404aa966678",
       "title": "shiromiya/nanashi-pretrain (a community base model's own repository)",
       "upstream": true
+    },
+    "hf:IAHispano/Applio": {
+      "repo": "IAHispano/Applio",
+      "revision": "70ed563897504c756ec94067c12c902c4fd42025",
+      "title": "IAHispano/Applio (the content-feature models Applio voices may be trained on)",
+      "upstream": true
     }
   },
   "assets": [
@@ -215,6 +221,126 @@
           "sha256": "d4993eea36ed1a0ad9ac549c740dae5265b049ce72004f00c2f59e01c0be8432",
           "sources": {
             "rvc-model": "crepe/tiny.pth"
+          }
+        }
+      ]
+    },
+    {
+      "id": "embedder-spin",
+      "title": "SPIN",
+      "description": "Speaker-invariant HuBERT (SPIN), for Applio voices trained on it",
+      "group": "embedder",
+      "files": [
+        {
+          "path": "embedders/spin/config.json",
+          "size": 1459,
+          "sha256": "442f4c090139d059dc8426b8a5ce9f2c637f01c556d5f5ec82d7bc26df342610",
+          "sources": {
+            "hf:IAHispano/Applio": "Resources/embedders/spin/config.json"
+          }
+        },
+        {
+          "path": "embedders/spin/pytorch_model.bin",
+          "size": 378356791,
+          "sha256": "057f12bfda54e2d486d86a52a3beb2a07c96a888bc6ac0c382c12ac18dbd500c",
+          "sources": {
+            "hf:IAHispano/Applio": "Resources/embedders/spin/pytorch_model.bin"
+          }
+        }
+      ]
+    },
+    {
+      "id": "embedder-spin-v2",
+      "title": "SPIN v2",
+      "description": "Speaker-invariant HuBERT (SPIN v2), for Applio voices trained on it",
+      "group": "embedder",
+      "files": [
+        {
+          "path": "embedders/spin-v2/config.json",
+          "size": 1492,
+          "sha256": "8d3fbf68edffae2afafaa9083002fdb53a8ccc5fe1c0b6af5f0db1bd9f7fad61",
+          "sources": {
+            "hf:IAHispano/Applio": "Resources/embedders/spin-v2/config.json"
+          }
+        },
+        {
+          "path": "embedders/spin-v2/pytorch_model.bin",
+          "size": 378356791,
+          "sha256": "9a9ac0be326057b17607a988be497793817f8274e987cf691a1b61192510f823",
+          "sources": {
+            "hf:IAHispano/Applio": "Resources/embedders/spin-v2/pytorch_model.bin"
+          }
+        }
+      ]
+    },
+    {
+      "id": "embedder-chinese-hubert-base",
+      "title": "Chinese HuBERT",
+      "description": "HuBERT trained on Chinese speech (TencentGameMate), for Applio voices trained on it",
+      "group": "embedder",
+      "files": [
+        {
+          "path": "embedders/chinese-hubert-base/config.json",
+          "size": 1380,
+          "sha256": "f6bd1bdef239518d022edcef31243acf344a2afa33d5428e16f221cac09cbcd0",
+          "sources": {
+            "hf:IAHispano/Applio": "Resources/embedders/chinese_hubert_base/config.json"
+          }
+        },
+        {
+          "path": "embedders/chinese-hubert-base/pytorch_model.bin",
+          "size": 377552987,
+          "sha256": "2fefccd26c2794a583b80f6f7210c721873cb7ebae2c1cde3baf9b27855e24d8",
+          "sources": {
+            "hf:IAHispano/Applio": "Resources/embedders/chinese_hubert_base/pytorch_model.bin"
+          }
+        }
+      ]
+    },
+    {
+      "id": "embedder-japanese-hubert-base",
+      "title": "Japanese HuBERT",
+      "description": "HuBERT trained on Japanese speech (rinna), for Applio voices trained on it",
+      "group": "embedder",
+      "files": [
+        {
+          "path": "embedders/japanese-hubert-base/config.json",
+          "size": 1375,
+          "sha256": "2cc68fe950504f7468f4e786a31b8bf65c922de2b9f92cd252e3919bed689fe1",
+          "sources": {
+            "hf:IAHispano/Applio": "Resources/embedders/japanese_hubert_base/config.json"
+          }
+        },
+        {
+          "path": "embedders/japanese-hubert-base/pytorch_model.bin",
+          "size": 377554841,
+          "sha256": "6c023ccb71e4c2b5a324c94fc5ebe12403d3081c5f370df229892419996fd113",
+          "sources": {
+            "hf:IAHispano/Applio": "Resources/embedders/japanese_hubert_base/pytorch_model.bin"
+          }
+        }
+      ]
+    },
+    {
+      "id": "embedder-korean-hubert-base",
+      "title": "Korean HuBERT",
+      "description": "HuBERT trained on Korean speech (team-lucid), for Applio voices trained on it",
+      "group": "embedder",
+      "files": [
+        {
+          "path": "embedders/korean-hubert-base/config.json",
+          "size": 1594,
+          "sha256": "24ea67cacbff255e2848b16d655618b49a164539a20cc9dc3339d4319a4259f3",
+          "sources": {
+            "hf:IAHispano/Applio": "Resources/embedders/korean_hubert_base/config.json"
+          }
+        },
+        {
+          "path": "embedders/korean-hubert-base/pytorch_model.bin",
+          "size": 377554841,
+          "sha256": "931f6232879f8eadf7dbd9e00e1fa4cac61ad269af89d509b2ed75009b1a02c5",
+          "sources": {
+            "hf:IAHispano/Applio": "Resources/embedders/korean_hubert_base/pytorch_model.bin"
           }
         }
       ]

@@ -31,6 +31,11 @@ class LoadedVoice:
     def n_spk(self) -> int:
         return self.small.speaker_slots
 
+    @property
+    def embedder(self) -> str:
+        """The content-feature model the voice was trained on (Applio's ``embedder_model``)."""
+        return str(self.small.extra.get("embedder_model") or "contentvec")
+
 
 def synthesizer_class(version: str, f0: bool) -> type:
     from rvc_next.engine.models.synthesizer import (

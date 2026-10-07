@@ -71,6 +71,8 @@ class VoiceModel(Record):
     size: int = 0
     info: str = ""
     provenance: Provenance = Field(default_factory=Provenance)
+    embedder: str = "contentvec"
+    """The content-feature model the voice was trained on: contentvec (RVC's HuBERT) or an Applio one."""
     hidden: bool = False
     catalog_id: str | None = None
     """The download catalog entry this voice came from."""
@@ -162,6 +164,7 @@ class CheckpointInfo(Record):
     info: str = ""
     iteration: int | None = None
     provenance: Provenance = Field(default_factory=Provenance)
+    embedder: str = "contentvec"
 
 
 # -- import sessions -------------------------------------------------------------

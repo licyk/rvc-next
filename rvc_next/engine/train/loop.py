@@ -84,6 +84,8 @@ class TrainRequest:
     fresh_speakers: bool = False
     previews: bool = True
     author: str = ""
+    embedder: str = "contentvec"
+    """The content-feature model the features were extracted with; written into the voice when not ContentVec."""
 
 
 class Sink:
@@ -275,6 +277,7 @@ def prepare(request: TrainRequest) -> dict[str, Any]:
             "checkpointing": request.checkpointing,
             "previews": request.previews,
             "author": request.author,
+            "embedder": request.embedder,
             "fresh_speaker_ids": ([s["id"] for s in listing["speakers"]] if request.multi_speaker else [request.speaker_id]) if request.fresh_speakers else [],
         }
     )
@@ -519,6 +522,8 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
             stamp["f0_median"] = round(pitch_median, 1)
         if getattr(hps, "author", ""):
             stamp["author"] = hps.author
+        if getattr(hps, "embedder", "contentvec") != "contentvec":
+            stamp["embedder_model"] = hps.embedder  # the name Applio uses, so both read it
         save_small_from_state(
             state_dict_g(),
             small_config_from_hparams(hps),

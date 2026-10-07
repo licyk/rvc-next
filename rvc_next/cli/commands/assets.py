@@ -7,7 +7,9 @@ import typer
 from rvc_next.cli.output import human_size, open_services, print_json, print_table
 from rvc_next.cli.progress import finish, job_progress
 
-Group = typer.Option(help="inference (HuBERT and RMVPE), training, separation or all")
+Group = typer.Option(
+    help="inference (HuBERT and the pitch models), embedder (Applio's content-feature models), training, separation, community (base models) or all (all but embedder and community)"
+)
 
 
 def assets_list(json_output: Annotated[bool, typer.Option("--json", help="Print JSON")] = False) -> None:

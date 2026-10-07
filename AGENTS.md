@@ -335,11 +335,17 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   a commit, never a Settings choice, not in `--group all`), plus imported G (+ D) pairs; `GET /models/base?sample_rate&version&pitch_guidance` lists only those that fit, and
   `FitSettings.base_model` (`train run --base`) picks one; `check_fits` rejects a mismatch.
 - **Applio voices** (`engine/models/checkpoint.py`): Applio's HiFi-GAN voices are RVC v2 voices
-  with extra keys. A `vocoder` other than HiFi-GAN (or MRF/RefineGAN decoder keys), or an
-  `embedder_model` other than `contentvec`, is refused as `ModelFormat` (`detail.reason`
-  `vocoder`/`embedder`; imports stage it `unsupported`), as are their G and v3 (MRD, kernels 3×9)
-  D files. `speakers_id > 1` without names becomes numbered speakers; `author epoch step
-  creation_date dataset_length` become `VoiceModel.provenance` (About).
+  with extra keys. A `vocoder` other than HiFi-GAN (or MRF/RefineGAN decoder keys) is refused as
+  `ModelFormat` (`detail.reason` `vocoder`; imports stage it `unsupported`), as are their G and v3
+  (MRD, kernels 3×9) D files. `embedder_model` names the content-feature model
+  (`engine/features/embedders.py`: contentvec = the `hubert` asset, else `embedder-<name>` assets
+  from IAHispano/Applio pinned upstream); `LoadedVoice.embedder` makes conversion and Live load it
+  (`Runtime.hubert(name)` caches one per name), `VoiceModel.embedder` drives the required assets. A
+  custom embedder (a path) or a v1 voice on one without `final_proj` is refused (`reason:
+  embedder`). Training: `Experiment.embedder` (features stage, its own silence features in
+  `<exp>/mute/`, `embedder_model` written into the voice). `speakers_id > 1` without names becomes
+  numbered speakers; `author epoch step creation_date dataset_length f0_median` become
+  `VoiceModel.provenance` (About). PyTorch's newer weight-norm key names are renamed on reading.
 - **Separation models** (`core/separation/library.py`): checkpoint + YAML, each one a one-step preset
   (`source: "imported"`, id `user-<slug>`); the import runs the separate worker's `check` action to
   load the model once before accepting it (`separation_load`).

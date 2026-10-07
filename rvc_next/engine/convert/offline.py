@@ -76,7 +76,7 @@ class OfflineConverter:
         import torch
 
         audio = prepare_input(audio_16k)
-        hubert = self.runtime.hubert()
+        hubert = self.runtime.hubert(voice.embedder)
         tgt_sr = voice.tgt_sr
         t_pad_tgt = tgt_sr * self.x_pad
         index_rate = params.index_rate if index is not None else 0.0

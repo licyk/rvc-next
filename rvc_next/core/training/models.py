@@ -12,6 +12,7 @@ StageStatus = Literal["pending", "running", "done", "stale", "failed", "skipped"
 SampleRate = Literal["32k", "40k", "48k"]
 TrainingF0Method = Literal["pm", "rmvpe", "fcpe", "crepe", "crepe-tiny", "swift"]
 TrainingPrecision = Literal["auto", "fp32", "bf16"]
+Embedder = Literal["contentvec", "spin", "spin-v2", "chinese-hubert-base", "japanese-hubert-base", "korean-hubert-base"]
 
 
 class StageState(Record):
@@ -85,6 +86,8 @@ class Experiment(Record):
     version: Literal["v1", "v2"] = "v2"
     pitch_guidance: bool = True
     f0_method: TrainingF0Method = "rmvpe"
+    embedder: Embedder = "contentvec"
+    """The content-feature model: RVC's HuBERT (ContentVec), or one of Applio's (v2 only, except SPIN)."""
     dataset: Dataset = Field(default_factory=Dataset)
     slicing: SliceSettings = Field(default_factory=SliceSettings)
     fit: FitSettings = Field(default_factory=FitSettings)
@@ -104,6 +107,7 @@ class ExperimentCreate(Record):
     version: Literal["v1", "v2"] | None = None
     pitch_guidance: bool | None = None
     f0_method: TrainingF0Method | None = None
+    embedder: Embedder | None = None
     fit: FitSettings | None = None
 
 
@@ -112,6 +116,7 @@ class ExperimentUpdate(Record):
     version: Literal["v1", "v2"] | None = None
     pitch_guidance: bool | None = None
     f0_method: TrainingF0Method | None = None
+    embedder: Embedder | None = None
     dataset: Dataset | None = None
     slicing: SliceSettings | None = None
     fit: FitSettings | None = None

@@ -95,7 +95,10 @@ def test_applio_voice_keys(tmp_path: Path) -> None:
     assert info.provenance == {"author": "Ana", "epoch": "200", "step": "4000", "creation_date": "2026-09-01T10:00:00"}
 
 
-@pytest.mark.parametrize(("changes", "reason"), [({"vocoder": "RefineGAN"}, "vocoder"), ({"embedder_model": "spin-v2"}, "embedder")])
+@pytest.mark.parametrize(
+    ("changes", "reason"),
+    [({"vocoder": "RefineGAN"}, "vocoder"), ({"embedder_model": "logs/my_embedder"}, "embedder"), ({"embedder_model": "chinese-hubert-base", "version": "v1"}, "embedder")],
+)
 def test_applio_voices_rvc_cannot_run(tmp_path: Path, changes: dict, reason: str) -> None:
     from rvc_next.engine.models.checkpoint import inspect_checkpoint
 
@@ -104,3 +107,9 @@ def test_applio_voices_rvc_cannot_run(tmp_path: Path, changes: dict, reason: str
         summarize(v)
     assert e.value.detail["reason"] == reason
     assert inspect_checkpoint(v).kind == "unsupported"
+
+
+def test_applio_embedders_are_read(tmp_path: Path) -> None:
+    v = _rewrite(make_tiny_voice(tmp_path / "a.pth"), embedder_model="spin-v2")
+    assert summarize(v).embedder == "spin-v2"
+    assert summarize(make_tiny_voice(tmp_path / "b.pth")).embedder == "contentvec"

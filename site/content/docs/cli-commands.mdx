@@ -237,11 +237,11 @@ rvc-next assets download [OPTIONS] [IDS]...
 
 | 选项 | 说明 | 默认值 |
 | --- | --- | --- |
-| `--group <str>` | `inference`（HuBERT 和各音高模型）、`training`、`separation` 或 `all` | 既没有 id 也没有分组时为 `inference` |
+| `--group <str>` | `inference`（HuBERT 和各音高模型）、`embedder`、`community`、`training`、`separation` 或 `all` | 既没有 id 也没有分组时为 `inference` |
 | `--source <str>` | 下载端点：`huggingface`、`hf-mirror` 或 `custom`（保存到设置） | 设置 `downloads.source` |
 | `--repository <str>` | `rvc-model` 或 `official`（保存到设置） | 设置 `downloads.repository` |
 
-资源 id：`hubert`、`rmvpe`、`rmvpe-onnx`、`fcpe`、`crepe`、`crepe-tiny`、`pretrained-v1-32k`、`pretrained-v1-40k`、`pretrained-v1-48k`、`pretrained-v2-32k`、`pretrained-v2-40k`、`pretrained-v2-48k`、`separation-vocals`、`separation-vocals-aggressive`、`separation-dereverb`、`separation-dereverb-aggressive`、`separation-karaoke`。任何分组都不包括只在 DirectML 上使用的 `rmvpe-onnx`；`inference` 分组是 `hubert`、`rmvpe`、`fcpe`、`crepe` 和 `crepe-tiny`。
+资源 id：`hubert`、`rmvpe`、`rmvpe-onnx`、`fcpe`、`crepe`、`crepe-tiny`、`pretrained-v1-32k`、`pretrained-v1-40k`、`pretrained-v1-48k`、`pretrained-v2-32k`、`pretrained-v2-40k`、`pretrained-v2-48k`、`separation-vocals`、`separation-vocals-aggressive`、`separation-dereverb`、`separation-dereverb-aggressive`、`separation-karaoke`，内容特征模型 `embedder-spin`、`embedder-spin-v2`、`embedder-chinese-hubert-base`、`embedder-japanese-hubert-base`、`embedder-korean-hubert-base`（分组 `embedder`），以及社区底模 `community-<名称>-<采样率>`（分组 `community`；`rvc-next assets list` 会列出）。任何分组都不包括只在 DirectML 上使用的 `rmvpe-onnx`；`inference` 分组是 `hubert`、`rmvpe`、`fcpe`、`crepe` 和 `crepe-tiny`。`all` 不包含 `embedder` 和 `community`。
 
 ```bash
 rvc-next assets download
@@ -263,7 +263,7 @@ rvc-next assets verify [OPTIONS] [IDS]...
 
 | 选项 | 说明 |
 | --- | --- |
-| `--group <str>` | `inference`（HuBERT 和各音高模型）、`training`、`separation` 或 `all` |
+| `--group <str>` | `inference`（HuBERT 和各音高模型）、`embedder`、`community`、`training`、`separation` 或 `all` |
 
 ## 模型：`model`
 
@@ -595,6 +595,7 @@ rvc-next train new [OPTIONS] NAME
 | `--version <str>` | `v1` 或 `v2` | `training.version`（`v2`） |
 | `--no-pitch` | 不使用音高引导训练 | 使用音高引导 |
 | `--f0 <str>` | `pm`、`rmvpe`、`fcpe`、`crepe`、`crepe-tiny` 或 `swift` | `training.f0_method`（`auto`：有 GPU 用 rmvpe，否则 pm） |
+| `--embedder <str>` | 内容特征：`contentvec`、`spin`、`spin-v2`、`chinese-hubert-base`、`japanese-hubert-base` 或 `korean-hubert-base`（后三个只用于 v2） | `contentvec` |
 | `--clean <str>` | 切片前先用这个分离预设处理数据集，例如 `vocals-clean` | — |
 | `--json` | 打印 JSON | 关 |
 

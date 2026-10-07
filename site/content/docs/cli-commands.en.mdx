@@ -237,11 +237,11 @@ rvc-next assets download [OPTIONS] [IDS]...
 
 | Option | Description | Default |
 | --- | --- | --- |
-| `--group <str>` | `inference` (HuBERT and the pitch models), `training`, `separation`, or `all` | `inference` when neither IDs nor a group are given |
+| `--group <str>` | `inference` (HuBERT and the pitch models), `embedder`, `community`, `training`, `separation`, or `all` | `inference` when neither IDs nor a group are given |
 | `--source <str>` | Endpoint: `huggingface`, `hf-mirror`, or `custom` (saved to settings) | `downloads.source` in settings |
 | `--repository <str>` | `rvc-model` or `official` (saved to settings) | `downloads.repository` in settings |
 
-Asset IDs: `hubert`, `rmvpe`, `rmvpe-onnx`, `fcpe`, `crepe`, `crepe-tiny`, `pretrained-v1-32k`, `pretrained-v1-40k`, `pretrained-v1-48k`, `pretrained-v2-32k`, `pretrained-v2-40k`, `pretrained-v2-48k`, `separation-vocals`, `separation-vocals-aggressive`, `separation-dereverb`, `separation-dereverb-aggressive`, `separation-karaoke`. No group includes `rmvpe-onnx`, which is used only on DirectML; the `inference` group contains `hubert`, `rmvpe`, `fcpe`, `crepe` and `crepe-tiny`.
+Asset IDs: `hubert`, `rmvpe`, `rmvpe-onnx`, `fcpe`, `crepe`, `crepe-tiny`, `pretrained-v1-32k`, `pretrained-v1-40k`, `pretrained-v1-48k`, `pretrained-v2-32k`, `pretrained-v2-40k`, `pretrained-v2-48k`, `separation-vocals`, `separation-vocals-aggressive`, `separation-dereverb`, `separation-dereverb-aggressive`, `separation-karaoke`, the content-feature models `embedder-spin`, `embedder-spin-v2`, `embedder-chinese-hubert-base`, `embedder-japanese-hubert-base`, `embedder-korean-hubert-base` (group `embedder`), and the community base models `community-<name>-<rate>` (group `community`; `rvc-next assets list` shows them). No group includes `rmvpe-onnx`, which is used only on DirectML; the `inference` group contains `hubert`, `rmvpe`, `fcpe`, `crepe` and `crepe-tiny`; `all` leaves out `embedder` and `community`.
 
 ```bash
 rvc-next assets download
@@ -263,7 +263,7 @@ rvc-next assets verify [OPTIONS] [IDS]...
 
 | Option | Description |
 | --- | --- |
-| `--group <str>` | `inference` (HuBERT and the pitch models), `training`, `separation`, or `all` |
+| `--group <str>` | `inference` (HuBERT and the pitch models), `embedder`, `community`, `training`, `separation`, or `all` |
 
 ## Models: `model`
 
@@ -595,6 +595,7 @@ rvc-next train new [OPTIONS] NAME
 | `--version <str>` | `v1` or `v2` | `training.version` (`v2`) |
 | `--no-pitch` | Train without pitch guidance | Use pitch guidance |
 | `--f0 <str>` | `pm`, `rmvpe`, `fcpe`, `crepe`, `crepe-tiny` or `swift` | `training.f0_method` (`auto`: rmvpe with a GPU, otherwise pm) |
+| `--embedder <str>` | Content features: `contentvec`, `spin`, `spin-v2`, `chinese-hubert-base`, `japanese-hubert-base` or `korean-hubert-base` (the last three v2 only) | `contentvec` |
 | `--clean <str>` | Separate the dataset with this preset before slicing, e.g. `vocals-clean` | — |
 | `--json` | Print JSON | Off |
 

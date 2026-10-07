@@ -31,11 +31,13 @@ def _model_class() -> Any:
     return HubertModelWithFinalProj
 
 
-def load_hubert(model_dir: Path, device: Any, is_half: bool = False) -> Any:
+def load_hubert(model_dir: Path, device: Any, is_half: bool = False, asset: str = "hubert") -> Any:
+    """A HuBERT-style feature model from ``model_dir``; ``asset`` names it when it is missing."""
     import torch
+    from transformers import HubertConfig
 
     if not (model_dir / "config.json").is_file() or not any((model_dir / f).is_file() for f in ("pytorch_model.bin", "model.safetensors")):
-        raise MissingAssetError(f"HuBERT is not installed in {model_dir}", ["hubert"])
+        raise MissingAssetError(f"HuBERT is not installed in {model_dir}", [asset])
     dtype = torch.float16 if is_half else torch.float32
     options: dict[str, Any] = {"local_files_only": True, "dtype": dtype}
     # DirectML does not implement every SDPA kernel transformers uses.
@@ -45,7 +47,10 @@ def load_hubert(model_dir: Path, device: Any, is_half: bool = False) -> Any:
     from transformers.utils import logging as hf_logging
 
     hf_logging.disable_progress_bar()
-    model = _model_class().from_pretrained(str(model_dir), **options)
+    config = HubertConfig.from_pretrained(str(model_dir), local_files_only=True)
+    if getattr(config, "classifier_proj_size", None) is None:
+        config.classifier_proj_size = 256  # a model without final_proj (some embedders): only v2 reads it, and v2 does not
+    model = _model_class().from_pretrained(str(model_dir), config=config, **options)
     model.hubert_normalize = requires_normalization(model_dir)
     return model.to(device).eval()
 

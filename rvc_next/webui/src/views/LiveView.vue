@@ -14,7 +14,7 @@ import ResultsList from '@/components/ResultsList.vue';
 import StreamParamsPanel from '@/components/StreamParamsPanel.vue';
 import VoiceParamsPanel from '@/components/VoiceParamsPanel.vue';
 import VoicePicker from '@/components/VoicePicker.vue';
-import { defaults, pitchAssets } from '@/components/paramFields';
+import { defaults, embedderAsset, pitchAssets } from '@/components/paramFields';
 import { useI18n } from '@/i18n';
 import { useLiveStore } from '@/stores/live';
 import { formatDuration } from '@/format';
@@ -61,7 +61,7 @@ watch(
 
 const running = computed(() => live.active);
 const speaker = computed({ get: () => params.value.speaker_id, set: (v: number) => onParams({ ...params.value, speaker_id: v }) });
-const required = computed(() => ['hubert', ...pitchAssets(voice.value?.pitch_guidance, params.value.f0_method)]);
+const required = computed(() => [embedderAsset(voice.value?.embedder), ...pitchAssets(voice.value?.pitch_guidance, params.value.f0_method)]);
 
 // While a session is active (running, loading, reconnecting…) a new voice is swapped in hot: the
 // worker loads it beside the old one and switches between two blocks. The server's state says which

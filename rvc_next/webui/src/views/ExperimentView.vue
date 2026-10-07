@@ -12,7 +12,7 @@ import ErrorNotice from '@/components/ErrorNotice.vue';
 import JobCard from '@/components/JobCard.vue';
 import LossChart from '@/components/LossChart.vue';
 import ResultsList from '@/components/ResultsList.vue';
-import { pitchAssets } from '@/components/paramFields';
+import { embedderAsset, pitchAssets } from '@/components/paramFields';
 import ServerPathDialog from '@/components/ServerPathDialog.vue';
 import SpeakerTable from '@/components/SpeakerTable.vue';
 import StageStepper, { type ExperimentStep } from '@/components/StageStepper.vue';
@@ -46,14 +46,14 @@ const STAGES = ['clean', 'slice', 'f0', 'features', 'fit', 'index'] as const;
 const dataset = ref<Dataset | null>(null);
 const slicing = ref<S['SliceSettings-Output'] | null>(null);
 const slicingOpen = ref(false);
-const settingsForm = ref<{ sample_rate: string; version: string; pitch_guidance: boolean; f0_method: string; fit: FitSettings } | null>(null);
+const settingsForm = ref<{ sample_rate: string; version: string; pitch_guidance: boolean; f0_method: string; embedder: string; fit: FitSettings } | null>(null);
 watch(
   () => exp.data.value,
   (e) => {
     if (!e) return;
     if (!dataset.value) dataset.value = JSON.parse(JSON.stringify(e.dataset));
     if (!slicing.value) slicing.value = { ...e.slicing };
-    if (!settingsForm.value) settingsForm.value = { sample_rate: e.sample_rate, version: e.version, pitch_guidance: e.pitch_guidance, f0_method: e.f0_method, fit: { ...e.fit } };
+    if (!settingsForm.value) settingsForm.value = { sample_rate: e.sample_rate, version: e.version, pitch_guidance: e.pitch_guidance, f0_method: e.f0_method, embedder: e.embedder, fit: { ...e.fit } };
   },
   { immediate: true },
 );
@@ -112,7 +112,7 @@ function saveSettings() {
   if (!f) return;
   error.value = null;
   m.update.mutate(
-    { name: props.name, patch: { sample_rate: f.sample_rate as '40k', version: f.version as 'v2', pitch_guidance: f.pitch_guidance, f0_method: f.f0_method as 'rmvpe', fit: f.fit } },
+    { name: props.name, patch: { sample_rate: f.sample_rate as '40k', version: f.version as 'v2', pitch_guidance: f.pitch_guidance, f0_method: f.f0_method as 'rmvpe', embedder: f.embedder as 'contentvec', fit: f.fit } },
     { onSuccess: () => snackbar.show(t('models.detail.saved')), onError: onErr },
   );
 }
@@ -162,6 +162,9 @@ const normalizeOptions = computed(() => ['slice', 'file', 'none'].map((v) => ({ 
 const rateOptions = ['32k', '40k', '48k'].map((v) => ({ value: v, label: v }));
 const versionOptions = ['v1', 'v2'].map((v) => ({ value: v, label: v }));
 const f0Options = computed(() => ['rmvpe', 'pm', 'fcpe', 'crepe', 'crepe-tiny', 'swift'].map((v) => ({ value: v, label: t(`params.f0.${v}`) })));
+const EMBEDDERS = ['contentvec', 'spin', 'spin-v2', 'chinese-hubert-base', 'japanese-hubert-base', 'korean-hubert-base'];
+const V1_EMBEDDERS = ['contentvec', 'spin', 'spin-v2'];
+const embedderOptions = computed(() => EMBEDDERS.filter((e) => settingsForm.value?.version !== 'v1' || V1_EMBEDDERS.includes(e)).map((v) => ({ value: v, label: t(`train.embedders.${v}`) })));
 const precisionOptions = computed(() => ['auto', 'fp32', 'bf16'].map((v) => ({ value: v, label: t(`train.precisions.${v}`) })));
 // Base models that fit the experiment: official and imported; none chosen means the official one.
 const baseFilter = computed(() => (settingsForm.value ? { sample_rate: settingsForm.value.sample_rate, version: settingsForm.value.version, pitch_guidance: settingsForm.value.pitch_guidance } : null));
@@ -183,7 +186,7 @@ const communityBase = computed(() => settingsForm.value?.fit.base_model?.startsW
 const baseAssets = computed(() => {
   const f = settingsForm.value;
   if (!f) return [];
-  return [...(importedBase.value ? communityBase.value : [`pretrained-${f.version}-${f.sample_rate}`]), 'hubert', ...pitchAssets(f.pitch_guidance, f.f0_method)];
+  return [...(importedBase.value ? communityBase.value : [`pretrained-${f.version}-${f.sample_rate}`]), embedderAsset(f.embedder), ...pitchAssets(f.pitch_guidance, f.f0_method)];
 });
 const smallCheckpoints = computed(() => (checkpoints.data.value ?? []).filter((c) => c.kind !== 'D'));
 const stageTone = (status?: string) => (({ done: 'primary', running: 'primary', failed: 'error', stale: 'warning' }) as Record<string, 'primary' | 'error' | 'warning'>)[status ?? ''] ?? 'neutral';
@@ -258,6 +261,7 @@ const num = (v: unknown) => (v === '' || v === null || v === undefined ? null : 
               <SelectField v-model="settingsForm.sample_rate" :label="t('train.sampleRate')" :options="rateOptions" />
               <SelectField v-model="settingsForm.version" :label="t('train.version')" :options="versionOptions" />
               <SelectField v-model="settingsForm.f0_method" :label="t('train.f0Method')" :options="f0Options" :disabled="!settingsForm.pitch_guidance" />
+              <SelectField v-model="settingsForm.embedder" :label="t('train.embedder')" :options="embedderOptions" :supporting-text="t('train.embedderHint')" />
               <TextField type="number" :min="1" :model-value="settingsForm.fit.epochs" :label="t('train.epochs')" @update:model-value="settingsForm.fit.epochs = Number($event)" />
               <TextField type="number" :min="1" :model-value="settingsForm.fit.batch_size ?? ''" :label="t('train.batchSize')" :supporting-text="t('train.batchAuto')" @update:model-value="settingsForm.fit.batch_size = num($event)" />
               <TextField type="number" :min="1" :model-value="settingsForm.fit.save_every" :label="t('train.saveEvery')" @update:model-value="settingsForm.fit.save_every = Number($event)" />

@@ -612,8 +612,10 @@ class LiveService:
         return voice.model_path, str(index) if index else None
 
     def _require_assets(self, voice_id: str, params: VoiceParamsModel) -> None:
+        from rvc_next.engine.features.embedders import asset_id
+
         voice = self._models.get(voice_id)
-        ids = ["hubert"]
+        ids = [asset_id(voice.embedder)]
         if voice.pitch_guidance:
             ids += f0_assets(params.f0_method, self._settings.settings.compute.device == "dml")
         self._assets.require(ids, "Live conversion")

@@ -191,10 +191,10 @@ class AssetService:
         self._emit()
 
     def ids_for_group(self, group: str) -> list[str]:
-        """The assets of a catalog group (``all``: every one but the community base models, a gigabyte
-        or more each, fetched one by one). The ONNX RMVPE is only for DirectML and is left out;
+        """The assets of a catalog group (``all``: every one but the community base models and the other
+        content-feature models, large and needed only for some voices, fetched one by one). The ONNX RMVPE is only for DirectML and is left out;
         ``inference`` is HuBERT and every pitch model, the default download."""
-        return [i for i, s in self._specs.items() if s.id != "rmvpe-onnx" and (s.group == group or (group == "all" and s.group != "community"))]
+        return [i for i, s in self._specs.items() if s.id != "rmvpe-onnx" and (s.group == group or (group == "all" and s.group not in ("community", "embedder")))]
 
     # -- downloads -------------------------------------------------------------
 

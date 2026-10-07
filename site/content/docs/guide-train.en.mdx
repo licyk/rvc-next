@@ -120,6 +120,7 @@ Changing them marks **Slice** and every later stage out of date.
 | --- | --- | --- |
 | **Sample rate** | 32k / 40k / 48k | Sample rate for training and the exported voice |
 | **Model version** | v1 / v2 | v2 uses 768-dimensional features and is recommended; v1 uses 256 dimensions |
+| **Content features** | ContentVec (RVC, default) / SPIN / SPIN v2 / Chinese, Japanese, Korean HuBERT | The model that reads what is said. The others come from Applio: SPIN keeps less of the speaker's own voice in the features, the language HuBERTs suit those languages. All but ContentVec and SPIN are for v2 only. The voice records its choice, so conversion uses the same; the model downloads on first use (about 380 MB) |
 | **Pitch method** | RMVPE (best) / pm (fast) / FCPE / CREPE / CREPE tiny / SwiftF0 | Method for extracting pitch from training data; unavailable when pitch guidance is off. New experiments default to RMVPE with an available CUDA GPU, otherwise pm. The original offers only pm and RMVPE for training; the others are the conversion methods of the same names (see [Pitch method](/docs/guide-parameters#f0)) |
 | **Epochs** | ≥ 1 | Total training epochs |
 | **Batch size** | ≥ 1; leave blank for **Automatic** | Automatic takes the smallest GPU's memory (GiB) ÷ 2, rounded down, as in the original; 1 without a GPU. It is per GPU: with two GPUs each one trains on this many clips at a time (the original gave each GPU this times the number of GPUs) |

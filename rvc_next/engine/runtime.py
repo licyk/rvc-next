@@ -388,6 +388,12 @@ class AssetPaths:
 
     root: Path
 
+    def embedder_dir(self, name: str) -> Path:
+        """The folder of a content-feature model (``contentvec`` is ``hubert_base``)."""
+        from rvc_next.engine.features.embedders import folder
+
+        return self.root / folder(name)
+
     @property
     def hubert_dir(self) -> Path:
         return self.root / "hubert_base"
@@ -444,7 +450,8 @@ class Runtime:
         self.chunk = ChunkConfig.for_device(self.choice)
         self.max_voices = max(1, max_voices)
         self._lock = threading.RLock()
-        self._hubert: _Entry | None = None
+        self._hubert: dict[str, _Entry] = {}
+        """Content-feature models by embedder name (``contentvec`` is RVC's HuBERT)."""
         self._f0: dict[str, _Entry] = {}
         self._voices: OrderedDict[str, _Entry] = OrderedDict()
         self._indexes: dict[str, _Entry] = {}
@@ -464,15 +471,20 @@ class Runtime:
 
     # -- models -------------------------------------------------------------
 
-    def hubert(self) -> Any:
-        """The HuBERT/ContentVec feature model."""
+    def hubert(self, embedder: str = "contentvec") -> Any:
+        """The content-feature model of ``embedder`` (``contentvec``: RVC's HuBERT base), loaded once."""
+        from rvc_next.engine.features.embedders import asset_id, known
         from rvc_next.engine.features.hubert import load_hubert
 
+        if not known(embedder):
+            raise ValueError(f"Unknown content-feature model: {embedder}")
         with self._lock:
-            if self._hubert is None:
-                self._hubert = _Entry(load_hubert(self.assets.hubert_dir, self.device, self.is_half), ("hubert",))
-            self._hubert.last_used = time.monotonic()
-            return self._hubert.value
+            entry = self._hubert.get(embedder)
+            if entry is None:
+                entry = _Entry(load_hubert(self.assets.embedder_dir(embedder), self.device, self.is_half, asset_id(embedder)), ("hubert", embedder))
+                self._hubert[embedder] = entry
+            entry.last_used = time.monotonic()
+            return entry.value
 
     def f0(self, method: str) -> F0Provider:
         """The pitch extractor for ``method`` (``engine.f0.METHODS``)."""
@@ -525,7 +537,7 @@ class Runtime:
     def cached(self) -> list[str]:
         """Names of the loaded models, for the compute panel."""
         with self._lock:
-            out = ["hubert"] if self._hubert is not None else []
+            out = ["hubert" if name == "contentvec" else f"hubert:{name}" for name in self._hubert]
             out += [f"f0:{m}" for m in self._f0]
             out += [f"voice:{Path(k).name}" for k in self._voices]
             out += [f"index:{Path(k).name}" for k in self._indexes]
@@ -539,15 +551,15 @@ class Runtime:
             self._voices.clear()
             self._indexes.clear()
             self._f0.clear()
-            if self._hubert is not None:
-                self._dispose(self._hubert.value)
-            self._hubert = None
+            for entry in self._hubert.values():
+                self._dispose(entry.value)
+            self._hubert.clear()
         soft_empty_cache()
 
     def release_idle(self, idle_seconds: float) -> bool:
         """Unload everything when nothing was used for ``idle_seconds``. Return whether anything was freed."""
         with self._lock:
-            entries = [e for e in [self._hubert, *self._f0.values(), *self._voices.values(), *self._indexes.values()] if e is not None]
+            entries = [e for e in [*self._hubert.values(), *self._f0.values(), *self._voices.values(), *self._indexes.values()] if e is not None]
             if not entries or time.monotonic() - max(e.last_used for e in entries) < idle_seconds:
                 return False
         self.release()

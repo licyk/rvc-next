@@ -1,7 +1,10 @@
 """Feature stage: HuBERT features for every 16 kHz slice (``3_feature256`` for v1, ``3_feature768`` for v2).
 
 Ported from the original ``train/dataset/extract_hubert_feature.py``; the same feature function as
-inference, so normalisation follows the asset's ``preprocessor_config.json`` in both.
+inference, so normalisation follows the asset's ``preprocessor_config.json`` in both. ``embedder``
+picks the content-feature model (``contentvec``, RVC's HuBERT, or one of Applio's); the silence
+lines of the file list then need that model's features of the silence sample too, which this stage
+writes into ``<experiment>/mute/``.
 """
 
 from __future__ import annotations
@@ -31,9 +34,10 @@ class FeatureRequest:
     gpus: tuple[int, ...] = ()
     """With more than one, one process per card."""
     clean: bool = False
+    embedder: str = "contentvec"
 
 
-def _part(version: str, assets_dir: str, device: str, is_half: bool, items: list[tuple[str, str]], reporter: PartReporter) -> dict[str, Any]:
+def _part(version: str, assets_dir: str, device: str, is_half: bool, embedder: str, items: list[tuple[str, str]], reporter: PartReporter) -> dict[str, Any]:
     import soundfile as sf
     import torch
 
@@ -47,7 +51,9 @@ def _part(version: str, assets_dir: str, device: str, is_half: bool, items: list
     from rvc_next.engine.runtime import supports_half
 
     half = is_half and supports_half(device)
-    model = load_hubert(Path(assets_dir) / "hubert_base", dev, half)
+    from rvc_next.engine.features.embedders import asset_id, folder
+
+    model = load_hubert(Path(assets_dir) / folder(embedder), dev, half, asset_id(embedder))
     done = failed = 0
     for wav_path, out_path in items:
         try:
@@ -86,9 +92,13 @@ def run(request: FeatureRequest, progress: Progress | None = None, log: Log | No
         for p in out.glob("*.npy"):
             p.unlink()
     out.mkdir(parents=True, exist_ok=True)
-    hubert = Path(request.assets_dir) / "hubert_base"
+    from rvc_next.engine.features.embedders import WITH_FINAL_PROJ, asset_id, folder
+
+    if request.version == "v1" and request.embedder not in WITH_FINAL_PROJ:
+        raise ValueError(f"{request.embedder} has no v1 projection: train a v2 voice with it")
+    hubert = Path(request.assets_dir) / folder(request.embedder)
     if not (hubert / "config.json").is_file():
-        raise MissingAssetError(f"HuBERT is not installed in {hubert}", ["hubert"])
+        raise MissingAssetError(f"The {request.embedder} content-feature model is not installed in {hubert}", [asset_id(request.embedder)])
     names = sorted(n for n in os.listdir(src) if n.endswith(".wav")) if src.is_dir() else []
     if not names:
         raise ValueError("Slice the dataset first: 1_16k_wavs is empty")
@@ -101,10 +111,31 @@ def run(request: FeatureRequest, progress: Progress | None = None, log: Log | No
         from rvc_next.engine.runtime import gpu_backend, visible_devices_env
 
         backend = gpu_backend() or "cuda"
-        parts = [(request.version, request.assets_dir, f"{backend}:0", request.is_half, todo[i::n]) for i in range(n)]
+        parts = [(request.version, request.assets_dir, f"{backend}:0", request.is_half, request.embedder, todo[i::n]) for i in range(n)]
         env = [visible_devices_env([g], backend) for g in request.gpus]
     else:
-        parts = [(request.version, request.assets_dir, request.device, request.is_half, todo)]
+        parts = [(request.version, request.assets_dir, request.device, request.is_half, request.embedder, todo)]
     parts = [p for p in parts if p[-1]]
     counts = merge_counts(run_parts(_part, parts, len(todo), progress, log, cancel, "features", env))
+    _write_mute(exp, request)
     return {"done": counts.get("done", 0), "skipped": len(names) - len(todo), "failed": counts.get("failed", 0), "total": len(names)}
+
+
+def _write_mute(exp: Path, request: FeatureRequest) -> None:
+    """The silence sample's features for the file list's mute lines, with this stage's model: the
+    shipped ones are ContentVec's, which other models' features would not match."""
+    import shutil
+
+    from rvc_next.engine.train.filelist import MUTE_SOURCE
+
+    fea = feature_dir_name(request.version)
+    target = exp / "mute" / fea / "mute.npy"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if request.embedder == "contentvec":
+        shutil.copyfile(MUTE_SOURCE / fea / "mute.npy", target)
+        return
+    out = target.with_suffix(".tmp.npy")
+    device = request.device if len(request.gpus) <= 1 else "cpu"
+    _part(request.version, request.assets_dir, device, request.is_half, request.embedder, [(str(MUTE_SOURCE / "1_16k_wavs" / "mute.wav"), str(out))], PartReporter(None))
+    if out.is_file():
+        out.replace(target)

@@ -48,7 +48,9 @@ class ConversionService:
         jobs.register("convert", self._spec)
 
     def required_assets(self, voice: VoiceModel, f0_method: str) -> list[str]:
-        ids = ["hubert"]
+        from rvc_next.engine.features.embedders import asset_id
+
+        ids = [asset_id(voice.embedder)]
         if voice.pitch_guidance:
             ids += f0_assets(f0_method, self._settings.settings.compute.device == "dml")
         return ids

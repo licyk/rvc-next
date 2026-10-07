@@ -28,6 +28,11 @@ Applio (https://github.com/IAHispano/Applio)
   MIT License. Copyright (c) 2026 AI Hispano.
   Ported: the RMVPE high-register corrector (rvc_next/engine/f0/high_register.py, contributed to
   Applio by dhayanithi-svaromance) and SwiftF0's subharmonic repair (rvc_next/engine/f0/swift.py).
+  Downloaded from its repository (huggingface.co/IAHispano/Applio, MIT): the content-feature models
+  SPIN, SPIN v2 and the Chinese (TencentGameMate, MIT), Japanese (rinna, Apache-2.0) and Korean
+  (team-lucid, Apache-2.0) HuBERT models, in the transformers format Applio converted them to.
+  The community base models are downloaded from their authors' own repositories, under whatever
+  terms those state; rvc-next does not redistribute them.
 
 torchcrepe (https://github.com/maxrmorrison/torchcrepe)
   MIT License. Copyright (c) 2020 Max Morrison. CREPE: https://github.com/marl/crepe, MIT License,

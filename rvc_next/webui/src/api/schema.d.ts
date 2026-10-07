@@ -1794,7 +1794,7 @@ export interface components {
             /** Ids */
             ids?: string[];
             /** Group */
-            group?: ("inference" | "training" | "separation" | "all") | null;
+            group?: ("inference" | "embedder" | "training" | "separation" | "community" | "all") | null;
         };
         /** AssetStatus */
         AssetStatus: {
@@ -1808,7 +1808,7 @@ export interface components {
              * Group
              * @enum {string}
              */
-            group: "inference" | "training" | "separation" | "community";
+            group: "inference" | "embedder" | "training" | "separation" | "community";
             /** Size */
             size: number;
             /** Installed Bytes */
@@ -2113,6 +2113,11 @@ export interface components {
             /** Iteration */
             iteration: number | null;
             provenance: components["schemas"]["Provenance"];
+            /**
+             * Embedder
+             * @default contentvec
+             */
+            embedder: string;
         };
         /** ClearedJobs */
         ClearedJobs: {
@@ -2567,6 +2572,12 @@ export interface components {
              * @enum {string}
              */
             f0_method: "pm" | "rmvpe" | "fcpe" | "crepe" | "crepe-tiny" | "swift";
+            /**
+             * Embedder
+             * @default contentvec
+             * @enum {string}
+             */
+            embedder: "contentvec" | "spin" | "spin-v2" | "chinese-hubert-base" | "japanese-hubert-base" | "korean-hubert-base";
             dataset: components["schemas"]["Dataset-Output"];
             slicing: components["schemas"]["SliceSettings-Output"];
             fit: components["schemas"]["FitSettings-Output"];
@@ -2631,6 +2642,8 @@ export interface components {
             pitch_guidance?: boolean | null;
             /** F0 Method */
             f0_method?: ("pm" | "rmvpe" | "fcpe" | "crepe" | "crepe-tiny" | "swift") | null;
+            /** Embedder */
+            embedder?: ("contentvec" | "spin" | "spin-v2" | "chinese-hubert-base" | "japanese-hubert-base" | "korean-hubert-base") | null;
             fit?: components["schemas"]["FitSettings-Input"] | null;
         };
         /** ExperimentSummary */
@@ -2680,6 +2693,8 @@ export interface components {
             pitch_guidance?: boolean | null;
             /** F0 Method */
             f0_method?: ("pm" | "rmvpe" | "fcpe" | "crepe" | "crepe-tiny" | "swift") | null;
+            /** Embedder */
+            embedder?: ("contentvec" | "spin" | "spin-v2" | "chinese-hubert-base" | "japanese-hubert-base" | "korean-hubert-base") | null;
             dataset?: components["schemas"]["Dataset-Input"] | null;
             slicing?: components["schemas"]["SliceSettings-Input"] | null;
             fit?: components["schemas"]["FitSettings-Input"] | null;
@@ -4627,6 +4642,11 @@ export interface components {
              */
             info: string;
             provenance: components["schemas"]["Provenance"];
+            /**
+             * Embedder
+             * @default contentvec
+             */
+            embedder: string;
             /**
              * Hidden
              * @default false

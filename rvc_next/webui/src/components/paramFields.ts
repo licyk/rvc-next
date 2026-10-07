@@ -34,6 +34,11 @@ export function latencyShare(key: string, value: number, crossfade: number): num
   return null;
 }
 
+/** The content-feature model a voice needs, as an asset id (``hubert`` for RVC's own, ContentVec). */
+export function embedderAsset(embedder: string | undefined): string {
+  return !embedder || embedder === 'contentvec' ? 'hubert' : `embedder-${embedder}`;
+}
+
 /** The pitch model a voice needs for ``method``, as an asset id (the server's ``required_assets``); pm needs none. */
 export function pitchAssets(pitchGuidance: boolean | undefined, method: string | undefined): string[] {
   if (!pitchGuidance) return [];

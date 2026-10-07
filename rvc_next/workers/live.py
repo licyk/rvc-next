@@ -163,9 +163,9 @@ class LiveWorker:
         else:
             index = None
         cached = rt.cached()
-        if "hubert" not in cached:
+        if ("hubert" if voice.embedder == "contentvec" else f"hubert:{voice.embedder}") not in cached:
             stage("hubert")
-        rt.hubert()
+        rt.hubert(voice.embedder)
         if voice.if_f0:
             if f"f0:{self.params.f0_method}" not in cached:
                 stage("pitch")

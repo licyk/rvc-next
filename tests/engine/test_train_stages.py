@@ -167,3 +167,18 @@ def test_slicing_options(tmp_path: Path) -> None:
         out, _ = sf.read(next((exp / preprocess.GT_DIR).glob("*.wav")))
         peak = np.abs(out).max()
         assert (expect_peak is None and peak < 0.1) or (expect_peak is not None and peak > 0.25)
+
+
+def test_features_with_another_embedder(sliced: Path, tiny_assets_dir: Path, tmp_path: Path) -> None:
+    import shutil
+
+    assets = tmp_path / "assets"
+    shutil.copytree(tiny_assets_dir, assets)
+    shutil.copytree(assets / "hubert_base", assets / "embedders" / "spin")
+    exp = sliced
+    feature_extract.run(feature_extract.FeatureRequest(exp_dir=str(exp), version="v2", assets_dir=str(assets), embedder="spin"))
+    assert list((exp / "3_feature768").glob("*.npy"))
+    mute = np.load(exp / "mute" / "3_feature768" / "mute.npy")
+    assert mute.shape[1] == 768
+    with pytest.raises(ValueError):
+        feature_extract.run(feature_extract.FeatureRequest(exp_dir=str(exp), version="v1", assets_dir=str(assets), embedder="chinese-hubert-base"))

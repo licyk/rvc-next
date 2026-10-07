@@ -12,7 +12,7 @@ export const useAssetRepositories = () => useQuery({ queryKey: keys.assetReposit
 export function useDownloadAssets() {
   const jobs = useJobsStore();
   return useMutation({
-    mutationFn: (body: { ids?: string[]; group?: 'inference' | 'training' | 'separation' | 'all' | null; verify?: boolean }) =>
+    mutationFn: (body: { ids?: string[]; group?: 'inference' | 'embedder' | 'training' | 'separation' | 'community' | 'all' | null; verify?: boolean }) =>
       unwrap(
         body.verify
           ? api.POST('/api/v1/assets/verify', { body: { ids: body.ids ?? [], group: body.group ?? null } })

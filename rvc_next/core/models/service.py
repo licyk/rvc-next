@@ -141,6 +141,7 @@ class VoiceModelService:
             size=r["size"],
             info=r["info"],
             provenance=Provenance.model_validate(json.loads(r["meta"] or "{}").get("provenance", {})),
+            embedder=json.loads(r["meta"] or "{}").get("embedder", "contentvec"),
             hidden=bool(r["hidden"]),
             catalog_id=r["catalog_id"],
             created_at=r["created_at"],
@@ -275,7 +276,7 @@ class VoiceModelService:
                 st.st_size,
                 st.st_mtime_ns,
                 summary.info,
-                json.dumps({"provenance": summary.provenance.model_dump(exclude_none=True)}),
+                json.dumps({"provenance": summary.provenance.model_dump(exclude_none=True), "embedder": summary.embedder}),
                 int(hidden),
                 catalog_id,
                 created_at or now,
@@ -302,6 +303,7 @@ class VoiceModelService:
             info=s.info,
             iteration=s.iteration,
             provenance=Provenance.from_file(s.provenance),
+            embedder=s.embedder,
         )
 
     def inspect(self, path: str) -> CheckpointInfo:

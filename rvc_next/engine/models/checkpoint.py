@@ -156,6 +156,7 @@ class CheckpointSummary:
     info: str
     iteration: int | None = None
     provenance: dict[str, str] = field(default_factory=dict)
+    embedder: str = "contentvec"
 
 
 def _parse_small(data: Any, name: str) -> SmallModel:
@@ -171,12 +172,16 @@ def _parse_small(data: Any, name: str) -> SmallModel:
     vocoder = foreign_vocoder(weight, data.get("vocoder"))
     if vocoder:
         raise ModelFormatError(f"{name} was trained with the {vocoder} vocoder (Applio); only RVC's HiFi-GAN voices can be used", {"reason": "vocoder", "vocoder": vocoder})
-    embedder = data.get("embedder_model")
-    if embedder not in (None, "", CONTENTVEC):
+    embedder = data.get("embedder_model") or CONTENTVEC
+    from rvc_next.engine.features.embedders import EMBEDDERS, WITH_FINAL_PROJ
+
+    if embedder not in EMBEDDERS:
+        # Applio's "custom" embedder stores the folder it was trained with: nothing here can match it.
         raise ModelFormatError(
-            f"{name} was trained on {embedder} features (Applio); rvc-next extracts ContentVec features, so it would convert badly",
-            {"reason": "embedder", "embedder": str(embedder)},
+            f"{name} was trained on a custom content-feature model ({embedder}), which rvc-next cannot reproduce", {"reason": "embedder", "embedder": str(embedder)}
         )
+    if str(data.get("version", "v1")) == "v1" and embedder not in WITH_FINAL_PROJ:
+        raise ModelFormatError(f"{name} is a v1 voice on {embedder} features, which have no v1 projection", {"reason": "embedder", "embedder": str(embedder)})
     slots = int(weight["emb_g.weight"].shape[0])
     speaker_info = data.get("speaker_info") or _numbered_speakers(data.get("speakers_id"), slots)
     known = {"weight", "config", "info", "sr", "f0", "version", "speaker_info"}
@@ -325,6 +330,7 @@ def summarize_small(small: SmallModel) -> CheckpointSummary:
         speaker_info=small.speaker_info,
         info=small.info,
         provenance=small.provenance,
+        embedder=str(small.extra.get("embedder_model") or "contentvec"),
     )
 
 

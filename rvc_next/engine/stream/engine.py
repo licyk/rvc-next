@@ -298,7 +298,7 @@ class StreamEngine:
         params = self.params
         voice = self._voice
         net_g = voice.net_g
-        hubert = self.runtime.hubert()
+        hubert = self.runtime.hubert(voice.embedder)
         feats = input_wav.half().view(1, -1) if self.is_half else input_wav.float().view(1, -1)
         padding_mask = torch.BoolTensor(feats.shape).to(self.device).fill_(False)
         feats = extract_features(hubert, feats, voice.version, padding_mask=padding_mask)

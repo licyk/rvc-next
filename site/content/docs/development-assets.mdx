@@ -85,6 +85,8 @@ icon: Package
 
 最终 URL 为 `<端点>/<repo>/resolve/<revision>/<sources[仓库]>`。两个仓库的 `revision` 目前都是 `main`。
 
+**内容特征模型**（分组 `embedder`，资源 `embedder-<名称>`，位于 `embedders/<名称>/`）是 Applio 音色可能使用的类 HuBERT 模型（`engine/features/embedders.py`），来自 `hf:IAHispano/Applio`（上游，固定修订版本）；配置文件的哈希由该修订版本计算，权重的哈希来自 LFS。`assets download --group all` 不包含它们。
+
 **社区底模**（分组 `community`，21 个资源 `community-<名称>-<采样率>`）来自作者自己的仓库：每个这样的仓库都以 `"upstream": true` 和固定的修订版本（一个提交）列在 `repositories` 中，其文件只有这一个来源，`repositories()` 不把上游仓库列入设置中的选项。列表来自 Applio 维护的那一份（`IAHispano/Applio/pretrains.json`），每个 G 都已检查是所标采样率的 v2 音高生成器，每个文件的 SHA-256 取自该修订版本的 Hub LFS 元数据；仓库已不公开的 DMR 未收录。资源的 `base_model` 给出名称、采样率、版本、音高引导、仓库声明的许可（常常没有）和主页；`BaseModelService` 把它们列为 `source: "community"`。它们是完整的训练检查点（G 约 440 MB，D 约 860 MB，含优化器状态），所以 `assets download --group all` 不包含它们。用 PyTorch 较新的权重归一化名称（`parametrizations.weight.original0/1`，例如 Ov2Super 的 32k）保存的检查点，读取时会改名为 RVC 的 `weight_g`/`weight_v`（`checkpoint.legacy_weight_norm`）。
 
 设立 rvc-model 的理由：官方仓库是早期版本留下的平铺结构，混杂着代码、Windows 可执行文件和几十 GB 的发行包；有些模型（示例音色）只存在于 `.7z` 发行包内部，无法单独下载（见下文）。rvc-model 把需要的文件原样复制出来按类别放好，任何一个文件都能单独取。

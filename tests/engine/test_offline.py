@@ -94,3 +94,29 @@ def test_convert_with_crepe_tiny(tmp_path: Path, tiny_runtime, monkeypatch) -> N
     voice = tiny_runtime.voice(make_tiny_voice(tmp_path / "v.pth"))
     out, sr = OfflineConverter(tiny_runtime).convert(tone(1.0), voice, VoiceParams(f0_method="crepe-tiny"))
     assert sr == 40000 and 40000 - 800 <= out.shape[0] <= 40000
+
+
+def test_voice_on_another_embedder(tmp_path: Path, tiny_assets_dir: Path) -> None:
+    """An Applio voice names its content-feature model; the runtime loads that one (here a copy of the tiny HuBERT)."""
+    import shutil
+
+    import torch
+
+    from rvc_next.engine.errors import MissingAssetError
+    from rvc_next.engine.runtime import Runtime
+
+    assets = tmp_path / "assets"
+    shutil.copytree(tiny_assets_dir, assets)
+    path = make_tiny_voice(tmp_path / "v.pth")
+    data = torch.load(str(path), weights_only=True)
+    data["embedder_model"] = "spin"
+    torch.save(data, str(path))
+    runtime = Runtime(assets, device="cpu", precision="fp32")
+    voice = runtime.voice(path)
+    assert voice.embedder == "spin"
+    with pytest.raises(MissingAssetError) as e:
+        OfflineConverter(runtime).convert(tone(0.5), voice, VoiceParams(f0_method="pm"))
+    assert e.value.assets == ["embedder-spin"]
+    shutil.copytree(assets / "hubert_base", assets / "embedders" / "spin")
+    out, _ = OfflineConverter(runtime).convert(tone(0.5), voice, VoiceParams(f0_method="pm"))
+    assert out.size and "hubert:spin" in runtime.cached()

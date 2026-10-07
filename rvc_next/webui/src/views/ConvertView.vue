@@ -13,7 +13,7 @@ import ResultsList from '@/components/ResultsList.vue';
 import VoiceParamsPanel from '@/components/VoiceParamsPanel.vue';
 import VoicePicker from '@/components/VoicePicker.vue';
 import { inputKey, readyRefs, type InputItem } from '@/components/inputs';
-import { defaults, pitchAssets } from '@/components/paramFields';
+import { defaults, embedderAsset, pitchAssets } from '@/components/paramFields';
 import { useSessionOutputs } from '@/components/sessionOutputs';
 import { useI18n } from '@/i18n';
 import { useHandoffStore } from '@/stores/handoff';
@@ -56,7 +56,7 @@ function onVoice(v: VoiceModel | null) {
 }
 
 const required = computed(() => {
-  const ids = ['hubert', ...pitchAssets(voice.value?.pitch_guidance, params.value.f0_method)];
+  const ids = [embedderAsset(voice.value?.embedder), ...pitchAssets(voice.value?.pitch_guidance, params.value.f0_method)];
   if (separate.value) ids.push(...((sepPresets.data.value ?? []).find((p) => p.id === sepPreset.value)?.assets ?? []));
   return ids;
 });

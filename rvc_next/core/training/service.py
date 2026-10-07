@@ -223,15 +223,24 @@ class TrainingService:
             version=data.version or t.version,
             pitch_guidance=t.pitch_guidance if data.pitch_guidance is None else data.pitch_guidance,
             f0_method=data.f0_method or self._default_f0(),  # ty: ignore[invalid-argument-type]
+            embedder=data.embedder or "contentvec",
             dataset=data.dataset,
             fit=fit,
             created_at=now_iso(),
         )
         self._check_dataset(exp.dataset)
+        self._check_embedder(exp.version, exp.embedder)
         self._save(exp)
         exp = self._load(name)
         self._emit(exp)
         return exp
+
+    @staticmethod
+    def _check_embedder(version: str, embedder: str) -> None:
+        from rvc_next.engine.features.embedders import WITH_FINAL_PROJ
+
+        if version == "v1" and embedder not in WITH_FINAL_PROJ:
+            raise ValidationError(f"{embedder} has no v1 projection; train a v2 voice with it", {"reason": "embedder"})
 
     def _check_dataset(self, ds: Dataset) -> None:
         folders = [ds.folder] if ds.mode == "single" else [s.folder for s in ds.speakers]
@@ -265,6 +274,10 @@ class TrainingService:
             if patch.version and patch.version != exp.version:
                 exp.version = patch.version
                 stale_from = _earliest(stale_from, "features")
+            if patch.embedder and patch.embedder != exp.embedder:
+                exp.embedder = patch.embedder
+                stale_from = _earliest(stale_from, "features")
+            self._check_embedder(exp.version, exp.embedder)
             if patch.pitch_guidance is not None and patch.pitch_guidance != exp.pitch_guidance:
                 exp.pitch_guidance = patch.pitch_guidance
                 stale_from = _earliest(stale_from, "f0")
@@ -504,7 +517,9 @@ class TrainingService:
             raise ValidationError("Choose the dataset folder (or the speaker table) first")
         needed: list[str] = []
         if "features" in stages:
-            needed.append("hubert")
+            from rvc_next.engine.features.embedders import asset_id
+
+            needed.append(asset_id(exp.embedder))
         if "f0" in stages:
             needed += f0_assets(exp.f0_method, self._settings.settings.compute.device == "dml")
         if "fit" in stages:
@@ -662,7 +677,7 @@ class TrainingService:
         elif stage == "f0":
             req |= {"method": exp.f0_method, "n_workers": self._cpu_workers(), "gpus": gpus, "clean": clean}
         elif stage == "features":
-            req |= {"version": exp.version, "gpus": gpus, "clean": clean}
+            req |= {"version": exp.version, "gpus": gpus, "clean": clean, "embedder": exp.embedder}
         elif stage == "fit":
             from rvc_next.engine.train.experiment import default_batch_size, pretrained_paths
 
@@ -696,6 +711,7 @@ class TrainingService:
                 "fresh_speakers": fit.fresh_speakers,
                 "previews": fit.previews,
                 "author": self._settings.settings.training.author,
+                "embedder": exp.embedder,
                 "name": exp.name,
                 "multi_speaker": exp.dataset.mode == "multi",
                 "num_workers": min(4, self._cpu_workers()),
@@ -762,7 +778,8 @@ class TrainingService:
         if stage == "f0":
             return of_paths([folder / "1_16k_wavs"], {"method": exp.f0_method})
         if stage == "features":
-            return of_paths([folder / "1_16k_wavs"], {"version": exp.version})
+            extra_emb = {"embedder": exp.embedder} if exp.embedder != "contentvec" else {}
+            return of_paths([folder / "1_16k_wavs"], {"version": exp.version, **extra_emb})
         if stage == "fit":
             dirs = [feature_dir(folder, exp.version), folder / "0_gt_wavs"] + ([folder / "2b-f0nsf"] if exp.pitch_guidance else [])
             return of_paths(dirs, {"sr": exp.sample_rate, "version": exp.version, "f0": exp.pitch_guidance, "speakers": speakers})
