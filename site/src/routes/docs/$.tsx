@@ -6,6 +6,7 @@ import { DocsLayout } from "fumadocs-ui/layouts/docs";
 import { DocsBody, DocsDescription, DocsPage, DocsTitle } from "fumadocs-ui/layouts/docs/page";
 import { Suspense, use } from "react";
 
+import { DocsComments } from "@/components/docs-comments";
 import { useMDXComponents } from "@/components/mdx";
 import { useDocumentMetadata } from "@/lib/document-metadata";
 import { DEFAULT_LOCALE, languageIndependentPath, LOCALES, type Locale } from "@/lib/i18n";
@@ -99,6 +100,7 @@ function DocumentationContent({ path }: { path: string }) {
       <DocsBody>
         <MDX components={useMDXComponents()} />
       </DocsBody>
+      <DocsComments />
     </DocsPage>
   );
 }

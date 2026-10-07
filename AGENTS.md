@@ -47,6 +47,10 @@ site/         the website: home page and docs (Fumadocs on TanStack Start, from 
   `/docs/<page>`; text `<`, `{`, `}` must be escaped (MDX). `dev.py site-dev|site|test-site`;
   `.github/workflows/site.yml` publishes to gh-pages (base path `/rvc-next/`), and
   `netlify.toml`, `wrangler.toml` and `site/vercel.json` deploy the same build at the root.
+  Every docs page ends with giscus comments (`components/docs-comments.tsx`, `lib/giscus.ts`, as
+  Hanafubuki's site; licyk/rvc-next discussions, category Comment): `specific` mapping on a term with the
+  base path, a language prefix and the slashes dropped, so GitHub Pages (`/rvc-next/`) and the root hosts
+  share one discussion per page; theme and language follow the site's toggles, posted to the frame.
 
 - **Embedding** (`embed.py`, from Hanaikada's): `RvcNextServer(data_dir, config_dir, settings_path,
   host, port, strict_port, api_prefix, open_browser, access_token, settings, log_level)` builds the

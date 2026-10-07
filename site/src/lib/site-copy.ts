@@ -8,6 +8,9 @@ const zhCN = {
     hint: "点击切换主题",
     modes: { system: "主题：跟随系统", light: "主题：浅色", dark: "主题：深色" },
   },
+  docs: {
+    comments: "评论",
+  },
   home: {
     sections: ["首页", "功能", "使用流程", "特点", "安装"],
     hero: {
@@ -161,6 +164,9 @@ const en = {
   theme: {
     hint: "Click to switch theme",
     modes: { system: "Theme: follow system", light: "Theme: light", dark: "Theme: dark" },
+  },
+  docs: {
+    comments: "Comments",
   },
   home: {
     sections: ["Home", "Features", "Workflow", "Highlights", "Install"],
