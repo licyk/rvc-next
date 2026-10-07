@@ -80,3 +80,14 @@ def test_runtime_file_matches_socket(tmp_path):
         assert read_runtime_file(tmp_path) is None
     finally:
         sock.close()
+
+
+def test_runtime_file_of_a_dead_process_is_stale(tmp_path):
+    import subprocess
+    import sys
+
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    child.wait()
+    for pid in (child.pid, 0, -1):
+        (tmp_path / "server.json").write_text(json.dumps({"host": "127.0.0.1", "port": 1, "url": "x", "pid": pid}))
+        assert read_runtime_file(tmp_path) is None
