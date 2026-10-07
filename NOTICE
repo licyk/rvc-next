@@ -24,6 +24,11 @@ FCPE / torchfcpe (https://github.com/CNChTu/FCPE)
   decoders, loader) into rvc_next/engine/f0/fcpe_model.py. Its weights (fcpe_c_v001.pt) are
   downloaded as the "fcpe" asset.
 
+Applio (https://github.com/IAHispano/Applio)
+  MIT License. Copyright (c) 2026 AI Hispano.
+  Ported: the RMVPE high-register corrector (rvc_next/engine/f0/high_register.py, contributed to
+  Applio by dhayanithi-svaromance).
+
 PyMSS (music source separation), used as a dependency, MIT License.
 
 RMVPE: https://github.com/Dream-High/RMVPE, trained by yxlllc and RVC-Boss.

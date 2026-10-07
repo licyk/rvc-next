@@ -64,11 +64,23 @@ const fields = computed(() =>
 const f0Options = computed(() => (spec('voice', 'f0_method').options ?? ['pm', 'rmvpe', 'fcpe']).map((v) => ({ value: v, label: t(`params.f0.${v}`) })));
 const f0 = computed({ get: () => model.value.f0_method, set: (v) => setField('f0_method', v) });
 
-/** The choices under "Pitch details", options from the schema. */
-const CHOICES = [{ key: 'unvoiced', label: 'params.unvoiced', help: 'params.unvoicedHelp', options: 'params.unvoicedOptions' }] as const;
+/** The choices under "Pitch details", options from the schema; some apply offline only, or to one pitch method. */
+const CHOICES = [
+  { key: 'unvoiced', label: 'params.unvoiced', help: 'params.unvoicedHelp', options: 'params.unvoicedOptions', offlineOnly: false, method: null },
+  { key: 'f0_high_register', label: 'params.highRegister', help: 'params.highRegisterHelp', options: 'params.highRegisterOptions', offlineOnly: true, method: 'rmvpe' },
+] as const;
 const choices = computed(() =>
-  CHOICES.map((c) => ({ ...c, options: (spec('voice', c.key).options ?? []).map((v) => ({ value: v, label: t(`${c.options}.${v}`) })) })),
+  CHOICES.filter((c) => !(c.offlineOnly && props.live)).map((c) => ({
+    ...c,
+    options: (spec('voice', c.key).options ?? []).map((v) => ({ value: v, label: t(`${c.options}.${v}`) })),
+    off: !!c.method && model.value.f0_method !== c.method,
+  })),
 );
+const ceiling = computed(() => {
+  const s = spec('voice', 'f0_ceiling');
+  return { min: s.min, max: s.max, default: s.default as number };
+});
+const showCeiling = computed(() => !props.live && model.value.f0_high_register === 'true_pitch' && model.value.f0_method === 'rmvpe');
 const detailsOpen = ref(false);
 
 const menuItems = computed<MenuItem[]>(() => [
@@ -142,10 +154,25 @@ function save() {
           :key="c.key"
           :model-value="model[c.key] as string"
           :label="t(c.label)"
-          :supporting-text="t(c.help)"
+          :supporting-text="c.off ? t('params.onlyFor', { method: t(`params.f0.${c.method}`) }) : t(c.help)"
           :options="c.options"
-          :disabled="disabled"
+          :disabled="disabled || c.off"
           @update:model-value="$event && setField(c.key, $event)"
+        />
+        <ParamSlider
+          v-if="showCeiling"
+          :model-value="model.f0_ceiling"
+          :label="t('params.ceiling')"
+          :help="t('params.ceilingHelp')"
+          :min="ceiling.min"
+          :max="ceiling.max"
+          :step="10"
+          unit="Hz"
+          :default-value="ceiling.default"
+          :disabled="disabled"
+          :reset-label="t('common.reset')"
+          @update:model-value="setField('f0_ceiling', $event, false)"
+          @commit="setField('f0_ceiling', $event)"
         />
       </div>
     </ExpansionPanel>

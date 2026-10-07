@@ -37,6 +37,8 @@ def preset_save(
     protect: ParamOptions.protect = None,
     rms_mix: ParamOptions.rms_mix = None,
     unvoiced: ParamOptions.unvoiced = None,
+    high_register: ParamOptions.high_register = None,
+    f0_ceiling: ParamOptions.f0_ceiling = None,
 ) -> None:
     """Save voice parameters as a preset, starting from the voice's default preset."""
     from rvc_next.core.presets.models import PresetCreate
@@ -44,7 +46,19 @@ def preset_save(
     with open_services() as services:
         v = services.models.resolve(voice, allow_path=False) if voice else None
         base = services.presets.default_for(v.id).params if v else services.settings.settings.convert.default_params
-        params = build_params(base, speaker=speaker, pitch=pitch, formant=formant, f0=f0, index_rate=index_rate, protect=protect, rms_mix=rms_mix, unvoiced=unvoiced)
+        params = build_params(
+            base,
+            speaker=speaker,
+            pitch=pitch,
+            formant=formant,
+            f0=f0,
+            index_rate=index_rate,
+            protect=protect,
+            rms_mix=rms_mix,
+            unvoiced=unvoiced,
+            high_register=high_register,
+            f0_ceiling=f0_ceiling,
+        )
         p = services.presets.create(PresetCreate(name=name, voice_id=v.id if v else None, params=params, is_default=default))
         console.print(f"Saved preset {p.name} ({p.id})")
 

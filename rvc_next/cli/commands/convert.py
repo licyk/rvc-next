@@ -24,6 +24,8 @@ def convert(
     protect: ParamOptions.protect = None,
     rms_mix: ParamOptions.rms_mix = None,
     unvoiced: ParamOptions.unvoiced = None,
+    high_register: ParamOptions.high_register = None,
+    f0_ceiling: ParamOptions.f0_ceiling = None,
     separate: Annotated[str | None, typer.Option("--separate", help="Separate first with this preset and convert the vocals")] = None,
     remix: Annotated[bool, typer.Option("--remix", help="Add the accompaniment back (needs --separate)")] = False,
     remix_gain: Annotated[float, typer.Option(help="Accompaniment gain in dB")] = 0.0,
@@ -50,7 +52,19 @@ def convert(
             base = services.settings.settings.convert.default_params
         else:
             base = services.presets.resolve(preset, v.id).params if preset else services.presets.default_for(v.id).params
-        params = build_params(base, speaker=speaker, pitch=pitch, formant=formant, f0=f0, index_rate=index_rate, protect=protect, rms_mix=rms_mix, unvoiced=unvoiced)
+        params = build_params(
+            base,
+            speaker=speaker,
+            pitch=pitch,
+            formant=formant,
+            f0=f0,
+            index_rate=index_rate,
+            protect=protect,
+            rms_mix=rms_mix,
+            unvoiced=unvoiced,
+            high_register=high_register,
+            f0_ceiling=f0_ceiling,
+        )
         request = ConvertRequest(
             inputs=[AudioRef(kind="path", path=str(p.resolve())) for p in inputs],
             voice_id=v.id,

@@ -12,7 +12,7 @@ The panel is titled **Voice parameters** and contains:
 
 1. **Pitch method**: a segmented control with three choices;
 2. Five sliders: **Pitch**, **Formant**, **Index strength**, **Consonant protection** and **Loudness match**;
-3. **Pitch details**, a section that opens on click, with **Frames without pitch**;
+3. **Pitch details**, a section that opens on click, with **Frames without pitch** and **Very high notes**;
 4. The **Presets** menu at the top right.
 
 Each slider shows its current value and a line of help beneath it. When the value differs from the default, a **Reset to default** (↺) button appears beside it. If a parameter has no effect on the current voice, its slider is dimmed and explains why.
@@ -33,6 +33,8 @@ The small text beneath the panel explains when changes apply:
 | **Consonant protection** | 0 to 0.5 | 0.33 | 0.01 | `--protect` |
 | **Loudness match** | 0 to 1 | 0.25 | 0.01 | `--rms-mix` |
 | **Frames without pitch** | `protect` / `zero` / `original` | `protect` | — | `--unvoiced` |
+| **Very high notes** | `off` / `true_pitch` / `fold` | `off` | — | `--high-register` |
+| **Highest corrected pitch** | 1000 to 2000 Hz | 1250 | 10 | `--f0-ceiling` |
 | **Speaker** | 0 to 109 | 0 | — | `--speaker` |
 
 The server validates these ranges, and the interface reads the server's definitions directly, so it cannot allow a value that the server rejects.
@@ -133,6 +135,20 @@ Under **Pitch details**. The pitch method finds no pitch in breaths and unvoiced
 | **Fill in (RVC 2026)** | `original` | The rule of the RVC package RVC Next follows: the pitch is filled in and consonant protection has no effect. |
 
 RVC 2026 fills in the missing pitch before consonant protection looks for it, so it never finds any and protection never applies. **Protect them** keeps the filled-in pitch (what voices trained with RVC 2026 or RVC Next expect) but takes the frames from the pitch method's own verdict. Live applies the same choice.
+
+## Very high notes [#high-register]
+
+Under **Pitch details**; for **RMVPE**, and only in Convert (Live leaves it out: it would double the pitch time of every block).
+
+RMVPE was trained on singing that ends near C6 (about 1040 Hz). Above that it reports the note an octave low, or an octave and a fifth low, with full confidence, and the converted voice sings it there. **Correct to the true pitch** runs RMVPE a second time on the audio played an octave lower, where it reads correctly, and uses that pass to put each frame back in its octave, keeping the first pass's finer contour where the two agree. Frames below 460 Hz are never changed, so speech and most singing come out exactly as before; pitch detection takes about three times as long.
+
+| Choice | `--high-register` | What it does |
+| --- | --- | --- |
+| **As detected** (default) | `off` | RMVPE's result, as in the original. |
+| **Correct to the true pitch** | `true_pitch` | Notes up to **Highest corrected pitch** (default 1250 Hz) get their true pitch; higher ones stay an octave low, because voices trained on RMVPE pitch rarely produce anything above it. |
+| **Correct, an octave down** | `fold` | Fixes only notes read in the wrong pitch class, writing them an octave below the truth, so every note stays in the range the voice was trained on. |
+
+The corrector comes from Applio.
 
 ## Loudness match [#rms-mix]
 

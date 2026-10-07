@@ -97,7 +97,9 @@ class OfflineConverter:
             if cancel:
                 cancel.check()
             provider = self.runtime.f0(params.f0_method)
-            coarse, hz, is_voiced = offline_f0(provider, audio_pad, p_len, params.pitch - params.formant, params.unvoiced)
+            coarse, hz, is_voiced = offline_f0(
+                provider, audio_pad, p_len, params.pitch - params.formant, params.unvoiced, high_register=params.f0_high_register, ceiling=params.f0_ceiling
+            )
             pitch = torch.tensor(coarse[:p_len], device=self.device).unsqueeze(0).long()
             pitchf = torch.tensor(hz[:p_len].astype(np.float32), device=self.device).unsqueeze(0).float()
             if params.unvoiced != "original":

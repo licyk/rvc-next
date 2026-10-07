@@ -22,3 +22,8 @@ class VoiceParams:
     has no effect (the 2026 package's arithmetic, which the golden runs hold). "protect": filled, and
     ``protect`` applies to them. "zero": kept at 0 Hz with ``protect`` applied, as classic RVC and
     Applio convert, and as most shared voices were trained."""
+    f0_high_register: str = "off"
+    """RMVPE only, offline: "true_pitch" or "fold" corrects its octave errors above ~1040 Hz with a
+    second pass (``engine/f0/high_register.py``); "off" is the original."""
+    f0_ceiling: float = 1250.0
+    """Highest pitch "true_pitch" writes, in Hz."""

@@ -72,6 +72,23 @@ export const PARAM_SPECS: Record<'voice' | 'stream', Record<string, ParamSpec>> 
         "original"
       ],
       "help": "Frames without pitch: protect applies to them (protect); they also get no pitch, as classic RVC and Applio (zero); or RVC 2026's rule, where protect has no effect (original)"
+    },
+    "f0_high_register": {
+      "type": "string",
+      "default": "off",
+      "options": [
+        "off",
+        "true_pitch",
+        "fold"
+      ],
+      "help": "RMVPE above about 1040 Hz (offline): a second pass corrects its octave errors and writes the true pitch up to the ceiling (true_pitch), or half of it (fold)"
+    },
+    "f0_ceiling": {
+      "type": "number",
+      "default": 1250.0,
+      "min": 1000,
+      "max": 2000,
+      "help": "Highest pitch the high-register correction writes, in Hz"
     }
   },
   "stream": {

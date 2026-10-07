@@ -4343,6 +4343,19 @@ export interface components {
              * @enum {string}
              */
             unvoiced: "protect" | "zero" | "original";
+            /**
+             * F0 High Register
+             * @description RMVPE above about 1040 Hz (offline): a second pass corrects its octave errors and writes the true pitch up to the ceiling (true_pitch), or half of it (fold)
+             * @default off
+             * @enum {string}
+             */
+            f0_high_register: "off" | "true_pitch" | "fold";
+            /**
+             * F0 Ceiling
+             * @description Highest pitch the high-register correction writes, in Hz
+             * @default 1250
+             */
+            f0_ceiling: number;
         };
         /**
          * VoiceParamsModel
@@ -4399,6 +4412,19 @@ export interface components {
              * @enum {string}
              */
             unvoiced?: "protect" | "zero" | "original";
+            /**
+             * F0 High Register
+             * @description RMVPE above about 1040 Hz (offline): a second pass corrects its octave errors and writes the true pitch up to the ceiling (true_pitch), or half of it (fold)
+             * @default off
+             * @enum {string}
+             */
+            f0_high_register?: "off" | "true_pitch" | "fold";
+            /**
+             * F0 Ceiling
+             * @description Highest pitch the high-register correction writes, in Hz
+             * @default 1250
+             */
+            f0_ceiling?: number;
         };
         /**
          * VoiceParamsModel
@@ -4455,6 +4481,19 @@ export interface components {
              * @enum {string}
              */
             unvoiced: "protect" | "zero" | "original";
+            /**
+             * F0 High Register
+             * @description RMVPE above about 1040 Hz (offline): a second pass corrects its octave errors and writes the true pitch up to the ceiling (true_pitch), or half of it (fold)
+             * @default off
+             * @enum {string}
+             */
+            f0_high_register: "off" | "true_pitch" | "fold";
+            /**
+             * F0 Ceiling
+             * @description Highest pitch the high-register correction writes, in Hz
+             * @default 1250
+             */
+            f0_ceiling: number;
         };
         /** VoicePlan */
         "VoicePlan-Input": {

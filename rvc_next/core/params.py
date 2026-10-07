@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 F0Method = Literal["pm", "rmvpe", "fcpe"]
 UnvoicedMode = Literal["protect", "zero", "original"]
+HighRegisterMode = Literal["off", "true_pitch", "fold"]
 
 
 class VoiceParamsModel(Record):
@@ -35,6 +36,11 @@ class VoiceParamsModel(Record):
         default="protect",
         description="Frames without pitch: protect applies to them (protect); they also get no pitch, as classic RVC and Applio (zero); or RVC 2026's rule, where protect has no effect (original)",
     )
+    f0_high_register: HighRegisterMode = Field(
+        default="off",
+        description="RMVPE above about 1040 Hz (offline): a second pass corrects its octave errors and writes the true pitch up to the ceiling (true_pitch), or half of it (fold)",
+    )
+    f0_ceiling: float = Field(default=1250.0, ge=1000, le=2000, description="Highest pitch the high-register correction writes, in Hz")
 
     def to_engine(self) -> VoiceParams:
         from rvc_next.engine.convert.params import VoiceParams

@@ -110,6 +110,8 @@ rvc-next convert [OPTIONS] INPUTS...
 | `--protect <float>` | 辅音保护，`[0, 0.5]`；0.5 为关闭 | 取自预设 |
 | `--rms-mix <float>` | 响度匹配，`[0, 1]`；1 保持转换后的响度 | 取自预设 |
 | `--unvoiced <mode>` | 无音高帧：`protect`、`zero` 或 `original`，见[无音高帧](/docs/guide-parameters#unvoiced) | 取自预设 |
+| `--high-register <mode>` | RMVPE 约 1040 Hz 以上：`off`、`true_pitch` 或 `fold`，见[极高音](/docs/guide-parameters#high-register) | 取自预设 |
+| `--f0-ceiling <float>` | `true_pitch` 写入的最高音高，`[1000, 2000]` Hz | 取自预设 |
 | `--separate <str>` | 先用这个分离预设分离，再转换人声 | — |
 | `--remix` | 加回伴奏（需要 `--separate`） | 关 |
 | `--remix-gain <float>` | 伴奏增益（dB） | `0.0` |
@@ -517,6 +519,8 @@ rvc-next preset save [OPTIONS] NAME
 | `--protect <float>` | 辅音保护，`[0, 0.5]`；0.5 为关闭 |
 | `--rms-mix <float>` | 响度匹配，`[0, 1]`；1 保持转换后的响度 |
 | `--unvoiced <mode>` | 无音高帧：`protect`、`zero` 或 `original`，见[无音高帧](/docs/guide-parameters#unvoiced) |
+| `--high-register <mode>` | RMVPE 约 1040 Hz 以上：`off`、`true_pitch` 或 `fold`，见[极高音](/docs/guide-parameters#high-register) |
+| `--f0-ceiling <float>` | `true_pitch` 写入的最高音高，`[1000, 2000]` Hz |
 
 ```bash
 rvc-next preset save "男转女" --voice "我的音色" --pitch 12 --default

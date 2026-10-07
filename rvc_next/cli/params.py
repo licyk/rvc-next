@@ -6,7 +6,7 @@ from typing import Annotated, Any, get_args
 
 import typer
 
-from rvc_next.core.params import F0Method, UnvoicedMode, VoiceParamsModel
+from rvc_next.core.params import F0Method, HighRegisterMode, UnvoicedMode, VoiceParamsModel
 
 F0_METHODS = get_args(F0Method)
 
@@ -23,14 +23,21 @@ class ParamOptions:
         str | None,
         typer.Option("--unvoiced", help="Frames without pitch: protect (protect applies), zero (no pitch there, as classic RVC) or original (RVC 2026: protect has no effect)"),
     ]
+    high_register = Annotated[
+        str | None,
+        typer.Option("--high-register", help="RMVPE above ~1040 Hz: off, true_pitch (correct its octave errors) or fold (correct, an octave down); offline only"),
+    ]
+    f0_ceiling = Annotated[float | None, typer.Option("--f0-ceiling", min=1000, max=2000, help="Highest pitch --high-register true_pitch writes, in Hz")]
 
 
 def build_params(base: VoiceParamsModel, **overrides: Any) -> VoiceParamsModel:
     """Apply the given options on top of ``base`` (a preset), keeping its other values."""
-    names = {"speaker": "speaker_id", "f0": "f0_method", "rms_mix": "rms_mix_rate"}
+    names = {"speaker": "speaker_id", "f0": "f0_method", "rms_mix": "rms_mix_rate", "high_register": "f0_high_register"}
     patch = {names.get(k, k): v for k, v in overrides.items() if v is not None}
     if "f0_method" in patch and patch["f0_method"] not in F0_METHODS:
         raise typer.BadParameter(f"--f0 is one of {', '.join(F0_METHODS)}")
     if "unvoiced" in patch and patch["unvoiced"] not in get_args(UnvoicedMode):
         raise typer.BadParameter(f"--unvoiced is one of {', '.join(get_args(UnvoicedMode))}")
+    if "f0_high_register" in patch and patch["f0_high_register"] not in get_args(HighRegisterMode):
+        raise typer.BadParameter(f"--high-register is one of {', '.join(get_args(HighRegisterMode))}")
     return VoiceParamsModel.model_validate({**base.model_dump(), **patch})
