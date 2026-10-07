@@ -81,6 +81,13 @@ def test_full_run_export_and_staleness(services, dataset, tmp_path, no_asset_che
     exp = services.training.get("tiny")
     assert exp.stages["slice"].status == "stale" and exp.stages["index"].status == "stale"
     services.training.update("tiny", ExperimentUpdate(sample_rate="40k"))
+    # Slicing options: a change marks slicing (and what follows) out of date; the defaults keep old fingerprints.
+    from rvc_next.core.training.models import SliceSettings
+
+    assert services.training.plan(services.training.get("tiny"), RunRequest())[0] == "slice"
+    services.training.update("tiny", ExperimentUpdate(slicing=SliceSettings(cut="fixed", highpass=False)))
+    assert services.training.get("tiny").slicing.cut == "fixed"
+    services.training.update("tiny", ExperimentUpdate(slicing=SliceSettings()))
 
     tried = services.training.try_checkpoint("tiny", ExportRequest())
     assert tried.location == "temporary" and tried.has_index

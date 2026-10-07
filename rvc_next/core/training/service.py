@@ -259,6 +259,9 @@ class TrainingService:
             if patch.sample_rate and patch.sample_rate != exp.sample_rate:
                 exp.sample_rate = patch.sample_rate
                 stale_from = _earliest(stale_from, "slice")
+            if patch.slicing is not None and patch.slicing != exp.slicing:
+                exp.slicing = patch.slicing
+                stale_from = _earliest(stale_from, "slice")
             if patch.version and patch.version != exp.version:
                 exp.version = patch.version
                 stale_from = _earliest(stale_from, "features")
@@ -646,7 +649,10 @@ class TrainingService:
         if stage == "slice":
             ds = exp.dataset
             src = self._dir(exp.name) / CLEAN_DIR if ds.clean_preset else None
-            req |= {"sample_rate": exp.sample_rate, "n_workers": self._cpu_workers(), "per": 3.7 if gpus else 3.0, "clean": clean}
+            sl = exp.slicing
+            per = sl.chunk_seconds or (3.7 if gpus else 3.0)
+            options = {"cut": sl.cut, "overlap": sl.overlap, "highpass": sl.highpass, "normalize": sl.normalize, "denoise": sl.denoise}
+            req |= {"sample_rate": exp.sample_rate, "n_workers": self._cpu_workers(), "per": per, "options": options, "clean": clean}
             if ds.mode == "multi":
                 req["speakers"] = [
                     {"name": s.name, "id": s.id, "folder": str(src / str(s.id)) if src else str(Path(s.folder).expanduser()), "repeat": s.repeat} for s in ds.speakers
@@ -749,7 +755,10 @@ class TrainingService:
             return of_paths(sources, {"preset": ds.clean_preset})
         if stage == "slice":
             inputs = [folder / CLEAN_DIR] if ds.clean_preset else sources
-            return of_paths(inputs, {"sr": exp.sample_rate, "speakers": speakers})
+            slicing = exp.slicing.model_dump()
+            # Default slicing leaves the fingerprint as it was before the options existed.
+            extra = {"slicing": slicing} if exp.slicing != type(exp.slicing)() else {}
+            return of_paths(inputs, {"sr": exp.sample_rate, "speakers": speakers, **extra})
         if stage == "f0":
             return of_paths([folder / "1_16k_wavs"], {"method": exp.f0_method})
         if stage == "features":

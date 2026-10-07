@@ -354,6 +354,11 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
 - **Separation:** presets from `core/separation/presets.json` (vocals, vocals-aggressive,
   dereverb, dereverb-aggressive, karaoke; chains vocals-clean, lead-clean). Weights in
   `assets/pymss_weights/` (the original's layout). Exit 75 → rerun in fp32 (DirectML).
+- **Slicing options** (`Experiment.slicing` → `preprocess.SliceOptions`, Applio's): `cut` auto (the
+  original) | fixed | none (a file longer than `per` + 5 s is cut anyway), `chunk_seconds`, `overlap`,
+  `highpass`, `normalize` slice (original) | file | none, `denoise` (TorchGate before cutting). The
+  slice fingerprint includes them only when they differ from the defaults, so older experiments
+  stay current.
 - **Training options** (`FitSettings` → `loop.TrainRequest`): `precision` auto|fp32|bf16 (bf16:
   autocast without a scaler, fp32 where unsupported), `tf32`, `checkpointing`
   (`loop.enable_checkpointing` wraps `dec.ups`, `dec.resblocks` and each sub-discriminator's
@@ -417,7 +422,7 @@ rule tests come from Hanaikada.
 - **Types:** `typegen` runs openapi-typescript with `--default-non-nullable false` (defaulted
   request fields stay optional) and writes `paramSpecs.ts`; `typegen-check` diffs both. The API uses
   `separate_input_output_schemas=False` and event schemas in serialization mode; FastAPI still
-  splits `Dataset`, `FitSettings` and `SpeakerEntry` into `-Input`/`-Output` (see `api/types.ts`).
+  splits `Dataset`, `FitSettings`, `SliceSettings` and `SpeakerEntry` into `-Input`/`-Output` (see `api/types.ts`).
 - A field with a button beside it (Add, Browse, Build) centres the button on the field.
 - **Status bars glide.** `LevelMeter` moves by transform with audio-meter ballistics (rise in
   100 ms, fall in 300 ms, the peak tick in 500 ms; `useFalling`). `ProgressBar` draws determinate

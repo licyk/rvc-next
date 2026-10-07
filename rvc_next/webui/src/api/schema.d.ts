@@ -2543,6 +2543,7 @@ export interface components {
              */
             f0_method: "pm" | "rmvpe" | "fcpe" | "crepe" | "crepe-tiny" | "swift";
             dataset: components["schemas"]["Dataset-Output"];
+            slicing: components["schemas"]["SliceSettings-Output"];
             fit: components["schemas"]["FitSettings-Output"];
             /** Stages */
             stages: {
@@ -2655,6 +2656,7 @@ export interface components {
             /** F0 Method */
             f0_method?: ("pm" | "rmvpe" | "fcpe" | "crepe" | "crepe-tiny" | "swift") | null;
             dataset?: components["schemas"]["Dataset-Input"] | null;
+            slicing?: components["schemas"]["SliceSettings-Input"] | null;
             fit?: components["schemas"]["FitSettings-Input"] | null;
         };
         /** ExportRequest */
@@ -4057,6 +4059,76 @@ export interface components {
             env_overrides: string[];
             /** Pinned */
             pinned: string[];
+        };
+        /**
+         * SliceSettings
+         * @description How the dataset is cut into training slices; the defaults are the original's.
+         */
+        "SliceSettings-Input": {
+            /**
+             * Cut
+             * @default auto
+             * @enum {string}
+             */
+            cut?: "auto" | "fixed" | "none";
+            /** Chunk Seconds */
+            chunk_seconds?: number | null;
+            /**
+             * Overlap
+             * @default 0.3
+             */
+            overlap?: number;
+            /**
+             * Highpass
+             * @default true
+             */
+            highpass?: boolean;
+            /**
+             * Normalize
+             * @default slice
+             * @enum {string}
+             */
+            normalize?: "slice" | "file" | "none";
+            /**
+             * Denoise
+             * @default 0
+             */
+            denoise?: number;
+        };
+        /**
+         * SliceSettings
+         * @description How the dataset is cut into training slices; the defaults are the original's.
+         */
+        "SliceSettings-Output": {
+            /**
+             * Cut
+             * @default auto
+             * @enum {string}
+             */
+            cut: "auto" | "fixed" | "none";
+            /** Chunk Seconds */
+            chunk_seconds: number | null;
+            /**
+             * Overlap
+             * @default 0.3
+             */
+            overlap: number;
+            /**
+             * Highpass
+             * @default true
+             */
+            highpass: boolean;
+            /**
+             * Normalize
+             * @default slice
+             * @enum {string}
+             */
+            normalize: "slice" | "file" | "none";
+            /**
+             * Denoise
+             * @default 0
+             */
+            denoise: number;
         };
         /** Speaker */
         Speaker: {

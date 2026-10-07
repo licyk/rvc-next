@@ -38,6 +38,22 @@ class Dataset(Record):
     """A separation preset run over the dataset before slicing."""
 
 
+class SliceSettings(Record):
+    """How the dataset is cut into training slices; the defaults are the original's."""
+
+    cut: Literal["auto", "fixed", "none"] = "auto"
+    """auto: at silences, then pieces; fixed: pieces straight through; none: files as they are (already cut)."""
+    chunk_seconds: float | None = Field(default=None, ge=0.5, le=10)
+    """Piece length; None: 3.7 s with a GPU, 3.0 s without, as the original."""
+    overlap: float = Field(default=0.3, ge=0, le=0.4)
+    highpass: bool = True
+    """The original's 48 Hz high-pass, which removes rumble."""
+    normalize: Literal["slice", "file", "none"] = "slice"
+    """Loudness normalisation per slice (the original), per file, or none."""
+    denoise: float = Field(default=0.0, ge=0, le=1)
+    """Noise reduction over each file before cutting; 0 turns it off."""
+
+
 class FitSettings(Record):
     epochs: int = Field(default=20, ge=1, le=10000)
     save_every: int = Field(default=5, ge=1)
@@ -70,6 +86,7 @@ class Experiment(Record):
     pitch_guidance: bool = True
     f0_method: TrainingF0Method = "rmvpe"
     dataset: Dataset = Field(default_factory=Dataset)
+    slicing: SliceSettings = Field(default_factory=SliceSettings)
     fit: FitSettings = Field(default_factory=FitSettings)
     stages: dict[str, StageState] = Field(default_factory=dict)
     voice_id: str | None = None
@@ -96,6 +113,7 @@ class ExperimentUpdate(Record):
     pitch_guidance: bool | None = None
     f0_method: TrainingF0Method | None = None
     dataset: Dataset | None = None
+    slicing: SliceSettings | None = None
     fit: FitSettings | None = None
 
 

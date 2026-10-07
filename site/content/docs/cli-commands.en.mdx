@@ -661,6 +661,12 @@ rvc-next train run [OPTIONS] NAME
 | `--checkpointing` / `--no-checkpointing` | Gradient checkpointing: less GPU memory, slower steps; saved | Saved in the experiment (off) |
 | `--fresh-speakers` / `--no-fresh-speakers` | New speaker vectors instead of the base model's; saved | Saved in the experiment (off) |
 | `--samples` / `--no-samples` | Render a training sample at every save; saved | Saved in the experiment (on) |
+| `--cut <mode>` | Slicing: `auto` (at silences, then pieces), `fixed` (pieces straight through) or `none` (already cut); saved | Saved in the experiment (`auto`) |
+| `--chunk-seconds <float>` | Slice length, `[0.5, 10]`; saved | 3.7 s with a GPU, 3.0 s without |
+| `--overlap <float>` | Overlap between slices in seconds, `[0, 0.4]`; saved | 0.3 |
+| `--highpass` / `--no-highpass` | The 48 Hz high-pass before slicing; saved | On |
+| `--normalize <mode>` | Loudness: `slice` (the original), `file` or `none`; saved | `slice` |
+| `--dataset-denoise <float>` | Noise reduction over each recording before slicing, `[0, 1]`; saved | 0 |
 
 `--epochs`, `--batch-size`, `--save-every`, and `--base` are written into the experiment's training settings. After increasing `--epochs`, running without `--stage` runs the fit stage again even if it was already completed.
 

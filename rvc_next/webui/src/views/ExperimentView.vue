@@ -5,7 +5,7 @@ import { uploadRaw } from '@/api/client';
 import { useBaseModels } from '@/api/queries/imports';
 import { useSeparationPresets } from '@/api/queries/separate';
 import { fetchMetrics, useCheckpoints, useExperiment, useExperimentMutations, useTrainingSamples } from '@/api/queries/train';
-import type { Checkpoint, Dataset, DatasetReport as Report, Experiment, FitSettings } from '@/api/types';
+import type { Checkpoint, Dataset, DatasetReport as Report, Experiment, FitSettings, S } from '@/api/types';
 import AssetGate from '@/components/AssetGate.vue';
 import DatasetReport from '@/components/DatasetReport.vue';
 import ErrorNotice from '@/components/ErrorNotice.vue';
@@ -21,7 +21,7 @@ import { formatBytes, formatDate } from '@/format';
 import { useHandoffStore } from '@/stores/handoff';
 import { useJobsStore } from '@/stores/jobs';
 import { useTrainStore } from '@/stores/train';
-import { AppButton, AppCard, AppDialog, Badge, ConfirmDialog, DropZone, EmptyState, IconButton, PathField, ProgressBar, SegmentedControl, SelectField, Surface, Switch, TextField, icons, useSnackbar } from '@/ui';
+import { AppButton, AppCard, AppDialog, Badge, ConfirmDialog, DropZone, EmptyState, ExpansionPanel, IconButton, ParamSlider, PathField, ProgressBar, SegmentedControl, SelectField, Surface, Switch, TextField, icons, useSnackbar } from '@/ui';
 
 const props = defineProps<{ name: string }>();
 const { t, tOr, locale } = useI18n();
@@ -44,12 +44,15 @@ const STAGES = ['clean', 'slice', 'f0', 'features', 'fit', 'index'] as const;
 
 // Editable copies of the dataset and the settings; saved explicitly.
 const dataset = ref<Dataset | null>(null);
+const slicing = ref<S['SliceSettings-Output'] | null>(null);
+const slicingOpen = ref(false);
 const settingsForm = ref<{ sample_rate: string; version: string; pitch_guidance: boolean; f0_method: string; fit: FitSettings } | null>(null);
 watch(
   () => exp.data.value,
   (e) => {
     if (!e) return;
     if (!dataset.value) dataset.value = JSON.parse(JSON.stringify(e.dataset));
+    if (!slicing.value) slicing.value = { ...e.slicing };
     if (!settingsForm.value) settingsForm.value = { sample_rate: e.sample_rate, version: e.version, pitch_guidance: e.pitch_guidance, f0_method: e.f0_method, fit: { ...e.fit } };
   },
   { immediate: true },
@@ -72,7 +75,7 @@ const set = (e: Experiment) => ((dataset.value = JSON.parse(JSON.stringify(e.dat
 function saveDataset() {
   if (!dataset.value) return;
   error.value = null;
-  m.update.mutate({ name: props.name, patch: { dataset: dataset.value } }, { onSuccess: set, onError: onErr });
+  m.update.mutate({ name: props.name, patch: { dataset: dataset.value, slicing: slicing.value } }, { onSuccess: set, onError: onErr });
 }
 // Audio from this computer, into the experiment's own dataset folder (a server folder is not needed).
 const uploading = ref<{ name: string; done: number; total: number } | null>(null);
@@ -154,6 +157,8 @@ function remove() {
   m.remove.mutate(props.name, { onSuccess: () => router.push('/train'), onError: onErr });
 }
 
+const cutOptions = computed(() => ['auto', 'fixed', 'none'].map((v) => ({ value: v, label: t(`train.cuts.${v}`) })));
+const normalizeOptions = computed(() => ['slice', 'file', 'none'].map((v) => ({ value: v, label: t(`train.normalizes.${v}`) })));
 const rateOptions = ['32k', '40k', '48k'].map((v) => ({ value: v, label: v }));
 const versionOptions = ['v1', 'v2'].map((v) => ({ value: v, label: v }));
 const f0Options = computed(() => ['rmvpe', 'pm', 'fcpe', 'crepe', 'crepe-tiny', 'swift'].map((v) => ({ value: v, label: t(`params.f0.${v}`) })));
@@ -220,6 +225,25 @@ const num = (v: unknown) => (v === '' || v === null || v === undefined ? null : 
             </div>
             <AppButton v-if="uploadedHere" variant="text" :icon="icons.Trash2" :disabled="running" @click="clearUploads">{{ t('train.clearUploads') }}</AppButton>
             <SelectField :model-value="dataset.clean_preset ?? ''" :label="t('train.cleanPreset')" :options="cleanOptions" @update:model-value="dataset.clean_preset = $event || null" />
+            <ExpansionPanel v-if="slicing" v-model:open="slicingOpen" :label="t('train.slicing')" :supporting-text="t('train.slicingHint')">
+              <div class="form">
+                <SelectField v-model="slicing.cut" :label="t('train.cut')" :options="cutOptions" />
+                <TextField
+                  type="number"
+                  :min="0.5"
+                  :max="10"
+                  :step="0.1"
+                  :model-value="slicing.chunk_seconds ?? ''"
+                  :label="t('train.chunk')"
+                  :supporting-text="t('train.chunkAuto')"
+                  @update:model-value="slicing.chunk_seconds = num($event)"
+                />
+                <SelectField v-model="slicing.normalize" :label="t('train.normalize')" :options="normalizeOptions" />
+              </div>
+              <ParamSlider v-model="slicing.overlap" :label="t('train.overlap')" :min="0" :max="0.4" :step="0.05" unit="s" :default-value="0.3" :reset-label="t('common.reset')" />
+              <ParamSlider v-model="slicing.denoise" :label="t('train.denoise')" :help="t('train.denoiseHelp')" :min="0" :max="1" :step="0.05" unit="" :default-value="0" :reset-label="t('common.reset')" />
+              <Switch v-model="slicing.highpass" :label="t('train.highpass')" :supporting-text="t('train.highpassHint')" />
+            </ExpansionPanel>
             <div class="actions">
               <AppButton variant="tonal" :icon="icons.Search" :loading="m.scan.isPending.value" @click="scan">{{ t('train.scan') }}</AppButton>
               <AppButton :icon="icons.Save" :loading="m.update.isPending.value" @click="saveDataset">{{ t('common.save') }}</AppButton>

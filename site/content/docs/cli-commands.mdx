@@ -661,6 +661,12 @@ rvc-next train run [OPTIONS] NAME
 | `--checkpointing` / `--no-checkpointing` | 梯度检查点：显存更少、每步更慢；保存到实验中 | 实验中保存的值（关） |
 | `--fresh-speakers` / `--no-fresh-speakers` | 使用新的说话人向量而不是底模的；保存到实验中 | 实验中保存的值（关） |
 | `--samples` / `--no-samples` | 每次保存时渲染一段训练样例；保存到实验中 | 实验中保存的值（开） |
+| `--cut <mode>` | 切分方式：`auto`（先按静音切开再切成片段）、`fixed`（直接按长度切）或 `none`（已切好）；保存到实验中 | 实验中保存的值（`auto`） |
+| `--chunk-seconds <float>` | 片段长度，`[0.5, 10]`；保存到实验中 | 有 GPU 时 3.7 秒，没有时 3.0 秒 |
+| `--overlap <float>` | 片段之间的重叠（秒），`[0, 0.4]`；保存到实验中 | 0.3 |
+| `--highpass` / `--no-highpass` | 切片前的 48 Hz 高通；保存到实验中 | 开 |
+| `--normalize <mode>` | 响度：`slice`（原版）、`file` 或 `none`；保存到实验中 | `slice` |
+| `--dataset-denoise <float>` | 切片前对每段录音降噪，`[0, 1]`；保存到实验中 | 0 |
 
 `--epochs`、`--batch-size`、`--save-every` 和 `--base` 会写入实验的训练设置。增加 `--epochs` 后，即使训练阶段已完成，不带 `--stage` 运行也会再次运行训练阶段。
 

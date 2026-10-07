@@ -3,6 +3,13 @@
 Ported from the original ``train/preprocess.py``, with the tail write back inside the slice loop
 (as at ``5d47da1``): the original at ``81eed5e`` wrote only the last slice's tail, dropping the
 tail of every other slice from the training set.
+
+Options after Applio, all at the original's values by default (``SliceOptions``): how files are cut
+(``auto``: the silence slicer, then pieces of ``per`` seconds; ``fixed``: pieces of ``per`` seconds
+straight through, silences included; ``none``: files as they are, for a dataset already cut; a file
+longer than ``per`` + 5 s is still cut into pieces, since training would drop it), the overlap
+between pieces, the 48 Hz high-pass, the loudness normalisation (per slice, as the original; per
+file; or none), and a noise gate over each file before cutting.
 """
 
 from __future__ import annotations
@@ -36,6 +43,22 @@ class SpeakerSpec:
     repeat: int = 1
 
 
+CUT_MODES = ("auto", "fixed", "none")
+NORMALIZE_MODES = ("slice", "file", "none")
+LONG_FILE_MARGIN = 5.0
+"""With ``cut = "none"``, files longer than ``per`` + this many seconds are still cut."""
+
+
+@dataclass(frozen=True)
+class SliceOptions:
+    cut: str = "auto"
+    overlap: float = 0.3
+    highpass: bool = True
+    normalize: str = "slice"
+    denoise: float = 0.0
+    """0–1: a non-stationary noise gate over each file before cutting (0 off)."""
+
+
 @dataclass(frozen=True)
 class SliceRequest:
     exp_dir: str
@@ -52,16 +75,18 @@ class SliceRequest:
     """Slice length in seconds; the original uses 3.0 on CPU and small GPUs."""
     clean: bool = False
     """Remove earlier slices first (the dataset changed)."""
+    options: SliceOptions = field(default_factory=SliceOptions)
     extra: dict[str, Any] = field(default_factory=dict)
 
 
 class PreProcess:
-    def __init__(self, sr: int, exp_dir: str, per: float = 3.7) -> None:
+    def __init__(self, sr: int, exp_dir: str, per: float = 3.7, options: SliceOptions | None = None) -> None:
         self.slicer = Slicer(sr=sr, threshold=-42, min_length=1500, min_interval=400, hop_size=15, max_sil_kept=500)
         self.sr = sr
         self.bh, self.ah = signal.butter(N=5, Wn=48, btype="high", fs=self.sr)
         self.per = per
-        self.overlap = 0.3
+        self.options = options or SliceOptions()
+        self.overlap = self.options.overlap
         self.tail = self.per + self.overlap
         self.max = 0.9
         self.alpha = 0.75
@@ -77,7 +102,8 @@ class PreProcess:
         if not np.isfinite(tmp_max) or tmp_max <= 0 or tmp_max > 2.5:
             log(f"Skipped an invalid slice {output_key}_{idx1} (peak {tmp_max})")
             return False
-        tmp_audio = (tmp_audio / tmp_max * (self.max * self.alpha)) + (1 - self.alpha) * tmp_audio
+        if self.options.normalize == "slice":
+            tmp_audio = (tmp_audio / tmp_max * (self.max * self.alpha)) + (1 - self.alpha) * tmp_audio
         wavfile.write(os.path.join(self.gt_wavs_dir, f"{output_key}_{idx1}.wav"), self.sr, tmp_audio.astype(np.float32))
         audio_16k = librosa.resample(tmp_audio, orig_sr=self.sr, target_sr=16000).astype(np.float32)
         wavfile.write(os.path.join(self.wavs16k_dir, f"{output_key}_{idx1}.wav"), 16000, audio_16k)
@@ -85,8 +111,12 @@ class PreProcess:
 
     def slices(self, audio: np.ndarray) -> list[np.ndarray]:
         """The pieces one file is cut into: every slicer chunk, split with overlap, tail included."""
+        cut = self.options.cut
+        if cut == "none" and len(audio) <= (self.per + LONG_FILE_MARGIN) * self.sr:
+            return [audio]
+        chunks = [audio] if cut in ("fixed", "none") else self.slicer.slice(audio)
         out: list[np.ndarray] = []
-        for chunk in self.slicer.slice(audio):
+        for chunk in chunks:
             i = 0
             while True:
                 start = int(self.sr * (self.per - self.overlap) * i)
@@ -102,12 +132,28 @@ class PreProcess:
         from rvc_next.engine.audio.io import decode
 
         audio, _ = decode(path, self.sr)
-        # A zero-phase filter causes pre-ringing; the causal one is kept, as the original.
-        audio = signal.lfilter(self.bh, self.ah, audio)
+        if self.options.highpass:
+            # A zero-phase filter causes pre-ringing; the causal one is kept, as the original.
+            audio = signal.lfilter(self.bh, self.ah, audio)
+        if self.options.denoise > 0:
+            audio = self._denoise(audio)
+        if self.options.normalize == "file":
+            peak = np.abs(audio).max() if audio.size else 0.0
+            if 0 < peak <= 2.5:
+                audio = audio / peak * (self.max * self.alpha) + (1 - self.alpha) * audio
         written = 0
         for idx1, piece in enumerate(self.slices(audio)):
             written += self.norm_write(piece, output_key, idx1, log)
         return written
+
+    def _denoise(self, audio: np.ndarray) -> np.ndarray:
+        import torch
+
+        from rvc_next.engine.audio.denoise import TorchGate
+
+        gate = TorchGate(sr=self.sr, nonstationary=True, prop_decrease=min(max(self.options.denoise, 0.0), 1.0))
+        with torch.no_grad():
+            return gate(torch.from_numpy(np.ascontiguousarray(audio, dtype=np.float32)).unsqueeze(0)).squeeze(0).double().numpy()
 
 
 def _remove_key(exp_dir: str, key: str) -> None:
@@ -118,8 +164,8 @@ def _remove_key(exp_dir: str, key: str) -> None:
                 p.unlink(missing_ok=True)
 
 
-def _part(sr: int, exp_dir: str, per: float, infos: list[tuple[str, str]], reporter: PartReporter) -> dict[str, Any]:
-    pp = PreProcess(sr, exp_dir, per)
+def _part(sr: int, exp_dir: str, per: float, options: SliceOptions, infos: list[tuple[str, str]], reporter: PartReporter) -> dict[str, Any]:
+    pp = PreProcess(sr, exp_dir, per, options)
     files = slices = failed = 0
     for path, key in infos:
         _remove_key(exp_dir, key)
@@ -185,7 +231,7 @@ def run(request: SliceRequest, progress: Progress | None = None, log: Log | None
     if log:
         log(f"Slicing {len(todo)} of {len(infos)} files ({len(infos) - len(todo)} already done)")
     workers = max(1, min(request.n_workers, len(todo)))
-    parts = [(request.sample_rate, str(exp_dir), request.per, todo[i::workers]) for i in range(workers)] if todo else []
+    parts = [(request.sample_rate, str(exp_dir), request.per, request.options, todo[i::workers]) for i in range(workers)] if todo else []
     results = run_parts(_part, parts, len(todo), progress, log, cancel, "slice")
     counts = merge_counts(results)
     total_slices = len(list((exp_dir / GT_DIR).glob("*.wav")))

@@ -82,6 +82,19 @@ Click **Save** when finished. Exported voices include these speaker names.
 
 **Clean the dataset first**: select a separation preset to run vocal separation on the whole dataset before slicing (for example, to remove accompaniment or reverb). Results are stored in the experiment's `dataset_clean/`; original files are unchanged. The default is **No clean-up**. Presets are the same as on **Separate**, and the required separation models must be downloaded first.
 
+**Slicing** (opens on click) decides how the recordings are cut into training pieces. The defaults are the original's; the options come from Applio:
+
+| Setting | Options (default) | Description |
+| --- | --- | --- |
+| **Cut** | At silences, then into pieces (default) / Into pieces, straight through / As they are (already cut) | The original finds the silences first and cuts the sound between them into pieces. Straight through keeps silences in the pieces. As they are suits a dataset you cut yourself; a file longer than the piece length + 5 s is still cut, since training would leave it out |
+| **Piece length (s)** | 0.5–10; blank: 3.7 s with a GPU, 3.0 s without | Length of each piece |
+| **Overlap between pieces** | 0–0.4 s (0.3) | How much consecutive pieces share |
+| **Loudness** | Even out each piece (default) / Even out each file / Leave as recorded | The original brings every piece to the same peak; per file keeps the differences inside a recording; as recorded keeps the levels |
+| **Noise reduction** | 0–1 (0) | A noise gate over each recording before it is cut, for noisy recordings; separating with **Clean the dataset first** removes more (music, reverb) |
+| **Remove rumble (48 Hz high-pass)** | On / Off (On) | The original always filters; turn it off only for recordings already filtered |
+
+Changing them marks **Slice** and every later stage out of date.
+
 **Scan dataset**: this button scans the dataset and generates a report:
 
 - **N clips**, **duration in total**;
@@ -146,7 +159,7 @@ Each completed stage records an input “fingerprint.” After saving changes, a
 | --- | --- |
 | Dataset folder or speaker table | Slice |
 | Clean-up preset | Clean-up |
-| Sample rate | Slice |
+| Sample rate, **Slicing** | Slice |
 | Pitch guidance, pitch method | Pitch |
 | Model version | Features |
 | Training parameters such as epochs or batch size | None (increasing epochs makes **Run all** continue training) |

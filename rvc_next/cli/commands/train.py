@@ -103,6 +103,12 @@ def train_run(
     checkpointing: Annotated[bool | None, typer.Option("--checkpointing/--no-checkpointing", help="Gradient checkpointing (less GPU memory); saved")] = None,
     fresh_speakers: Annotated[bool | None, typer.Option("--fresh-speakers/--no-fresh-speakers", help="New speaker vectors instead of the base model's; saved")] = None,
     samples: Annotated[bool | None, typer.Option("--samples/--no-samples", help="Render a training sample at every save; saved")] = None,
+    cut: Annotated[str | None, typer.Option(help="Slicing: auto (at silences, then pieces), fixed (pieces straight through) or none (already cut); saved")] = None,
+    chunk_seconds: Annotated[float | None, typer.Option(min=0.5, max=10, help="Slice length in seconds (default 3.7 with a GPU, 3.0 without); saved")] = None,
+    overlap: Annotated[float | None, typer.Option(min=0, max=0.4, help="Overlap between slices in seconds; saved")] = None,
+    highpass: Annotated[bool | None, typer.Option("--highpass/--no-highpass", help="The 48 Hz high-pass before slicing; saved")] = None,
+    normalize: Annotated[str | None, typer.Option(help="Loudness: slice (the original), file or none; saved")] = None,
+    dataset_denoise: Annotated[float | None, typer.Option(min=0, max=1, help="Noise reduction over each recording before slicing; saved")] = None,
 ) -> None:
     """Run stages: every one that is not done, or the chosen ones."""
     from rvc_next.core.training.models import ExperimentUpdate, RunRequest
@@ -116,6 +122,14 @@ def train_run(
         update = {k: v for k, v in changes.items() if v} | {k: v for k, v in toggles.items() if v is not None}
         if update:
             exp = services.training.update(name, ExperimentUpdate(fit=exp.fit.model_copy(update=update)))
+        if cut is not None and cut not in ("auto", "fixed", "none"):
+            raise typer.BadParameter("--cut is auto, fixed or none")
+        if normalize is not None and normalize not in ("slice", "file", "none"):
+            raise typer.BadParameter("--normalize is slice, file or none")
+        slicing = {"cut": cut, "chunk_seconds": chunk_seconds, "overlap": overlap, "highpass": highpass, "normalize": normalize, "denoise": dataset_denoise}
+        slicing = {k: v for k, v in slicing.items() if v is not None}
+        if slicing:
+            exp = services.training.update(name, ExperimentUpdate(slicing=exp.slicing.model_copy(update=slicing)))
         stages = None if not stage or "all" in stage else stage
         with job_progress(services):
             job = services.training.run(name, RunRequest(stages=stages, force=force), foreground=True)  # ty: ignore[invalid-argument-type]

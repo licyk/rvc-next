@@ -144,3 +144,26 @@ def test_fingerprint_changes_with_content(tmp_path: Path) -> None:
     os.utime(d / "a.wav", ns=(1, 1))
     assert fingerprint.of_paths([d]) != second
     assert fingerprint.of_paths([tmp_path / "missing"]) != fingerprint.of_paths([tmp_path / "empty"])
+
+
+def test_slicing_options(tmp_path: Path) -> None:
+    from rvc_next.engine.train.preprocess import SliceOptions
+
+    audio = voiced_with_gaps([9.0, 7.5])
+    fixed = PreProcess(SR, str(tmp_path / "a"), 3.0, SliceOptions(cut="fixed", overlap=0.0)).slices(audio)
+    # Straight through, silences included: back to back pieces of 3 s and the tail.
+    assert sum(len(p) for p in fixed) == len(audio) and all(len(p) == 3 * SR for p in fixed[:-1])
+    short = tone(4.0, SR)
+    assert [len(p) for p in PreProcess(SR, str(tmp_path / "b"), 3.7, SliceOptions(cut="none")).slices(short)] == [len(short)]
+    # A long file is still cut, or training would drop it.
+    assert len(PreProcess(SR, str(tmp_path / "c"), 3.7, SliceOptions(cut="none")).slices(tone(12.0, SR))) > 1
+
+    data = tmp_path / "data"
+    data.mkdir()
+    sf.write(data / "q.wav", 0.05 * tone(3.0, SR), SR)
+    for normalize, expect_peak in (("slice", 0.9 * 0.75), ("none", None)):
+        exp = tmp_path / f"exp-{normalize}"
+        preprocess.run(SliceRequest(exp_dir=str(exp), sample_rate=SR, folder=str(data), options=SliceOptions(cut="none", normalize=normalize, highpass=False, denoise=0.3)))
+        out, _ = sf.read(next((exp / preprocess.GT_DIR).glob("*.wav")))
+        peak = np.abs(out).max()
+        assert (expect_peak is None and peak < 0.1) or (expect_peak is not None and peak > 0.25)

@@ -73,7 +73,14 @@ def _run(stage: str, request: dict[str, Any], progress: Any, log: Any, emitter: 
 
         rate = request.get("sample_rate", 40000)
         speakers = tuple(preprocess.SpeakerSpec(**s) for s in request.get("speakers") or [])
-        req = build_request(preprocess.SliceRequest, {k: v for k, v in request.items() if k != "speakers"}, sample_rate=SAMPLE_RATES.get(rate, rate), speakers=speakers)
+        options = build_request(preprocess.SliceOptions, request.get("options") or {})
+        req = build_request(
+            preprocess.SliceRequest,
+            {k: v for k, v in request.items() if k not in ("speakers", "options")},
+            sample_rate=SAMPLE_RATES.get(rate, rate),
+            speakers=speakers,
+            options=options,
+        )
         return preprocess.run(req, progress, log)
     if stage == "f0":
         from rvc_next.engine.train import f0_extract
