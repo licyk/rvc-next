@@ -184,6 +184,41 @@ rvc-next separate --list
 rvc-next separate song.mp3 -p vocals-clean -o ./stems
 ```
 
+## Text to speech: `tts` [#tts]
+
+Speech from text with Microsoft Edge's online voices (needs `rvc-next[tts]`); the text is sent to Microsoft's speech service.
+
+### `tts voices`
+
+List the voices: id, gender and language, one per line. The list is cached for a week.
+
+| Option | Description |
+| --- | --- |
+| `--locale <str>` | Only voices whose locale starts with this, for example `en` or `zh-CN` |
+| `--refresh` | Fetch the list again |
+| `--json` | Print the voices as JSON |
+
+### `tts speak`
+
+Speak text and save it as MP3; prints the file's path.
+
+```text
+rvc-next tts speak [OPTIONS] TEXT
+```
+
+| Argument / option | Description | Default |
+| --- | --- | --- |
+| `TEXT` | The text to speak; `-` reads it from standard input | — |
+| `--voice <id>` | A voice id from `tts voices` (required) | — |
+| `-o, --output <file>` | Write the MP3 here | Stored with the uploads in the data directory |
+| `--rate <int>` | Speaking rate change in percent, `[-50, 100]` | 0 |
+| `--pitch <int>` | Pitch change in Hz, `[-50, 50]` | 0 |
+
+```bash
+rvc-next tts speak "Hello there" --voice en-US-AriaNeural -o hello.mp3
+rvc-next convert hello.mp3 -v "My voice"
+```
+
 ## Settings: `config`
 
 Show and change settings. See [Configuration and environment variables](/docs/cli-config) for settings.

@@ -32,6 +32,7 @@ from rvc_next.cli.commands.preset import preset_list, preset_remove, preset_save
 from rvc_next.cli.commands.separate import separate
 from rvc_next.cli.commands.system import doctor, env, version
 from rvc_next.cli.commands.train import train_dataset_scan, train_dataset_speakers, train_export, train_import, train_list, train_new, train_run, train_status
+from rvc_next.cli.commands.tts import tts_speak, tts_voices
 from rvc_next.cli.commands.webui import webui
 from rvc_next.cli.factory import ClickException, typer_factory
 from rvc_next.logger import setup_logging
@@ -51,6 +52,11 @@ def get_app() -> typer.Typer:
     app.command(help="List the effects convert and live run can add", name="effects")(effects)
     app.command(help="Separate vocals, accompaniment and reverb", name="separate")(separate)
     app.command(help="Show an audio file's pitch and format; write its pitch curve", name="analyse")(analyse)
+
+    tts_cli = typer_factory(help="Speech from text (online voices), as audio to convert")
+    tts_cli.command(help="List the voices", name="voices")(tts_voices)
+    tts_cli.command(help="Speak text and save it as MP3", name="speak")(tts_speak)
+    app.add_typer(tts_cli, name="tts")
 
     config_cli = typer_factory(help="Show and change settings")
     config_cli.command(help="Show the effective settings", name="show")(config_show)

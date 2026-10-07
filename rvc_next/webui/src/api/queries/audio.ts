@@ -2,10 +2,15 @@ import { useQuery } from '@tanstack/vue-query';
 import { computed, type MaybeRefOrGetter, toValue } from 'vue';
 import { api, unwrap, uploadRaw } from '@/api/client';
 import { keys } from '@/api/queries/keys';
-import type { AudioFile, Peaks } from '@/api/types';
+import type { AudioFile, Peaks, S } from '@/api/types';
 
 export const uploadAudio = (file: File, onProgress?: (loaded: number, total: number) => void, signal?: AbortSignal) =>
   uploadRaw<AudioFile>('/api/v1/audio/uploads', { name: file.name }, file, onProgress, signal);
+
+export const synthesizeSpeech = (body: S['TtsRequest']) => unwrap(api.POST('/api/v1/tts', { body }));
+
+export const useTtsVoices = (enabled: MaybeRefOrGetter<boolean>) =>
+  useQuery({ queryKey: keys.ttsVoices, queryFn: () => unwrap(api.GET('/api/v1/tts/voices')), enabled: computed(() => toValue(enabled)), staleTime: Infinity });
 
 export const resolveServerPath = (path: string) => unwrap(api.POST('/api/v1/audio/resolve-path', { body: { path } }));
 

@@ -21,6 +21,8 @@ export interface Preferences {
   /** The last voice chosen in Convert, so it is selected again next time. */
   convertVoice: string | null;
   separatePreset: string | null;
+  /** The last text-to-speech voice. */
+  ttsVoice: string | null;
   /** The shape of saved preferences; older ones are migrated on load (``merge``). */
   version: number;
 }
@@ -39,6 +41,7 @@ export const DEFAULTS: Preferences = {
   lastScreen: 'convert',
   convertVoice: null,
   separatePreset: null,
+  ttsVoice: null,
   version: PREFERENCES_VERSION,
 };
 

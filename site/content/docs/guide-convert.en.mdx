@@ -37,6 +37,14 @@ By default, browsable folders include your home folder, added original RVC insta
 
 Click **Earlier results** to select from all historical results (including other pages and earlier sessions), then click **Add N** to add them as inputs. For example, convert vocals produced by **Separate**, or convert a conversion result again.
 
+### Text to speech [#tts]
+
+Click **Text to speech** to type text and have an online voice speak it; the speech is added as an input, ready to convert to your voice (Applio's TTS tab). Choose the **Language** and **Speaker** (Microsoft Edge's read-aloud voices, over 300 in about 140 languages; the last speaker is remembered), and adjust **Speed** (−50 to +100 %) and **Pitch** (−50 to +50 Hz) if needed. Up to 5000 characters at a time.
+
+- The text is sent to Microsoft's speech service over the internet; nothing is sent until you click **Add**.
+- The server needs `pip install "rvc-next[tts]"` (edge-tts); without it the dialog says so.
+- On the command line: `rvc-next tts speak "text" --voice en-US-AriaNeural -o hello.mp3`, then convert `hello.mp3` ([`tts`](/docs/cli-commands#tts)).
+
 ### Manage the input list
 
 - Click the play button on the left of each item to listen;

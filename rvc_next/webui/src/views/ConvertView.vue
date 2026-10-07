@@ -120,7 +120,7 @@ onActivated(() => {
     <div class="sections">
       <Surface :level="0" shape="large" class="section">
         <h2 class="type-title-medium heading">{{ t('convert.inputs') }}</h2>
-        <AudioSourceInput v-model="inputs" folders />
+        <AudioSourceInput v-model="inputs" folders tts />
       </Surface>
       <Surface :level="0" shape="large" class="section">
         <VoicePicker v-model="voiceId" v-model:speaker="speaker" @voice="onVoice" />

@@ -79,6 +79,7 @@ export {
   Square,
   Sun,
   SunMoon,
+  Speech,
   Tag,
   Timer,
   Trash2,

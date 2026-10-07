@@ -10,7 +10,7 @@ from starlette.middleware.gzip import GZipMiddleware
 
 from rvc_next.api.errors import install_error_handlers
 from rvc_next.api.openapi import RvcNextAPI
-from rvc_next.api.routers import app_info, assets, compute, convert, jobs, live, models, outputs, presets, separate, settings, train
+from rvc_next.api.routers import app_info, assets, compute, convert, jobs, live, models, outputs, presets, separate, settings, train, tts
 from rvc_next.api.routers import audio as audio_router
 from rvc_next.api.security import SecurityMiddleware
 from rvc_next.api.sockets import SocketBridge
@@ -20,7 +20,7 @@ from rvc_next.version import VERSION
 
 logger = logging.getLogger(__name__)
 
-ROUTERS = (app_info, settings, compute, assets, models, presets, audio_router, outputs, convert, separate, train, jobs, live)
+ROUTERS = (app_info, settings, compute, assets, models, presets, audio_router, outputs, convert, separate, train, jobs, live, tts)
 
 
 def normalize_prefix(prefix: str | None) -> str:

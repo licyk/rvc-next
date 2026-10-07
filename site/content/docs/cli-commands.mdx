@@ -184,6 +184,41 @@ rvc-next separate --list
 rvc-next separate song.mp3 -p vocals-clean -o ./stems
 ```
 
+## 文字转语音：`tts` [#tts]
+
+用微软 Edge 的在线语音把文字读出来（需要 `rvc-next[tts]`）；文字会发送到微软的语音服务。
+
+### `tts voices`
+
+列出发音人：每行一个，包括 ID、性别和语言。列表缓存一周。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--locale <str>` | 只列出地区代码以此开头的发音人，例如 `en`、`zh-CN` |
+| `--refresh` | 重新获取列表 |
+| `--json` | 以 JSON 输出 |
+
+### `tts speak`
+
+朗读文字并保存为 MP3，输出文件路径。
+
+```text
+rvc-next tts speak [OPTIONS] TEXT
+```
+
+| 参数 / 选项 | 说明 | 默认值 |
+| --- | --- | --- |
+| `TEXT` | 要朗读的文字；`-` 表示从标准输入读取 | — |
+| `--voice <id>` | `tts voices` 中的发音人 ID（必填） | — |
+| `-o, --output <file>` | 把 MP3 写到这里 | 存放在数据目录的上传文件中 |
+| `--rate <int>` | 语速变化（百分比），`[-50, 100]` | 0 |
+| `--pitch <int>` | 音高变化（Hz），`[-50, 50]` | 0 |
+
+```bash
+rvc-next tts speak "你好" --voice zh-CN-XiaoxiaoNeural -o hello.mp3
+rvc-next convert hello.mp3 -v "我的音色"
+```
+
 ## 设置：`config`
 
 显示和修改设置。设置项见 [配置与环境变量](/docs/cli-config)。

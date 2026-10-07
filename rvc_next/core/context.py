@@ -25,6 +25,7 @@ from rvc_next.core.presets.service import PresetService
 from rvc_next.core.separation.library import SeparationLibrary
 from rvc_next.core.separation.service import SeparationService
 from rvc_next.core.settings import SettingsService
+from rvc_next.core.tts.service import TtsService
 
 if TYPE_CHECKING:
     from rvc_next.core.live.service import LiveService
@@ -51,6 +52,7 @@ class Services:
     presets: PresetService
     separation: SeparationService
     conversion: ConversionService
+    tts: TtsService
     training: TrainingService = field(default=None)  # ty: ignore[invalid-assignment]
     live: LiveService = field(default=None)  # ty: ignore[invalid-assignment]
 
@@ -109,6 +111,7 @@ def build_services(
     training.base = base_models
     separation.library = separation_models
     live = LiveService(settings, events, models, assets, compute, jobs, audio)
+    tts = TtsService(settings, audio)
     services = Services(
         settings=settings,
         events=events,
@@ -126,6 +129,7 @@ def build_services(
         presets=presets,
         separation=separation,
         conversion=conversion,
+        tts=tts,
         training=training,
         live=live,
     )

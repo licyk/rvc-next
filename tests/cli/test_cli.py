@@ -34,6 +34,7 @@ EXPECTED_TREE = {
     "preset": {"list": None, "remove": None, "save": None},
     "separate": None,
     "train": {"dataset": {"scan": None, "speakers": None}, "export": None, "import": None, "list": None, "new": None, "run": None, "status": None},
+    "tts": {"speak": None, "voices": None},
     "version": None,
     "webui": None,
 }

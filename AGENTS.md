@@ -58,7 +58,7 @@ site/         the website: home page and docs (Fumadocs on TanStack Start, from 
   its base from its script URL. `tests/api/test_embed.py`; docs `advanced-embed`.
 - **Layer rule** (`tests/test_architecture.py`): `engine` imports no `rvc_next.core/api/cli/workers`
   and no web/CLI framework or pydantic; `sounddevice` and `soundcard` only under `engine/audio_io/`, `pymss` only
-  under `engine/separate/`; `protocol` is standard library only; `workers` import `engine` and
+  under `engine/separate/`, `pedalboard` only in `engine/audio/effects.py`, `edge_tts` only under `core/tts/`; `protocol` is standard library only; `workers` import `engine` and
   `protocol`; `core` imports neither a framework nor torch directly (torch only through engine
   functions, lazily); `api`/`cli` never import `engine`. A second test fails if importing
   `rvc_next.core.context` or `rvc_next.cli.app` loads torch (or FastAPI for the CLI).
@@ -392,6 +392,10 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   dataset or rates marks later stages `stale`. Stages run in `workers.train`; metrics become
   `train_metrics` events. Export extracts a G checkpoint when needed and adds the experiment's
   `added_*.index` files. A folder without `experiment.json` is read as a legacy experiment.
+- **Text to speech** (`core/tts/`, extra `rvc-next[tts]`; `edge_tts` only there, a core dependency
+  because it is a network call): `voices()` (cached a week in `cache/tts-voices.json`) and
+  `synthesize()`, which stores the MP3 as an upload, so it is an input like a dropped file
+  (`POST /tts`, `rvc-next tts speak|voices`, Convert's **Text to speech**). Tests set `services.tts.backend`.
 - **Live:** `LiveSupervisor` starts `workers.live` on demand (a `Listener` with a random authkey;
   the request file carries the address) and turns its messages into `live_state`/`live_stats`.
   Devices come from `workers.devices` (a short subprocess, never two at once: callers that ask

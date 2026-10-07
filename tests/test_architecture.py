@@ -30,7 +30,7 @@ RULES: dict[str, tuple[set[str], set[str]]] = {
     "engine": ({"engine"}, ENGINE_THIRD_PARTY | {"sounddevice", "soundcard", "pymss", "pymss_core", "yaml", "pedalboard"}),
     "protocol": ({"protocol"}, set()),
     "workers": ({"engine", "protocol", "workers"}, ENGINE_THIRD_PARTY | {"sounddevice", "pymss", "yaml"}),
-    "core": ({"core", "engine", "protocol", "version", "logger"}, {"pydantic", "httpx", "tomli", "tomli_w", "send2trash", "numpy", "typing_extensions"}),
+    "core": ({"core", "engine", "protocol", "version", "logger"}, {"pydantic", "httpx", "tomli", "tomli_w", "send2trash", "numpy", "typing_extensions", "edge_tts"}),
     "api": ({"api", "core", "version", "logger", "webui"}, {"fastapi", "starlette", "socketio", "uvicorn", "pydantic", "anyio"}),
     "cli": ({"cli", "core", "version", "logger", "api"}, {"typer", "click", "rich", "pydantic", "uvicorn"}),
 }
@@ -43,6 +43,8 @@ ENGINE_ONLY_IN = {
     "pymss_core": "engine/separate",
     "pedalboard": "engine/audio/effects.py",
 }
+# And in the core: the text-to-speech client.
+CORE_ONLY_IN = {"edge_tts": "core/tts/"}
 
 
 def _stdlib() -> set[str]:
@@ -85,6 +87,8 @@ def test_layer_imports(layer: str) -> None:
                 bad.append(f"{rel}: {name}")
             elif layer == "engine" and top in ENGINE_ONLY_IN and not rel.startswith(ENGINE_ONLY_IN[top]):
                 bad.append(f"{rel}: {name} (only in {ENGINE_ONLY_IN[top]})")
+            elif layer == "core" and top in CORE_ONLY_IN and not rel.startswith(CORE_ONLY_IN[top]):
+                bad.append(f"{rel}: {name} (only in {CORE_ONLY_IN[top]})")
             elif layer in ("api", "cli") and top in FRAMEWORKS - third:
                 bad.append(f"{rel}: {name}")
     assert not bad, "Imports outside the layer rule:\n" + "\n".join(bad)

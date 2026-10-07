@@ -2,11 +2,12 @@
 import { computed, ref } from 'vue';
 import { ApiError } from '@/api/client';
 import { useMeta } from '@/api/queries/app';
-import { resolveServerPath, uploadAudio } from '@/api/queries/audio';
+import { resolveServerPath, synthesizeSpeech, uploadAudio } from '@/api/queries/audio';
 import { urls } from '@/api/client';
-import type { Output } from '@/api/types';
+import type { Output, S } from '@/api/types';
 import OutputsPickerDialog from '@/components/OutputsPickerDialog.vue';
 import ServerPathDialog from '@/components/ServerPathDialog.vue';
+import TtsDialog from '@/components/TtsDialog.vue';
 import { inputKey, type InputItem } from '@/components/inputs';
 import { useI18n } from '@/i18n';
 import { formatDuration } from '@/format';
@@ -15,16 +16,24 @@ import { AppButton, AppIcon, DropZone, IconButton, ProgressBar, TRANSITIONS, ico
 
 /**
  * The one way to give audio: drop files, pick server files (on the server's own
- * machine, or with an access token), or choose earlier results. ``folders`` also allows a server
- * folder as one input (Convert expands it; a dataset is a folder).
+ * machine, or with an access token), choose earlier results, or, with ``tts``, speak text. ``folders``
+ * also allows a server folder as one input (Convert expands it; a dataset is a folder).
  */
-const props = withDefaults(defineProps<{ multiple?: boolean; folders?: boolean; uploads?: boolean; outputs?: boolean; label?: string }>(), { multiple: true, folders: false, uploads: true, outputs: true, label: '' });
+const props = withDefaults(defineProps<{ multiple?: boolean; folders?: boolean; uploads?: boolean; outputs?: boolean; tts?: boolean; label?: string }>(), {
+  multiple: true,
+  folders: false,
+  uploads: true,
+  outputs: true,
+  tts: false,
+  label: '',
+});
 const items = defineModel<InputItem[]>({ default: () => [] });
 const { t } = useI18n();
 const meta = useMeta();
 const player = usePlayerStore();
 const serverOpen = ref(false);
 const outputsOpen = ref(false);
+const ttsOpen = ref(false);
 const canBrowse = computed(() => meta.data.value?.trusted ?? false);
 
 function add(item: InputItem) {
@@ -65,6 +74,17 @@ async function onServer(selected: { path: string; name: string; dir: boolean }[]
   }
 }
 
+async function onSpeech(request: S['TtsRequest']) {
+  const key = inputKey();
+  add({ key, name: request.text.length > 40 ? `${request.text.slice(0, 40)}…` : request.text, ref: null, status: 'uploading' });
+  try {
+    const f = await synthesizeSpeech(request);
+    patch(key, { status: 'ready', name: f.name, ref: { kind: 'upload', id: f.id, path: null }, duration: f.duration, fileId: f.id });
+  } catch (e) {
+    patch(key, { status: 'failed', error: e instanceof ApiError ? e.message : String(e) });
+  }
+}
+
 function onOutputs(outs: Output[]) {
   for (const o of outs) add({ key: inputKey(), name: o.name, ref: { kind: 'output', id: o.id, path: null }, status: 'ready', duration: o.duration, outputId: o.id });
 }
@@ -83,6 +103,7 @@ function play(i: InputItem) {
     <div class="buttons">
       <AppButton v-if="canBrowse" variant="tonal" :icon="icons.HardDrive" @click="serverOpen = true">{{ t('source.serverFiles') }}</AppButton>
       <AppButton v-if="outputs" variant="tonal" :icon="icons.History" @click="outputsOpen = true">{{ t('source.outputs') }}</AppButton>
+      <AppButton v-if="tts" variant="tonal" :icon="icons.Speech" @click="ttsOpen = true">{{ t('source.tts') }}</AppButton>
       <AppButton v-if="items.length > 1" variant="text" @click="items = []">{{ t('source.clear') }}</AppButton>
     </div>
     <TransitionGroup :name="TRANSITIONS.list" tag="ul" class="items">
@@ -100,6 +121,7 @@ function play(i: InputItem) {
     </TransitionGroup>
     <ServerPathDialog v-model:open="serverOpen" :folders="folders" @select="onServer" />
     <OutputsPickerDialog v-model:open="outputsOpen" @select="onOutputs" />
+    <TtsDialog v-if="tts" v-model:open="ttsOpen" @add="onSpeech" />
   </section>
 </template>
 

@@ -110,3 +110,14 @@ def test_openapi_lists_events(client):
     schema = client.get("/openapi.json").json()
     events = schema["components"]["schemas"]["ServerEvents"]["properties"]
     assert {"job_updated", "live_stats", "devices_changed", "train_metrics"} <= set(events)
+
+
+def test_tts_over_api(client, services, wav_file):
+    from tests.core.test_tts import FakeTts
+
+    services.tts.backend = FakeTts(wav_file.read_bytes())
+    assert client.get("/api/v1/tts/voices").json()["voices"][0]["id"] == "zh-CN-XiaoxiaoNeural"
+    r = client.post("/api/v1/tts", json={"text": "你好", "voice": "zh-CN-XiaoxiaoNeural"}, headers=ORIGIN)
+    assert r.status_code == 200 and r.json()["name"] == "你好.mp3"
+    assert client.get(f"/api/v1/audio/files/{r.json()['id']}").status_code in (200, 206)
+    assert client.post("/api/v1/tts", json={"text": "", "voice": "x"}, headers=ORIGIN).status_code == 422
