@@ -331,14 +331,15 @@ class SettingsService:
         """
         paths = self.settings.paths
         if paths.browse_roots:
-            roots = [Path(p).expanduser() for p in paths.browse_roots]
+            roots = [Path(p).expanduser().resolve() for p in paths.browse_roots]
         else:
-            roots = [Path.home(), *(Path(r.path).expanduser() for r in paths.legacy_roots), self.data_dir, *volume_roots()]
+            # The volumes are absolute already and are not resolved: resolving a drive opens it, which
+            # stalls every settings read on a disconnected network drive or an empty card reader.
+            roots = [p.resolve() for p in (Path.home(), *(Path(r.path).expanduser() for r in paths.legacy_roots), self.data_dir)] + volume_roots()
         out: list[Path] = []
         for root in roots:
-            resolved = root.resolve()
-            if resolved not in out:
-                out.append(resolved)
+            if root not in out:
+                out.append(root)
         return out
 
     def resolved_paths(self) -> ResolvedPaths:

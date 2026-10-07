@@ -1,5 +1,6 @@
 """LiveService with the fake PortAudio backend and a tiny voice: devices, check, start, hot updates, stop."""
 
+import threading
 import time
 
 import pytest
@@ -40,6 +41,35 @@ def test_devices_and_check(live):
     gone = DeviceSelection(device_id="nope", physical_key="usb mic", name="USB Mic")
     result = live.check(LiveDevices(input=DeviceSelection(), output=gone))
     assert not result.ok and result.problems[0].reason == "fallback"
+
+
+def test_device_enumerations_never_overlap(live, monkeypatch):
+    """The page's poll, its checks and the meter ask at once: one subprocess runs at a time, and the
+    callers that waited share the list enumerated after they asked."""
+    real = live._run_devices
+    running: list[int] = []
+    overlap: list[int] = []
+
+    def slow(request, **kw):
+        running.append(1)
+        overlap.append(len(running))
+        time.sleep(0.3)
+        try:
+            return real(request, **kw)
+        finally:
+            running.pop()
+
+    monkeypatch.setattr(live, "_run_devices", slow)
+    first = threading.Thread(target=live.devices, kwargs={"refresh": True})
+    first.start()
+    time.sleep(0.1)
+    waiting = [threading.Thread(target=live.devices, kwargs={"refresh": True}) for _ in range(5)] + [threading.Thread(target=live.devices)]
+    for t in waiting:
+        t.start()
+    for t in [first, *waiting]:
+        t.join(30)
+    assert max(overlap) == 1
+    assert len(overlap) == 2  # the first, then one for every refresh asked while it ran
 
 
 def test_check_suggests_another_device_for_a_refused_channel_count(live):

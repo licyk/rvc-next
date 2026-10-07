@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
 import { useMeta, useSettings } from '@/api/queries/app';
 import { checkDevices, useLiveControl, useLiveDevices, useMeasureLatency, useRefreshDevices } from '@/api/queries/live';
 import type { AudioDevice, DeviceCheck, DeviceList, DeviceSelection, LiveDevices, PhysicalDevice } from '@/api/types';
@@ -137,14 +137,22 @@ const meterWanted = computed(() => !props.running && (settings.data.value?.live.
 watch(meterWanted, (on, before) => {
   if (on !== before) control.meter.mutate(on);
 });
-// Re-enumerate every 5 s while visible and stopped; the server emits devices_changed only on a difference.
+// Re-enumerate every 5 s while shown and stopped; the server emits devices_changed only on a difference.
+// Never a second request while one is out (an enumeration can outlast the interval on Windows), and
+// none from a view kept alive in the background.
 let poll: ReturnType<typeof setInterval> | undefined;
+function startPoll() {
+  clearInterval(poll);
+  poll = setInterval(() => {
+    if (!props.running && document.visibilityState === 'visible' && !refresh.isPending.value && !list.isFetching.value) refresh.mutate();
+  }, 5000);
+}
 onMounted(() => {
   if (meterWanted.value) control.meter.mutate(true);
-  poll = setInterval(() => {
-    if (!props.running && document.visibilityState === 'visible') refresh.mutate();
-  }, 5000);
+  startPoll();
 });
+onActivated(startPoll);
+onDeactivated(() => clearInterval(poll));
 onBeforeUnmount(() => {
   clearInterval(poll);
   clearTimeout(timer);

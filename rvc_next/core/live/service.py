@@ -78,6 +78,8 @@ class LiveService:
         self._devices: DeviceList | None = None
         self._devices_at = 0.0
         """``time.monotonic()`` of the enumeration ``_devices`` came from."""
+        self._enumerating = threading.Lock()
+        """One enumeration at a time: callers that ask meanwhile share its list."""
         self._lost: set[str] = set()
         self._reconnect: threading.Thread | None = None
         self._closing = False
@@ -274,17 +276,31 @@ class LiveService:
         the inputs include output devices recorded as loopback inputs; without it they are left out).
 
         ``refresh`` enumerates again; ``max_age`` enumerates again only when the cached list is
-        older than that many seconds (an enumeration is a subprocess, most of a second)."""
+        older than that many seconds (an enumeration is a subprocess, most of a second, several
+        seconds on Windows with many drivers). Enumerations never overlap: a call made while one
+        runs waits for it and takes its list when that one started after the call or, without
+        ``refresh``, is recent enough, so the page's polls and checks cannot pile up subprocesses."""
+        asked = time.monotonic()
+
+        def recent(at: float) -> bool:
+            return at >= asked or (not refresh and (max_age is None or time.monotonic() - at <= max_age))
+
         with self._lock:
-            cached, age = self._devices, time.monotonic() - self._devices_at
-        if cached is not None and not refresh and (max_age is None or age <= max_age):
+            cached, at = self._devices, self._devices_at
+        if cached is not None and not refresh and recent(at):
             return self._view(cached)
-        data = self._run_devices({"action": "enumerate"})
-        fresh = DeviceList.model_validate(data)
-        changed = cached is None or _signature(cached) != _signature(fresh)
-        with self._lock:
-            self._devices = fresh
-            self._devices_at = time.monotonic()
+        with self._enumerating:
+            with self._lock:
+                cached, at = self._devices, self._devices_at
+            if cached is not None and recent(at):
+                return self._view(cached)
+            started = time.monotonic()
+            data = self._run_devices({"action": "enumerate"})
+            fresh = DeviceList.model_validate(data)
+            changed = cached is None or _signature(cached) != _signature(fresh)
+            with self._lock:
+                self._devices = fresh
+                self._devices_at = started
         if changed and cached is not None:
             self._events.publish(DevicesChangedEvent(devices=self._view(fresh)))
         return self._view(fresh)

@@ -2,10 +2,11 @@
 import { computed, ref, watch } from 'vue';
 import { ApiError } from '@/api/client';
 import { useMeta, useSettings, useUpdateSettings } from '@/api/queries/app';
-import { useLiveControl } from '@/api/queries/live';
+import { useLiveControl, useLiveDevices } from '@/api/queries/live';
 import type { LiveDevices, StreamParams, VoiceModel, VoiceParams } from '@/api/types';
 import AssetGate from '@/components/AssetGate.vue';
 import DevicePanel from '@/components/DevicePanel.vue';
+import DevicePanelSkeleton from '@/components/DevicePanelSkeleton.vue';
 import ErrorNotice from '@/components/ErrorNotice.vue';
 import LiveStatsBar from '@/components/LiveStatsBar.vue';
 import StreamParamsPanel from '@/components/StreamParamsPanel.vue';
@@ -24,6 +25,9 @@ import { AppButton, ConfirmDialog, EmptyState, PageFooter, Surface, icons } from
 const { t, tOr } = useI18n();
 const meta = useMeta();
 const settings = useSettings();
+// The device list is the slow request (a subprocess on the server): ask for it now, beside the
+// settings, rather than once the panel mounts with the saved selection.
+useLiveDevices(() => meta.data.value?.live_available !== false);
 const updateSettings = useUpdateSettings();
 const live = useLiveStore();
 const control = useLiveControl();
@@ -128,6 +132,8 @@ function toggle() {
       <div class="sections">
         <Surface :level="0" shape="large" class="section">
           <DevicePanel v-if="devices" v-model="devices" :running="running" @change="onDevices" />
+          <ErrorNotice v-else-if="settings.error.value" :error="settings.error.value" />
+          <DevicePanelSkeleton v-else />
         </Surface>
         <Surface :level="0" shape="large" class="section">
           <VoicePicker v-model="voiceId" v-model:speaker="speaker" @voice="onVoice" />

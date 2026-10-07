@@ -292,7 +292,8 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
 - **Audio** (`core/audio/service.py`): uploads are raw `PUT` bodies spooled to a file, then probed
   with PyAV; server paths are checked against `paths.browse_roots` **in the API** (the CLI is
   trusted). Left empty, the roots are home, the legacy roots, the data directory and every drive
-  (Windows, `core/files.windows_drives`) or mounted volume (`/Volumes`, `/media/<user>`, `/mnt`); peaks cached under `cache/peaks/`; outputs carry provenance; zip streamed.
+  (Windows, `core/files.windows_drives`) or mounted volume (`/Volumes`, `/media/<user>`, `/mnt`), never resolved (resolving a drive opens it: a
+  disconnected network drive would stall every `GET /settings`); peaks cached under `cache/peaks/`; outputs carry provenance; zip streamed.
 - **Conversion:** one job per request; separate first (one worker for all inputs), convert each
   primary stem, then remix over the `instrumental` stem; names `<stem>.<voice slug>.<fmt>`, never
   overwriting (the CLI's `--overwrite` with `-o` excepted). Preview = first N s, priority 10.
@@ -307,7 +308,8 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   `added_*.index` files. A folder without `experiment.json` is read as a legacy experiment.
 - **Live:** `LiveSupervisor` starts `workers.live` on demand (a `Listener` with a random authkey;
   the request file carries the address) and turns its messages into `live_state`/`live_stats`.
-  Devices come from `workers.devices` (a short subprocess); selections are resolved (§7.6) before
+  Devices come from `workers.devices` (a short subprocess, never two at once: callers that ask
+  meanwhile share the next list, `LiveService.devices`); selections are resolved (§7.6) before
   every start and change; an output that would fall back to the default needs
   `allow_output_fallback`.
   Start publishes `starting` with `LiveState.stage` before its slow steps (`devices`: the

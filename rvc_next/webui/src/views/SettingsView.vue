@@ -11,7 +11,7 @@ import { useI18n } from '@/i18n';
 import { formatMiB } from '@/format';
 import { usePreferencesStore } from '@/stores/preferences';
 import { SOURCE_COLORS } from '@/theme/scheme';
-import { AppButton, Badge, DataList, PathField, SegmentedControl, SelectField, Surface, Switch, Tabs, TextField, TRANSITIONS, icons, useAxisDirection, useSnackbar } from '@/ui';
+import { AppButton, Badge, DataList, PathField, SegmentedControl, SelectField, Skeleton, Surface, Switch, Tabs, TextField, TRANSITIONS, icons, useAxisDirection, useSnackbar } from '@/ui';
 
 type Section = 'general' | 'compute' | 'audio' | 'storage' | 'downloads' | 'training' | 'appearance' | 'about';
 const { t, localeOptions } = useI18n();
@@ -202,6 +202,10 @@ const previewShown = ref(true);
         </Surface>
       </Transition>
     </div>
+    <!-- The settings are one request; until it answers, the panel's shape rather than an empty page. -->
+    <Surface v-else-if="!settings.error.value" :level="0" class="panel" role="status" aria-busy="true" :aria-label="t('common.loading')">
+      <Skeleton v-for="row in 4" :key="row" height="56px" shape="medium" />
+    </Surface>
   </div>
 </template>
 
