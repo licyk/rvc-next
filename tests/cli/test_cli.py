@@ -20,6 +20,7 @@ EXPECTED_TREE = {
         "catalog": None,
         "download": None,
         "edit": None,
+        "export": None,
         "extract": None,
         "import": None,
         "index": {"assign": None, "attach": None, "build": None},

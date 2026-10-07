@@ -33,10 +33,11 @@ export function useExperimentMutations() {
   const remove = useMutation({ mutationFn: (name: string) => unwrap(api.DELETE('/api/v1/train/experiments/{name}', path(name))), onSuccess: () => qc.invalidateQueries({ queryKey: keys.experiments }) });
   const scan = useMutation({ mutationFn: (name: string) => unwrap(api.POST('/api/v1/train/experiments/{name}/dataset/scan', path(name))) });
   const setSpeakers = useMutation({ mutationFn: ({ name, speakers }: { name: string; speakers: S['SpeakerEntry-Input'][] }) => unwrap(api.PUT('/api/v1/train/experiments/{name}/speakers', { ...path(name), body: speakers })), onSuccess: set });
+  const clearUploads = useMutation({ mutationFn: (name: string) => unwrap(api.DELETE('/api/v1/train/experiments/{name}/dataset/files', path(name))), onSuccess: set });
   const fromFolders = useMutation({ mutationFn: ({ name, folder }: { name: string; folder: string }) => unwrap(api.POST('/api/v1/train/experiments/{name}/speakers/from-folders', { ...path(name), body: { folder } })), onSuccess: set });
   const run = useMutation({ mutationFn: ({ name, body }: { name: string; body: S['RunRequest'] }) => unwrap(api.POST('/api/v1/train/experiments/{name}/run', { ...path(name), body })), onSuccess: (job) => jobs.upsert(job, 'train') });
   const stop = useMutation({ mutationFn: (name: string) => unwrap(api.POST('/api/v1/train/experiments/{name}/stop', path(name))), onSuccess: set });
   const exportVoice = useMutation({ mutationFn: ({ name, body }: { name: string; body: S['ExportRequest'] }) => unwrap(api.POST('/api/v1/train/experiments/{name}/export', { ...path(name), body })), onSuccess: (job) => jobs.upsert(job, 'train') });
   const tryCheckpoint = useMutation({ mutationFn: ({ name, body }: { name: string; body: S['ExportRequest'] }) => unwrap(api.POST('/api/v1/train/experiments/{name}/try', { ...path(name), body })) });
-  return { create, importLegacy, update, remove, scan, setSpeakers, fromFolders, run, stop, exportVoice, tryCheckpoint };
+  return { create, importLegacy, update, remove, scan, setSpeakers, fromFolders, clearUploads, run, stop, exportVoice, tryCheckpoint };
 }

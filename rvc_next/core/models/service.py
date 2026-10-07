@@ -12,7 +12,7 @@ import json
 import logging
 import shutil
 import threading
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -22,7 +22,7 @@ from rvc_next.core.engine_errors import map_engine_error
 from rvc_next.core.errors import ConflictError, InvalidPathError, ModelFormatError, NotFoundError, RvcNextError, ValidationError
 from rvc_next.core.events import EventBus
 from rvc_next.core.events.models import ModelsChangedEvent
-from rvc_next.core.files import slugify, trash
+from rvc_next.core.files import slugify, trash, zip_stream
 from rvc_next.core.jobs.service import JobContext, JobService, JobSpec
 from rvc_next.core.models.importers import index_key, legacy_index_roots, legacy_weights, suggest_index
 from rvc_next.core.models.models import (
@@ -546,6 +546,42 @@ class VoiceModelService:
             self._load_library_folder(folder)
         self._events.publish(ModelsChangedEvent(updated=[voice_id]))
         return self.get(voice_id)
+
+    def export_archive(self, voice_id: str) -> tuple[str, Iterator[bytes]]:
+        """A zip of a voice for another machine: ``<name>.pth`` and its indexes (``<name>.index``,
+        ``<name>_spkid<N>.index``), which an import pairs again. Speaker names kept beside the model
+        go into the copy's ``speaker_info``; the library's ``.pth`` is never rewritten."""
+        import shutil
+        import tempfile
+
+        voice = self.get(voice_id)
+        pth = Path(voice.model_path)
+        if not pth.is_file():
+            raise NotFoundError(f"The model file is gone: {pth}")
+        stem = "".join("_" if c in '<>:"/\\|?*' or ord(c) < 32 else c for c in voice.name).strip(" .") or slugify(voice.name)
+        entries: list[tuple[str, Path]] = []
+        tmp: Path | None = None
+        if voice.speakers and not self._summarize(pth).speakers:
+            from rvc_next.engine.models.checkpoint import change_info
+
+            tmp = Path(tempfile.mkdtemp(prefix="rvc-next-export-"))
+            named = tmp / pth.name
+            change_info(pth, named, speaker_info=[s.model_dump() for s in voice.speakers])
+            entries.append((f"{stem}/{stem}.pth", named))
+        else:
+            entries.append((f"{stem}/{stem}.pth", pth))
+        for key, path in sorted(voice.indexes.items()):
+            if Path(path).is_file():
+                entries.append((f"{stem}/{stem}.index" if key == "default" else f"{stem}/{stem}_spkid{int(key[3:])}.index", Path(path)))
+
+        def stream() -> Iterator[bytes]:
+            try:
+                yield from zip_stream(entries)
+            finally:
+                if tmp is not None:
+                    shutil.rmtree(tmp, ignore_errors=True)
+
+        return f"{stem}.zip", stream()
 
     def delete(self, voice_id: str) -> None:
         voice = self.get(voice_id)

@@ -319,6 +319,11 @@ export default {
     queued: 'Separation queued',
   },
   train: {
+    upload: 'Add audio from this computer',
+    uploadHint: 'Audio files or a zip of them; they are kept in the experiment’s folder',
+    uploadSpeakers: 'Add speakers from this computer',
+    uploading: 'Uploading {name} ({n} of {total})…',
+    clearUploads: 'Remove the uploaded audio',
     previews: 'Render a sample at every save',
     previewsHint: 'A training clip, rendered by the voice as it is at each save: listen to it improve, against the clip itself.',
     advanced: 'Advanced',
@@ -493,6 +498,7 @@ export default {
     merge: { title: 'Merge two voices', a: 'First voice', b: 'Second voice', alpha: 'Weight of the first voice', name: 'New voice name', run: 'Merge' },
     extract: { title: 'Extract a voice from a checkpoint', checkpoint: 'Checkpoint (G_*.pth path or <experiment>/<file>)', name: 'New voice name', run: 'Extract', auto: 'From the experiment' },
     detail: {
+      download: 'Download the voice (.pth and indexes, as a zip)',
       info: 'About',
       sampleRate: 'Sample rate',
       version: 'Version',

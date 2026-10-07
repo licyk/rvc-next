@@ -126,3 +126,42 @@ def test_busy_when_running(services):
         services.training.run("busy", RunRequest())
     with pytest.raises(BusyError):
         services.training.delete("busy")
+
+
+def test_dataset_upload(services, tmp_path):
+    import io
+    import zipfile
+
+    import soundfile as sf
+
+    from tests.tiny import tone
+
+    services.training.create(ExperimentCreate(name="up"))
+    wav = io.BytesIO()
+    sf.write(wav, tone(1.0), 16000, format="WAV")
+    exp = services.training.add_dataset_file("up", "a.wav", [wav.getvalue()])
+    folder = Path(exp.dataset.folder)
+    assert folder.name == "dataset_upload" and (folder / "a.wav").is_file()
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("set/b.wav", wav.getvalue())
+        zf.writestr("../evil.wav", wav.getvalue())
+        zf.writestr("__MACOSX/set/._b.wav", b"x")
+        zf.writestr("notes.txt", b"hi")
+    services.training.add_dataset_file("up", "more.zip", [archive.getvalue()])
+    assert sorted(p.name for p in folder.iterdir()) == ["a.wav", "b.wav", "evil.wav"]
+    assert not (folder.parent / "evil.wav").exists()
+    with pytest.raises(ValidationError):
+        services.training.add_dataset_file("up", "x.txt", [b"hello"])
+    assert services.training.scan_dataset("up").clips == 3
+    services.training.clear_dataset_uploads("up")
+    assert not folder.exists()
+
+    # Multi-speaker: the zip's folders become the speaker table.
+    services.training.create(ExperimentCreate(name="duo", dataset=Dataset(mode="multi")))
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("Ann_0_1/1.wav", wav.getvalue())
+        zf.writestr("Bo_1_2/1.wav", wav.getvalue())
+    exp = services.training.add_dataset_file("duo", "speakers.zip", [archive.getvalue()])
+    assert [(s.name, s.id, s.repeat) for s in exp.dataset.speakers] == [("Ann", 0, 1), ("Bo", 1, 2)]

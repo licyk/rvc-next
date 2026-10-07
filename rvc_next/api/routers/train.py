@@ -1,9 +1,13 @@
 """Training experiments."""
 
-from fastapi import APIRouter, Request, status
+from typing import Annotated
+
+from fastapi import APIRouter, Query, Request, status
+from starlette.concurrency import run_in_threadpool
 
 from rvc_next.api.deps import ServicesDep, require_trusted
 from rvc_next.api.errors import ERROR_RESPONSES
+from rvc_next.api.uploads import RAW_BODY, read_chunks, spool
 from rvc_next.core.audio.models import Output
 from rvc_next.core.jobs.models import Job
 from rvc_next.core.models.models import VoiceModel
@@ -69,6 +73,22 @@ def scan_dataset(services: ServicesDep, name: str) -> DatasetReport:
 def set_speakers(request: Request, services: ServicesDep, name: str, body: list[SpeakerEntry]) -> Experiment:
     require_trusted(request, services)
     return services.training.set_speakers(name, body)
+
+
+@router.put("/experiments/{name}/dataset/files", operation_id="upload_dataset_file", openapi_extra=RAW_BODY)
+async def upload_dataset_file(request: Request, services: ServicesDep, name: str, filename: Annotated[str, Query(max_length=255)]) -> Experiment:
+    """Add an audio file, or a zip of them, to the experiment's own dataset folder (the raw request
+    body). In multi-speaker mode a zip's top-level ``Name_ID_Repeat`` folders become the speakers."""
+    tmp = await spool(request, services.training.experiment_dir(name) / ".incoming")
+    try:
+        return await run_in_threadpool(services.training.add_dataset_file, name, filename, read_chunks(tmp))
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+@router.delete("/experiments/{name}/dataset/files", operation_id="clear_dataset_uploads")
+def clear_dataset_uploads(services: ServicesDep, name: str) -> Experiment:
+    return services.training.clear_dataset_uploads(name)
 
 
 @router.post("/experiments/{name}/speakers/from-folders", operation_id="speakers_from_folders")

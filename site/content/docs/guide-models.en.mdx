@@ -37,7 +37,7 @@ An empty library shows **No voices yet** and a **Get the demo voices** button. C
 </Callout>
 ### Voice details
 
-The top of the detail page has **Back**, **Show in folder** (shown only when you open the page on the server machine) and **Delete** buttons. The page has four sections:
+The top of the detail page has **Back**, **Download** (the voice as a zip: its `.pth`, with the speaker names written in, and its indexes, named so an import pairs them again; also `rvc-next model export`), **Show in folder** (shown only when you open the page on the server machine) and **Delete** buttons. The page has four sections:
 
 **About**
 
@@ -269,6 +269,7 @@ rvc-next model import x.zip --pair voice.pth=added.index   # Specify a pairing m
 rvc-next model catalog                       # List demo voices
 rvc-next model download --all                # Download all demo voices
 rvc-next model merge A B --name AB --alpha 0.5
+rvc-next model export "My voice" -o my-voice.zip   # The .pth and its indexes, to import elsewhere
 rvc-next model extract my-experiment/G_2333333.pth --name "New voice"
 rvc-next assets list                         # Asset status
 rvc-next assets download --group inference   # Download HuBERT and RMVPE

@@ -371,6 +371,22 @@ rvc-next model edit [OPTIONS] VOICE
 rvc-next model edit duet --speaker-name 0=Alice --speaker-name 1=Bob
 ```
 
+### `model export`
+
+把音色写成 zip，以便在另一台电脑上导入：`<名称>/<名称>.pth`（副本中写入了说话人名称）及其索引（`<名称>.index`、`<名称>_spkid<N>.index`）。
+
+```text
+rvc-next model export [OPTIONS] VOICE
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `VOICE` | 音色 id 或名称（必填） |
+
+| 选项 | 说明 | 默认值 |
+| --- | --- | --- |
+| `-o, --output <path>` | 要写入的 zip | 当前文件夹中的 `<名称>.zip` |
+
 ### `model remove`
 
 移除一个音色：音色库中的音色移到回收站，旧版音色只是隐藏。

@@ -204,6 +204,23 @@ def model_edit(
         console.print(f"Updated {updated.name}")
 
 
+def model_export(
+    voice: Annotated[str, typer.Argument(help="Voice id or name")],
+    output: Annotated[Path | None, typer.Option("--output", "-o", help="The zip to write (default: <name>.zip here)")] = None,
+) -> None:
+    """Write a voice as a zip (its .pth with the speaker names, and its indexes) to import elsewhere."""
+    with open_services() as services:
+        v = services.models.resolve(voice, allow_path=False)
+        name, stream = services.models.export_archive(v.id)
+        target = output or Path(name)
+        tmp = target.with_name(target.name + ".part")
+        with open(tmp, "wb") as f:
+            for chunk in stream:
+                f.write(chunk)
+        tmp.replace(target)
+        console.print(f"Wrote {target}")
+
+
 def model_remove(voice: Annotated[str, typer.Argument(help="Voice id or name")], yes: Annotated[bool, typer.Option("--yes", "-y", help="Do not ask")] = False) -> None:
     """Move a library voice to the trash, or hide a legacy one."""
     with open_services() as services:

@@ -8,8 +8,10 @@ import os
 import re
 import sys
 import unicodedata
-from collections.abc import Callable
+import zipfile
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
+from typing import IO, cast
 
 from rvc_next.core.clock import new_id
 from rvc_next.core.fsops import move_path, remove_path
@@ -117,3 +119,46 @@ def reveal(path: Path) -> None:
         subprocess.Popen(["open", "-R", str(target)] if target.is_file() else ["open", str(target)])
     else:
         subprocess.Popen(["xdg-open", str(target.parent if target.is_file() else target)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def zip_stream(entries: Iterable[tuple[str, Path]]) -> Iterator[bytes]:
+    """A stored (uncompressed) zip of ``(name in the archive, file)`` pairs, produced in pieces, so a
+    response can stream it without building it first. Repeated names get ``_1``, ``_2``…"""
+
+    class _Sink:
+        def __init__(self) -> None:
+            self.buf = bytearray()
+            self.pos = 0
+
+        def write(self, b: bytes) -> int:
+            self.buf += b
+            self.pos += len(b)
+            return len(b)
+
+        def tell(self) -> int:
+            return self.pos
+
+        def flush(self) -> None:
+            pass
+
+    sink = _Sink()
+    used: set[str] = set()
+    with zipfile.ZipFile(cast(IO[bytes], sink), "w", compression=zipfile.ZIP_STORED) as zf:
+        for arcname, path in entries:
+            name, n = arcname, 1
+            while name in used:
+                stem, dot, ext = arcname.rpartition(".")
+                name = f"{stem}_{n}.{ext}" if dot else f"{arcname}_{n}"
+                n += 1
+            used.add(name)
+            with zf.open(name, "w", force_zip64=True) as dst, open(path, "rb") as src:
+                while True:
+                    block = src.read(1024 * 1024)
+                    if not block:
+                        break
+                    dst.write(block)
+                    if sink.buf:
+                        yield bytes(sink.buf)
+                        sink.buf.clear()
+    if sink.buf:
+        yield bytes(sink.buf)

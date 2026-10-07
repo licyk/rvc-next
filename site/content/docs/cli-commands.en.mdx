@@ -371,6 +371,22 @@ rvc-next model edit [OPTIONS] VOICE
 rvc-next model edit duet --speaker-name 0=Alice --speaker-name 1=Bob
 ```
 
+### `model export`
+
+Write a voice as a zip to import on another machine: `<name>/<name>.pth` (speaker names written into the copy) and its indexes (`<name>.index`, `<name>_spkid<N>.index`).
+
+```text
+rvc-next model export [OPTIONS] VOICE
+```
+
+| Argument | Description |
+| --- | --- |
+| `VOICE` | Voice ID or name (required) |
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `-o, --output <path>` | The zip to write | `<name>.zip` in the current folder |
+
 ### `model remove`
 
 Remove a voice: library voices go to the recycle bin; legacy voices are only hidden.

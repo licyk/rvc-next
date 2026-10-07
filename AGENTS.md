@@ -292,6 +292,12 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   Legacy roots are read in place; index pairing uses the original's scoring once, as a suggestion,
   stored in `legacy-voices.json` with the user's edits. Temporary voices (`tmp-…`, a `.pth` path on
   the CLI, a training try-out) are hidden from lists.
+- **Export and upload:** `models.export_archive` streams a voice as a zip (`core/files.zip_stream`,
+  shared with the outputs zip): `<name>/<name>.pth`, rewritten into a temporary copy only to carry
+  speaker names, and `<name>.index`/`<name>_spkid<N>.index`, so an import pairs them again.
+  `training.add_dataset_file` takes raw uploads (audio, or a zip, flattened; in multi-speaker mode
+  its top-level `Name_ID_Repeat` folders become the table) into `<experiment>/dataset_upload/`
+  and points the dataset there.
 - **Model layout:** `models/voices|indexes|base|separation|attached-indexes/`. Only voices are
   in the database; base models, separation models and unassigned indexes are folders with a JSON
   sidecar, scanned on every listing. `attached-indexes/<voice>/` holds indexes copied for legacy

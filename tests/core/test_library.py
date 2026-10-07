@@ -124,3 +124,26 @@ def test_provenance_from_the_file(services, tmp_path):
     voice = services.models.import_paths([src]).voices[0]
     assert voice.provenance.model_dump() == {"author": "Ana", "epoch": 120, "step": 2400, "created": None, "dataset_length": "00:12:30"}
     assert services.models.inspect(str(src)).provenance.author == "Ana"
+
+
+def test_export_archive_round_trip(services, tmp_path):
+    import io
+    import zipfile
+
+    from rvc_next.core.models.models import Speaker, VoiceUpdate
+    from tests.tiny import make_tiny_index, make_tiny_voice
+
+    src = make_tiny_voice(tmp_path / "in" / "Alto Voice.pth", speakers=3)
+    voice = services.models.import_paths([src]).voices[0]
+    services.models.set_index(voice.id, "default", make_tiny_index(tmp_path / "in" / "added.index", 768))
+    voice = services.models.update(voice.id, VoiceUpdate(speakers=[Speaker(id=0, name="Ann"), Speaker(id=2, name="Bo")]))
+    name, stream = services.models.export_archive(voice.id)
+    data = b"".join(stream)
+    assert name == f"{voice.name}.zip"
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        names = sorted(zf.namelist())
+        assert names == sorted([f"{voice.name}/{voice.name}.pth", f"{voice.name}/{voice.name}.index"])
+        zf.extractall(tmp_path / "out")
+    # The archive imports again on its own, speaker names included.
+    again = services.models.import_paths([tmp_path / "out" / voice.name / f"{voice.name}.pth"]).voices[0]
+    assert [s.name for s in again.speakers] == ["Ann", "Bo"]

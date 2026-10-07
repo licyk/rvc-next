@@ -37,7 +37,7 @@ icon: Library
 </Callout>
 ### 音色详情
 
-详情页顶部有 **返回**、**在文件夹中显示**（只在服务器本机打开网页时显示）和 **删除** 按钮。页面分为四块：
+详情页顶部有 **返回**、**下载**（把音色打包为 zip：`.pth`（写入了说话人名称）和它的索引，文件名使导入时能再次自动配对；也可用 `rvc-next model export`）、**在文件夹中显示**（只在服务器本机打开网页时显示）和 **删除** 按钮。页面分为四块：
 
 **信息**
 
@@ -269,6 +269,7 @@ rvc-next model import x.zip --pair voice.pth=added.index   # 手动指定配对
 rvc-next model catalog                       # 列出示例音色
 rvc-next model download --all                # 下载全部示例音色
 rvc-next model merge A B --name AB --alpha 0.5
+rvc-next model export 我的音色 -o my-voice.zip     # .pth 及其索引，可在别处导入
 rvc-next model extract 我的实验/G_2333333.pth --name 新音色
 rvc-next assets list                         # 资源状态
 rvc-next assets download --group inference   # 下载 HuBERT 和 RMVPE

@@ -4,10 +4,12 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Query, Request, status
+from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from rvc_next.api.deps import LocalDep, ServicesDep, require_trusted
 from rvc_next.api.errors import ERROR_RESPONSES
+from rvc_next.api.files import content_disposition
 from rvc_next.api.uploads import RAW_BODY, read_chunks, spool
 from rvc_next.core.assets.models import CatalogVoice, VoiceDownloadRequest
 from rvc_next.core.jobs.models import Job
@@ -229,6 +231,13 @@ def import_legacy_root(services: ServicesDep, root_id: str) -> ImportResult:
 @router.get("/{voice_id}", operation_id="get_model")
 def get_model(services: ServicesDep, voice_id: str) -> VoiceModel:
     return services.models.get(voice_id)
+
+
+@router.get("/{voice_id}/archive", operation_id="export_model_archive", response_class=StreamingResponse, responses={200: {"content": {"application/zip": {}}}})
+def export_archive(services: ServicesDep, voice_id: str) -> StreamingResponse:
+    """The voice as a zip: its ``.pth`` (with the speaker names) and its indexes, ready to import elsewhere."""
+    name, stream = services.models.export_archive(voice_id)
+    return StreamingResponse(stream, media_type="application/zip", headers={"Content-Disposition": content_disposition("attachment", name)})
 
 
 @router.patch("/{voice_id}", operation_id="update_model")

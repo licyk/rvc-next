@@ -51,13 +51,13 @@ icon: Plug
 | `settings` | `/v1` | `GET/PATCH /settings`（深度合并；`server.access_token` 传 `null` 清除、传空串报错；改动由核心层发布 `settings_changed`，改了 `paths` 时重新扫描音色库）、`GET/PUT /client-state/{key}`（键名受正则约束，值上限 256 KiB） |
 | `compute` | `/v1/compute` | `GET devices`、`GET usage`、`POST release`（释放显存；忙时 409，`detail.busy`） |
 | `assets` | `/v1/assets` | `GET ""`、`GET repositories`、`POST download`、`POST verify`（同一个下载任务，`verify_only=True`）、`DELETE {asset_id}` |
-| `models` | `/v1/models` | 音色库 CRUD、`/catalog` 与 `/catalog/download`（演示音色）、导入会话 `/imports…`、未分配索引 `/indexes…`、底模 `/base…`、分离模型 `/separation…`、一步导入 `PUT /import` 与 `POST /import-path`、`POST inspect`、`POST merge`、`POST extract`、旧版安装 `/legacy-roots…`、`/{voice_id}/index`（上传、配对或解除）、`/{voice_id}/index/build`、`/{voice_id}/reveal` |
+| `models` | `/v1/models` | 音色库 CRUD、`/catalog` 与 `/catalog/download`（演示音色）、导入会话 `/imports…`、未分配索引 `/indexes…`、底模 `/base…`、分离模型 `/separation…`、一步导入 `PUT /import` 与 `POST /import-path`、`POST inspect`、`POST merge`、`POST extract`、旧版安装 `/legacy-roots…`、`/{voice_id}/index`（上传、配对或解除）、`/{voice_id}/index/build`、`/{voice_id}/reveal`、`GET /{voice_id}/archive`（音色 zip） |
 | `presets` | `/v1/presets` | 列表（带 `voice_id` 时先 `ensure_default`）、创建、修改、删除 |
 | `audio` | `/v1/audio` | `PUT uploads`、`GET files/{id}`、`files/{id}/content`、`files/{id}/peaks`、`GET browse`、`POST resolve-path`、`GET path-peaks` |
 | `outputs` | `/v1/outputs` | 列表、`POST zip`（流式）、单个输出、`content`、`source`（A/B 用的原始输入）、`peaks`、`source-peaks`、删除、`reveal` |
 | `convert` | `/v1/convert` | `POST ""` → `Job` |
 | `separate` | `/v1/separate` | `GET presets`、`POST ""` → `Job` |
-| `train` | `/v1/train` | 实验 CRUD、`dataset/scan`、`speakers`、`speakers/from-folders`、`run` → `Job`、`stop`、`metrics?since=`、`checkpoints`、`export` → `Job`、`try`（临时音色）、`POST /import`（旧实验） |
+| `train` | `/v1/train` | 实验 CRUD、`dataset/scan`、`PUT/DELETE dataset/files`（上传的音频）、`speakers`、`speakers/from-folders`、`run` → `Job`、`stop`、`metrics?since=`、`checkpoints`、`samples`（每次保存渲染的一段训练片段）、`export` → `Job`、`try`（临时音色）、`POST /import`（旧实验） |
 | `jobs` | `/v1/jobs` | 列表（`state` 可为具体状态或 `active`/`finished`）、`DELETE ""`（清除已完成任务，输出保留）、单个任务、`log?offset=`、`cancel`、`retry`、`run-anyway`、删除 |
 | `live` | `/v1/live` | `GET state`、`POST start/stop`、`PATCH voice`、`PATCH stream`、`PUT voice-model`、`PUT/GET devices`、`POST devices/check`、`POST devices/test-tone`、`POST meter`、`POST passthrough`、`POST/DELETE recording` |
 

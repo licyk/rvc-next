@@ -62,6 +62,7 @@ export const urls = {
   audioFile: (id: string) => `${V1}/audio/files/${encodeURIComponent(id)}/content`,
   output: (id: string, download = false) => `${V1}/outputs/${encodeURIComponent(id)}/content${download ? '?download=true' : ''}`,
   outputSource: (id: string) => `${V1}/outputs/${encodeURIComponent(id)}/source`,
+  modelArchive: (id: string) => `${V1}/models/${encodeURIComponent(id)}/archive`,
 };
 
 /** Save a blob under a name through a temporary link. */

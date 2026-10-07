@@ -12,12 +12,13 @@ import json
 import logging
 import shutil
 import threading
+from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from rvc_next.core.assets.service import AssetService
 from rvc_next.core.audio.models import Output
-from rvc_next.core.clock import now_iso
+from rvc_next.core.clock import new_id, now_iso
 from rvc_next.core.compute.service import ComputeService
 from rvc_next.core.db import Database
 from rvc_next.core.errors import BusyError, ConflictError, NotFoundError, ValidationError
@@ -29,7 +30,7 @@ from rvc_next.core.jobs.service import JobContext, JobService, JobSpec
 from rvc_next.core.models.models import VoiceModel
 from rvc_next.core.models.service import VoiceModelService
 from rvc_next.core.params import f0_assets
-from rvc_next.core.safety import validate_name
+from rvc_next.core.safety import unique_path, validate_name
 from rvc_next.core.separation.service import SeparationService
 from rvc_next.core.settings import SettingsService
 from rvc_next.core.training.models import (
@@ -56,6 +57,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 EXPERIMENT_FILE = "experiment.json"
+UPLOAD_DIR = "dataset_upload"
+MAX_DATASET_UPLOAD = 8 * 1024**3
 WORKER = "rvc_next.workers.train"
 CLEAN_DIR = "dataset_clean"
 STAGE_TITLES = {"clean": "Clean up the dataset", "slice": "Slice", "f0": "Extract pitch", "features": "Extract features", "fit": "Train", "index": "Build the index"}
@@ -287,6 +290,84 @@ class TrainingService:
     def set_speakers(self, name: str, entries: list[SpeakerEntry]) -> Experiment:
         exp = self._load(name)
         return self.update(name, ExperimentUpdate(dataset=exp.dataset.model_copy(update={"mode": "multi", "speakers": entries, "folder": None})))
+
+    def experiment_dir(self, name: str) -> Path:
+        """The folder of an existing experiment."""
+        self._load(name)
+        return self._dir(name)
+
+    def add_dataset_file(self, name: str, filename: str, chunks: Iterable[bytes]) -> Experiment:
+        """Add uploaded audio to the experiment's own dataset folder (``dataset_upload/``).
+
+        One audio file, or a zip: in single-speaker mode its audio files are added flat; in
+        multi-speaker mode its top-level ``Name_ID_Repeat`` folders become the speaker table. The
+        dataset then points at the uploads, so Slice and what follows are out of date.
+        """
+        import zipfile
+
+        from rvc_next.engine.audio.io import is_audio_path
+
+        with self._lock:
+            if name in self._running:
+                raise BusyError(f"{name} is running; stop it first")
+        exp = self._load(name)
+        root = self._dir(name) / UPLOAD_DIR
+        root.mkdir(parents=True, exist_ok=True)
+        base = Path(filename).name
+        incoming = root / f".{new_id('up')}.part"
+        size = 0
+        try:
+            with open(incoming, "wb") as f:
+                for chunk in chunks:
+                    size += len(chunk)
+                    if size > MAX_DATASET_UPLOAD:
+                        raise ValidationError(f"{base} is larger than {MAX_DATASET_UPLOAD // 1024**3} GiB")
+                    f.write(chunk)
+            if base.lower().endswith(".zip"):
+                added = 0
+                try:
+                    with zipfile.ZipFile(incoming) as zf:
+                        for info in zf.infolist():
+                            parts = [p for p in info.filename.replace("\\", "/").split("/") if p not in ("", ".", "..")]
+                            if info.is_dir() or not parts or any(p.startswith(".") or p == "__MACOSX" for p in parts) or not is_audio_path(parts[-1]):
+                                continue
+                            if info.file_size > MAX_DATASET_UPLOAD:
+                                continue
+                            folder = root / _safe_name(parts[-2]) if exp.dataset.mode == "multi" and len(parts) > 1 else root
+                            folder.mkdir(parents=True, exist_ok=True)
+                            with zf.open(info) as src, open(unique_path(folder / _safe_name(parts[-1])), "wb") as dst:
+                                shutil.copyfileobj(src, dst, 1024 * 1024)
+                            added += 1
+                except zipfile.BadZipFile as e:
+                    raise ValidationError(f"{base} is not a zip archive") from e
+                if not added:
+                    raise ValidationError(f"{base} holds no audio files")
+            elif is_audio_path(base):
+                shutil.move(str(incoming), str(unique_path(root / _safe_name(base))))
+            else:
+                raise ValidationError(f"{base} is not an audio file or a zip")
+        finally:
+            incoming.unlink(missing_ok=True)
+        if exp.dataset.mode == "multi":
+            return self.speakers_from_folders(name, str(root))
+        if exp.dataset.folder != str(root):
+            return self.update(name, ExperimentUpdate(dataset=exp.dataset.model_copy(update={"folder": str(root)})))
+        # New files in the same folder: the stored fingerprints no longer match, so Run all redoes Slice.
+        exp = self._load(name)
+        self._emit(exp)
+        return exp
+
+    def clear_dataset_uploads(self, name: str) -> Experiment:
+        """Remove the uploaded dataset files (``dataset_upload/``)."""
+        with self._lock:
+            if name in self._running:
+                raise BusyError(f"{name} is running; stop it first")
+        root = self._dir(name) / UPLOAD_DIR
+        if root.exists():
+            shutil.rmtree(root)
+        exp = self._load(name)
+        self._emit(exp)
+        return exp
 
     def speakers_from_folders(self, name: str, folder: str) -> Experiment:
         from rvc_next.engine.train.multispeaker import speakers_from_folders
@@ -818,3 +899,8 @@ def _earliest(current: str | None, stage: str) -> str:
     if current is None:
         return stage
     return current if STAGE_ORDER.index(current) <= STAGE_ORDER.index(stage) else stage
+
+
+def _safe_name(name: str) -> str:
+    """A file or folder name from an upload, without characters a file system refuses."""
+    return "".join("_" if c in '<>:"/\\|?*' or ord(c) < 32 else c for c in name).strip(" .") or "audio"

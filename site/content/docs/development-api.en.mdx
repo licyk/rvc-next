@@ -51,13 +51,13 @@ Errors are defined in `core/errors.py`; `api/errors.py` only maps them. HTTP sta
 | `settings` | `/v1` | `GET/PATCH /settings` (deep merge; `server.access_token`: `null` clears it, an empty string is an error; the core publishes `settings_changed`, and changes to `paths` rescan the voice library), `GET/PUT /client-state/{key}` (regex-constrained keys, values up to 256 KiB) |
 | `compute` | `/v1/compute` | `GET devices`, `GET usage`, `POST release` (free GPU memory; 409 when busy, `detail.busy`) |
 | `assets` | `/v1/assets` | `GET ""`, `GET repositories`, `POST download`, `POST verify` (the same download job with `verify_only=True`), `DELETE {asset_id}` |
-| `models` | `/v1/models` | Voice library CRUD, `/catalog` and `/catalog/download` (demo voices), import sessions `/imports…`, unassigned indexes `/indexes…`, base models `/base…`, separation models `/separation…`, one-step import `PUT /import` and `POST /import-path`, `POST inspect`, `POST merge`, `POST extract`, legacy installations `/legacy-roots…`, `/{voice_id}/index` (upload, pair, or detach), `/{voice_id}/index/build`, `/{voice_id}/reveal` |
+| `models` | `/v1/models` | Voice library CRUD, `/catalog` and `/catalog/download` (demo voices), import sessions `/imports…`, unassigned indexes `/indexes…`, base models `/base…`, separation models `/separation…`, one-step import `PUT /import` and `POST /import-path`, `POST inspect`, `POST merge`, `POST extract`, legacy installations `/legacy-roots…`, `/{voice_id}/index` (upload, pair, or detach), `/{voice_id}/index/build`, `/{voice_id}/reveal`, `GET /{voice_id}/archive` (the voice as a zip) |
 | `presets` | `/v1/presets` | List (`ensure_default` first when `voice_id` is given), create, update, delete |
 | `audio` | `/v1/audio` | `PUT uploads`, `GET files/{id}`, `files/{id}/content`, `files/{id}/peaks`, `GET browse`, `POST resolve-path`, `GET path-peaks` |
 | `outputs` | `/v1/outputs` | List, `POST zip` (streamed), individual output, `content`, `source` (original input for A/B), `peaks`, `source-peaks`, delete, `reveal` |
 | `convert` | `/v1/convert` | `POST ""` → `Job` |
 | `separate` | `/v1/separate` | `GET presets`, `POST ""` → `Job` |
-| `train` | `/v1/train` | Experiment CRUD, `dataset/scan`, `speakers`, `speakers/from-folders`, `run` → `Job`, `stop`, `metrics?since=`, `checkpoints`, `export` → `Job`, `try` (temporary voice), `POST /import` (legacy experiment) |
+| `train` | `/v1/train` | Experiment CRUD, `dataset/scan`, `PUT/DELETE dataset/files` (uploaded audio), `speakers`, `speakers/from-folders`, `run` → `Job`, `stop`, `metrics?since=`, `checkpoints`, `samples` (one rendered training clip per save), `export` → `Job`, `try` (temporary voice), `POST /import` (legacy experiment) |
 | `jobs` | `/v1/jobs` | List (`state` can be a specific state or `active`/`finished`), `DELETE ""` (clear finished jobs, keep outputs), individual job, `log?offset=`, `cancel`, `retry`, `run-anyway`, delete |
 | `live` | `/v1/live` | `GET state`, `POST start/stop`, `PATCH voice`, `PATCH stream`, `PUT voice-model`, `PUT/GET devices`, `POST devices/check`, `POST devices/test-tone`, `POST meter`, `POST passthrough`, `POST/DELETE recording` |
 

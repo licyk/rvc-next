@@ -77,6 +77,9 @@ Click **Save** when finished. Exported voices include these speaker names.
 
 </Tab>
 </Tabs>
+
+**Add audio from this computer**: drop audio files, or a zip of them, on the drop zone (or click it) to upload them into the experiment's own `dataset_upload/` folder; the dataset then points there, so a server you reach from another machine needs no folder of its own. With **Several speakers**, upload a zip whose top-level folders follow `Name_ID_Repeat` (as above): they become the speaker table. Uploads add to what is there; **Remove the uploaded audio** empties the folder. Zip members outside audio files, hidden files and `__MACOSX` are skipped.
+
 **Clean the dataset first**: select a separation preset to run vocal separation on the whole dataset before slicing (for example, to remove accompaniment or reverb). Results are stored in the experiment's `dataset_clean/`; original files are unchanged. The default is **No clean-up**. Presets are the same as on **Separate**, and the required separation models must be downloaded first.
 
 **Scan dataset**: this button scans the dataset and generates a report:

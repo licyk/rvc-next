@@ -319,6 +319,11 @@ export default {
     queued: '分离已加入队列',
   },
   train: {
+    upload: '从这台电脑添加音频',
+    uploadHint: '音频文件或它们的 zip，保存在实验文件夹中',
+    uploadSpeakers: '从这台电脑添加说话人',
+    uploading: '正在上传 {name}（第 {n} 个，共 {total} 个）…',
+    clearUploads: '删除已上传的音频',
     previews: '每次保存时渲染一段样例',
     previewsHint: '用每次保存时的音色渲染一段训练片段：可以与原片段对比，听出它的进步。',
     advanced: '高级',
@@ -493,6 +498,7 @@ export default {
     merge: { title: '融合两个音色', a: '第一个音色', b: '第二个音色', alpha: '第一个音色的权重', name: '新音色名称', run: '融合' },
     extract: { title: '从检查点提取音色', checkpoint: '检查点（G_*.pth 路径或 <实验>/<文件>）', name: '新音色名称', run: '提取', auto: '从实验读取' },
     detail: {
+      download: '下载音色（.pth 和索引，zip 格式）',
       info: '信息',
       sampleRate: '采样率',
       version: '版本',

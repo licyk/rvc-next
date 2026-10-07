@@ -18,6 +18,7 @@ from rvc_next.cli.commands.model import (
     model_catalog,
     model_download,
     model_edit,
+    model_export,
     model_extract,
     model_import,
     model_info,
@@ -68,6 +69,7 @@ def get_app() -> typer.Typer:
     model_cli.command(help="Download ready-made voices into the library", name="download")(model_download)
     model_cli.command(help="Rename a voice or name its speakers", name="edit")(model_edit)
     model_cli.command(help="Remove a voice", name="remove")(model_remove)
+    model_cli.command(help="Write a voice and its indexes to a zip", name="export")(model_export)
     model_cli.command(help="Merge two voices", name="merge")(model_merge)
     model_cli.command(help="Extract a voice from a training checkpoint", name="extract")(model_extract)
     index_cli = typer_factory(help="Retrieval indexes")

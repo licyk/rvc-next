@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import { uploadRaw } from '@/api/client';
 import { useBaseModels } from '@/api/queries/imports';
 import { useSeparationPresets } from '@/api/queries/separate';
 import { fetchMetrics, useCheckpoints, useExperiment, useExperimentMutations, useTrainingSamples } from '@/api/queries/train';
@@ -20,7 +21,7 @@ import { formatBytes, formatDate } from '@/format';
 import { useHandoffStore } from '@/stores/handoff';
 import { useJobsStore } from '@/stores/jobs';
 import { useTrainStore } from '@/stores/train';
-import { AppButton, AppCard, AppDialog, Badge, ConfirmDialog, EmptyState, IconButton, PathField, SegmentedControl, SelectField, Surface, Switch, TextField, icons, useSnackbar } from '@/ui';
+import { AppButton, AppCard, AppDialog, Badge, ConfirmDialog, DropZone, EmptyState, IconButton, PathField, ProgressBar, SegmentedControl, SelectField, Surface, Switch, TextField, icons, useSnackbar } from '@/ui';
 
 const props = defineProps<{ name: string }>();
 const { t, tOr, locale } = useI18n();
@@ -73,6 +74,29 @@ function saveDataset() {
   error.value = null;
   m.update.mutate({ name: props.name, patch: { dataset: dataset.value } }, { onSuccess: set, onError: onErr });
 }
+// Audio from this computer, into the experiment's own dataset folder (a server folder is not needed).
+const uploading = ref<{ name: string; done: number; total: number } | null>(null);
+async function onDatasetFiles(files: File[]) {
+  error.value = null;
+  try {
+    let latest: Experiment | null = null;
+    for (const [i, file] of files.entries()) {
+      uploading.value = { name: file.name, done: i, total: files.length };
+      latest = await uploadRaw<Experiment>(`/api/v1/train/experiments/${encodeURIComponent(props.name)}/dataset/files`, { filename: file.name }, file);
+    }
+    if (latest) set(latest);
+    await exp.refetch();
+  } catch (e) {
+    error.value = e;
+  } finally {
+    uploading.value = null;
+  }
+}
+const uploadedHere = computed(() => !!dataset.value?.folder && !!exp.data.value && dataset.value.folder.startsWith(exp.data.value.path) && dataset.value.folder.endsWith('dataset_upload'));
+function clearUploads() {
+  m.clearUploads.mutate(props.name, { onSuccess: set, onError: onErr });
+}
+
 function scan() {
   error.value = null;
   m.scan.mutate(props.name, { onSuccess: (r) => (report.value = r), onError: onErr });
@@ -182,6 +206,19 @@ const num = (v: unknown) => (v === '' || v === null || v === undefined ? null : 
               <AppButton variant="text" @click="browseOpen = true">{{ t('common.browse') }}</AppButton>
             </div>
             <SpeakerTable v-else v-model="dataset.speakers" @from-folders="fromFolders" />
+            <DropZone
+              :label="dataset.mode === 'multi' ? t('train.uploadSpeakers') : t('train.upload')"
+              :hint="dataset.mode === 'multi' ? '.zip' : t('train.uploadHint')"
+              :accept="dataset.mode === 'multi' ? '.zip' : 'audio/*,.zip'"
+              compact
+              :disabled="running || !!uploading"
+              @files="onDatasetFiles"
+            />
+            <div v-if="uploading" class="upload">
+              <span class="type-body-small muted">{{ t('train.uploading', { name: uploading.name, n: uploading.done + 1, total: uploading.total }) }}</span>
+              <ProgressBar :value="uploading.done / uploading.total" />
+            </div>
+            <AppButton v-if="uploadedHere" variant="text" :icon="icons.Trash2" :disabled="running" @click="clearUploads">{{ t('train.clearUploads') }}</AppButton>
             <SelectField :model-value="dataset.clean_preset ?? ''" :label="t('train.cleanPreset')" :options="cleanOptions" @update:model-value="dataset.clean_preset = $event || null" />
             <div class="actions">
               <AppButton variant="tonal" :icon="icons.Search" :loading="m.scan.isPending.value" @click="scan">{{ t('train.scan') }}</AppButton>
@@ -301,6 +338,7 @@ const num = (v: unknown) => (v === '' || v === null || v === undefined ? null : 
 .folder > :first-child { flex: 1; min-width: 0; }
 .form { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--app-space-3); }
 .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--app-space-2); }
+.upload { display: flex; flex-direction: column; gap: var(--app-space-1); }
 .actions.start { justify-content: flex-start; }
 .sub { margin: var(--app-space-2) 0 0; }
 .stages { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--app-space-2); }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import { downloadUrl, urls } from '@/api/client';
 import { useMeta } from '@/api/queries/app';
 import { useConvert } from '@/api/queries/convert';
 import { revealModel, useAttachIndexFile, useDeleteModel, useModel, useModelJobs, useSetIndexPath, useUpdateModel } from '@/api/queries/models';
@@ -159,6 +160,7 @@ function doDelete() {
       <header class="head">
         <IconButton :icon="icons.ArrowLeft" :label="t('common.back')" @click="router.push('/models')" />
         <h2 class="type-headline-small title">{{ voice.name }}</h2>
+        <IconButton :icon="icons.Download" :label="t('models.detail.download')" @click="downloadUrl(urls.modelArchive(id))" />
         <IconButton v-if="meta.data.value?.local" :icon="icons.FolderOpen" :label="t('common.reveal')" @click="revealModel(id).catch(onErr)" />
         <IconButton :icon="icons.Trash2" :label="voice.legacy ? t('models.detail.hide') : t('common.delete')" @click="deleteOpen = true" />
       </header>

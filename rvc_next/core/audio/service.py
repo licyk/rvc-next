@@ -7,11 +7,10 @@ import logging
 import os
 import shutil
 import time
-import zipfile
 from collections.abc import Iterable, Iterator
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import IO, Any, Literal, cast
+from typing import Any, Literal
 
 from rvc_next.core.audio.models import AudioFile, AudioInfo, AudioRef, BrowseEntry, BrowseListing, Output, OutputPage, Peaks
 from rvc_next.core.clock import new_id, now_iso
@@ -19,7 +18,7 @@ from rvc_next.core.db import Database
 from rvc_next.core.errors import InvalidPathError, NotFoundError, ValidationError
 from rvc_next.core.events import EventBus
 from rvc_next.core.events.models import OutputsAddedEvent, OutputsRemovedEvent
-from rvc_next.core.files import is_within, reveal, trash
+from rvc_next.core.files import is_within, reveal, trash, zip_stream
 from rvc_next.core.params import VoiceParamsModel
 from rvc_next.core.safety import unique_path, validate_name
 from rvc_next.core.settings import SettingsService
@@ -354,45 +353,7 @@ class AudioFileService:
 
     def zip_outputs(self, ids: list[str]) -> Iterator[bytes]:
         """A zip of the chosen outputs, produced in pieces."""
-        paths = [self.output_file(i) for i in ids]
-
-        class _Sink:
-            def __init__(self) -> None:
-                self.buf = bytearray()
-                self.pos = 0
-
-            def write(self, b: bytes) -> int:
-                self.buf += b
-                self.pos += len(b)
-                return len(b)
-
-            def tell(self) -> int:
-                return self.pos
-
-            def flush(self) -> None:
-                pass
-
-        sink = _Sink()
-        used: set[str] = set()
-        with zipfile.ZipFile(cast(IO[bytes], sink), "w", compression=zipfile.ZIP_STORED) as zf:
-            for p in paths:
-                name = p.name
-                n = 1
-                while name in used:
-                    name = f"{p.stem}_{n}{p.suffix}"
-                    n += 1
-                used.add(name)
-                with zf.open(name, "w", force_zip64=True) as dst, open(p, "rb") as src:
-                    while True:
-                        block = src.read(1024 * 1024)
-                        if not block:
-                            break
-                        dst.write(block)
-                        if sink.buf:
-                            yield bytes(sink.buf)
-                            sink.buf.clear()
-        if sink.buf:
-            yield bytes(sink.buf)
+        return zip_stream((p.name, p) for p in [self.output_file(i) for i in ids])
 
     def reveal(self, path: Path) -> None:
         reveal(path)
