@@ -5,6 +5,7 @@ import { useMeta, useSettings, useUpdateSettings } from '@/api/queries/app';
 import { useLiveControl, useLiveDevices } from '@/api/queries/live';
 import { useOutputs } from '@/api/queries/outputs';
 import type { LiveDevices, StreamParams, VoiceModel, VoiceParams } from '@/api/types';
+import { BrowserAudio, browserAudioProblem, type BrowserAudioStats } from '@/audio/browserAudio';
 import AssetGate from '@/components/AssetGate.vue';
 import DevicePanel from '@/components/DevicePanel.vue';
 import DevicePanelSkeleton from '@/components/DevicePanelSkeleton.vue';
@@ -18,8 +19,9 @@ import VoicePicker from '@/components/VoicePicker.vue';
 import { defaults, embedderAsset, pitchAssets } from '@/components/paramFields';
 import { useI18n } from '@/i18n';
 import { useLiveStore } from '@/stores/live';
+import { usePreferencesStore } from '@/stores/preferences';
 import { formatDuration } from '@/format';
-import { AppButton, AppMenu, ConfirmDialog, EmptyState, PageFooter, Surface, icons, type MenuItem } from '@/ui';
+import { AppButton, AppMenu, ConfirmDialog, PageFooter, SegmentedButton, Surface, icons, type MenuItem } from '@/ui';
 
 /**
  * Live: devices on top, voice and parameters in the middle (both hot), buffering below,
@@ -35,6 +37,44 @@ useLiveDevices(() => meta.data.value?.live_available !== false);
 const updateSettings = useUpdateSettings();
 const live = useLiveStore();
 const control = useLiveControl();
+const prefs = usePreferencesStore();
+
+// Audio: the server's sound cards, or this browser's microphone and speakers over the network
+// (the only choice when the server has no audio devices).
+const serverAudio = computed(() => meta.data.value?.live_available !== false);
+const audioMode = computed({
+  get: () => (serverAudio.value ? prefs.prefs.liveAudio : 'browser'),
+  set: (v: 'server' | 'browser') => {
+    if (!live.active) prefs.prefs.liveAudio = v;
+  },
+});
+const browserMode = computed(() => audioMode.value === 'browser');
+const audioOptions = computed(() => [
+  { value: 'server' as const, label: t('live.audio.server'), icon: icons.HardDrive },
+  { value: 'browser' as const, label: t('live.audio.browser'), icon: icons.Globe },
+]);
+const browserProblem = browserAudioProblem();
+let browserAudio: BrowserAudio | null = null;
+const browserStats = ref<BrowserAudioStats | null>(null);
+const connecting = ref(false);
+function stopBrowserAudio() {
+  browserAudio?.stop();
+  browserAudio = null;
+  browserStats.value = null;
+}
+function audioError(e: unknown) {
+  const name = (e as { name?: string } | null)?.name;
+  const key = name === 'NotAllowedError' ? 'denied' : name === 'NotFoundError' ? 'noMicrophone' : null;
+  return { code: 'browser_audio', message: key ? t(`live.browser.${key}`) : e instanceof Error ? e.message : String(e) };
+}
+// The session ended (stopped here, elsewhere, or by an error): let the microphone go.
+watch(
+  () => live.active,
+  (active, was) => {
+    if (was && !active) stopBrowserAudio();
+  },
+);
+onBeforeUnmount(stopBrowserAudio);
 
 const voiceId = ref<string | null>(null);
 const voice = ref<VoiceModel | null>(null);
@@ -103,13 +143,39 @@ function increaseBlock(ms: number) {
   onStream(next);
 }
 
-function start(allowFallback = false) {
+async function start(allowFallback = false) {
   if (!voiceId.value || !devices.value) return;
   error.value = null;
+  let browser: { sample_rate: number } | null = null;
+  if (browserMode.value) {
+    if (browserProblem) {
+      error.value = { code: 'browser_audio', message: t(`live.browser.${browserProblem}`) };
+      return;
+    }
+    stopBrowserAudio();
+    const audio = new BrowserAudio();
+    connecting.value = true;
+    try {
+      browser = { sample_rate: await audio.start() };
+    } catch (e) {
+      error.value = audioError(e);
+      return;
+    } finally {
+      connecting.value = false;
+    }
+    audio.onStats = (s) => (browserStats.value = s);
+    audio.onClose = () => {
+      if (browserAudio !== audio) return;
+      stopBrowserAudio();
+      error.value = { code: 'browser_audio', message: t('live.browser.disconnected') };
+    };
+    browserAudio = audio;
+  }
   control.start.mutate(
-    { voice_id: voiceId.value, params: params.value, stream: stream.value, devices: devices.value, allow_output_fallback: allowFallback },
+    { voice_id: voiceId.value, params: params.value, stream: stream.value, devices: devices.value, allow_output_fallback: allowFallback, browser },
     {
       onError: (e) => {
+        stopBrowserAudio();
         if (e instanceof ApiError && e.code === 'device_unavailable' && e.detail.reason === 'fallback') fallbackOpen.value = true;
         else error.value = e;
       },
@@ -117,7 +183,7 @@ function start(allowFallback = false) {
   );
 }
 // Between the click and the server's first state the request is under way: say so at once.
-const requested = computed(() => control.start.isPending.value && !live.active);
+const requested = computed(() => (connecting.value || control.start.isPending.value) && !live.active);
 const buttonText = computed(() => {
   if (live.busy) return tOr(live.statusKey, live.state.state);
   if (requested.value) return t('live.states.starting');
@@ -146,48 +212,56 @@ function record(source: string) {
 
 <template>
   <div class="live">
-    <EmptyState v-if="meta.data.value && !meta.data.value.live_available" :icon="icons.Unplug" :title="t('live.unavailable')" />
-    <template v-else>
-      <div class="sections">
-        <Surface :level="0" shape="large" class="section">
+    <div class="sections">
+      <Surface :level="0" shape="large" class="section">
+        <SegmentedButton v-if="serverAudio" v-model="audioMode" :options="audioOptions" class="audio-mode" />
+        <div v-if="browserMode" class="browser">
+          <h2 class="type-title-medium title">{{ t('live.browser.title') }}</h2>
+          <p class="type-body-medium muted">{{ t(serverAudio ? 'live.browser.intro' : 'live.browser.only') }}</p>
+          <ErrorNotice v-if="browserProblem" :error="{ code: 'browser_audio', message: t(`live.browser.${browserProblem}`) }" />
+          <p v-if="browserStats" class="type-body-small muted">
+            {{ t('live.browser.stats', { buffered: Math.round(browserStats.bufferedMs), underruns: browserStats.underruns }) }}
+          </p>
+        </div>
+        <template v-else>
           <DevicePanel v-if="devices" v-model="devices" :running="running" @change="onDevices" />
           <ErrorNotice v-else-if="settings.error.value" :error="settings.error.value" />
           <DevicePanelSkeleton v-else />
-        </Surface>
-        <Surface :level="0" shape="large" class="section">
-          <VoicePicker v-model="voiceId" v-model:speaker="speaker" @voice="onVoice" />
-          <VoiceParamsPanel :model-value="params" :voice="voice" live @update:model-value="params = $event" @change="onParams" />
-        </Surface>
-        <Surface :level="0" shape="large" class="section">
-          <StreamParamsPanel v-model="stream" @change="onStream" />
-          <EffectsPanel live :model-value="stream.effects ?? []" @update:model-value="stream = { ...stream, effects: $event }" @change="onStream({ ...stream, effects: $event })" />
-        </Surface>
-        <Surface v-if="recordingItems.length" :level="0" shape="large" class="section">
-          <h2 class="type-title-medium title">{{ t('live.recordings') }}</h2>
-          <ResultsList :outputs="recordingItems" />
-        </Surface>
+        </template>
+      </Surface>
+      <Surface :level="0" shape="large" class="section">
+        <VoicePicker v-model="voiceId" v-model:speaker="speaker" @voice="onVoice" />
+        <VoiceParamsPanel :model-value="params" :voice="voice" live @update:model-value="params = $event" @change="onParams" />
+      </Surface>
+      <Surface :level="0" shape="large" class="section">
+        <StreamParamsPanel v-model="stream" @change="onStream" />
+        <EffectsPanel live :model-value="stream.effects ?? []" @update:model-value="stream = { ...stream, effects: $event }" @change="onStream({ ...stream, effects: $event })" />
+      </Surface>
+      <Surface v-if="recordingItems.length" :level="0" shape="large" class="section">
+        <h2 class="type-title-medium title">{{ t('live.recordings') }}</h2>
+        <ResultsList :outputs="recordingItems" />
+      </Surface>
+    </div>
+    <PageFooter>
+      <ErrorNotice v-if="error" :error="error" />
+      <ErrorNotice v-else-if="live.state.error" :error="live.state.error" />
+      <div class="bar">
+        <AssetGate :assets="required">
+          <AppButton class="start" :icon="running ? icons.Square : icons.Mic" :loading="live.busy || requested" :disabled="!voiceId && !running" @click="toggle">{{ buttonText }}</AppButton>
+        </AssetGate>
+        <span v-if="!voiceId && !running" class="type-body-small muted">{{ t('live.noVoice') }}</span>
+        <AppButton v-if="live.state.recording" variant="tonal" :icon="icons.Square" :loading="control.stopRecording.isPending.value" @click="control.stopRecording.mutate()">
+          {{ t('live.stopRecording', { time: recordedFor }) }}
+        </AppButton>
+        <AppMenu v-else-if="live.state.state === 'running'" :items="recordMenu" @select="record">
+          <template #default="{ toggle: open }">
+            <AppButton variant="tonal" :icon="icons.CircleDot" :loading="control.startRecording.isPending.value" @click="open">{{ t('live.record') }}</AppButton>
+          </template>
+        </AppMenu>
+        <LiveStatsBar class="stats" @increase-block="increaseBlock" />
       </div>
-      <PageFooter>
-        <ErrorNotice v-if="error" :error="error" />
-        <ErrorNotice v-else-if="live.state.error" :error="live.state.error" />
-        <div class="bar">
-          <AssetGate :assets="required">
-            <AppButton class="start" :icon="running ? icons.Square : icons.Mic" :loading="live.busy || requested" :disabled="!voiceId && !running" @click="toggle">{{ buttonText }}</AppButton>
-          </AssetGate>
-          <span v-if="!voiceId && !running" class="type-body-small muted">{{ t('live.noVoice') }}</span>
-          <AppButton v-if="live.state.recording" variant="tonal" :icon="icons.Square" :loading="control.stopRecording.isPending.value" @click="control.stopRecording.mutate()">
-            {{ t('live.stopRecording', { time: recordedFor }) }}
-          </AppButton>
-          <AppMenu v-else-if="live.state.state === 'running'" :items="recordMenu" @select="record">
-            <template #default="{ toggle: open }">
-              <AppButton variant="tonal" :icon="icons.CircleDot" :loading="control.startRecording.isPending.value" @click="open">{{ t('live.record') }}</AppButton>
-            </template>
-          </AppMenu>
-          <LiveStatsBar class="stats" @increase-block="increaseBlock" />
-        </div>
-      </PageFooter>
-      <ConfirmDialog v-model:open="fallbackOpen" :title="t('devices.output')" :message="t('live.confirmFallback')" :confirm-label="t('live.startAnyway')" :cancel-label="t('common.cancel')" @confirm="start(true)" />
-    </template>
+    </PageFooter>
+    <ConfirmDialog v-model:open="fallbackOpen" :title="t('devices.output')" :message="t('live.confirmFallback')" :confirm-label="t('live.startAnyway')" :cancel-label="t('common.cancel')" @confirm="start(true)" />
   </div>
 </template>
 
@@ -200,6 +274,10 @@ function record(source: string) {
 .start { --md-filled-button-container-height: 56px; min-width: 160px; }
 .stats { flex: 1; min-width: 0; }
 .title { margin: 0; }
+.audio-mode { align-self: flex-start; }
+.browser { display: flex; flex-direction: column; gap: var(--app-space-2); }
+.browser p { margin: 0; }
+.muted { color: var(--md-sys-color-on-surface-variant); }
 @container app-content (max-width: 599px) {
   .sections { padding: var(--app-space-3); }
   .section { padding: var(--app-space-4); }

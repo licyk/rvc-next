@@ -125,11 +125,18 @@ If you call the API from another page or tool (such as your own frontend), add i
 rvc-next config set server.allowed_origins '["http://localhost:5173"]'
 ```
 
-## Live voice conversion uses the server's devices [#live-devices]
+## Live voice conversion: the server's devices or the browser's [#live-devices]
 
-Live voice conversion runs on **the server computer**: microphone input, converted output, and monitoring all use that computer's audio devices, rather than the device on which you opened the page. The device panel title names the host (**Audio devices on &lt;host>**); remote sessions also show **These devices belong to the server machine, not this browser.**
+Live voice conversion runs on **the server computer**. With **Server devices** (the default), microphone input, converted output and monitoring use that computer's audio devices, not the device on which you opened the page. The device panel title names the host (**Audio devices on &lt;host>**); remote sessions also show **These devices belong to the server machine, not this browser.** The command `rvc-next live devices` likewise lists devices on the server machine.
 
-Opening the Web UI on a phone or another computer lets you remotely control live voice conversion on the server (start, stop, adjust parameters), but does not send in the phone's microphone. The command `rvc-next live devices` likewise lists devices on the server machine.
+With **This browser** at the top of the Live page, the microphone of the phone or computer you opened the page on goes to the server, and the converted voice plays there ([Use this browser's microphone](/docs/guide-live#browser-audio)). Browsers allow a page to use the microphone only over **HTTPS**, or on the server itself (`localhost`). For other computers, give the server a certificate:
+
+```bash
+rvc-next webui --host 0.0.0.0 --ssl-certfile cert.pem --ssl-keyfile key.pem
+# or once: rvc-next config set server.ssl_certfile /path/cert.pem (and server.ssl_keyfile)
+```
+
+A self-signed certificate works after the browser's warning is accepted (`openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 365 -subj /CN=my-pc`). A reverse proxy that terminates HTTPS works too; it must forward the WebSocket at `/api/v1/live/browser-audio` as well as those under `/ws/`.
 
 ## Reverse proxies
 
@@ -137,7 +144,7 @@ The code has no specific support for running behind a reverse proxy and no confi
 
 - When the server listens only locally, the forwarded `Host` must be `localhost` or `127.0.0.1` (otherwise 400 `bad_host`);
 - The browser sends the proxy's address as its `Origin`, which differs from the forwarded `Host`; add it to `server.allowed_origins`;
-- Forward WebSocket connections under `/ws/`;
+- Forward WebSocket connections under `/ws/`, and `/api/v1/live/browser-audio` (browser audio);
 - The server identifies "local" by the connection source. If the proxy and server are on the same computer and the proxy does not pass on client addresses, all visitors are treated as local and can browse server files. Always set an access token.
 
 ## Related pages

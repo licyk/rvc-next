@@ -22,6 +22,16 @@ This means `sounddevice` (the Python wrapper for PortAudio) is not installed in 
 
 The next time you open the page, your previous devices, voice, parameters and buffer settings are restored automatically. Just click **Start**.
 
+## Use this browser's microphone [#browser-audio]
+
+At the top of the page, **Server devices** and **This browser** choose where the audio comes from and goes to. **This browser** uses the microphone and speakers of the device the page is open on — a laptop or phone talking to an rvc-next on another computer, or a server without any sound card (then it is the only choice): the browser sends its microphone to the server over a WebSocket and plays the converted voice from a small jitter buffer (60 ms, refilled after a dropout; more than 250 ms waiting is dropped).
+
+- **Start** asks for the microphone the first time; allow it. The browser's own echo cancellation, noise suppression and automatic gain are turned off, as they would fight the conversion — wear headphones.
+- The session runs at the browser's audio rate (usually 48 or 44.1 kHz). Voice, parameters, buffering, effects, gains (from **Settings › Audio**) and recording work as with server devices; monitoring, the input meter and **Test** belong to server devices.
+- The latency is the one shown plus the network's round trip and the 60 ms buffer. A wired or good Wi-Fi network on the same site keeps it small; the line under the title shows the buffer and the dropouts.
+- Browsers allow the microphone only over HTTPS or on `localhost`; see [Remote access](/docs/advanced-remote#live-devices) to serve HTTPS.
+- Closing the tab, or losing the connection for 3 seconds, stops the session. Only one browser can be connected at a time: a newer one takes over.
+
 ## Audio devices
 
 The device panel is titled **Audio devices on \{host\}**, reminding you that these devices belong to the server machine. If you open the page remotely from another computer, it also shows: **These devices belong to the server machine, not this browser.** The **Refresh devices** button at the top right rescans devices. While stopped, the panel also refreshes automatically every 5 seconds when the page is visible.

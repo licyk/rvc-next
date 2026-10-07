@@ -98,6 +98,8 @@ rvc-next config set server.access_token null # 清除令牌
 | `server.open_browser` | bool | `true` | 启动后打开浏览器 |
 | `server.access_token` | str? | 空 | 访问令牌；设置后所有 API 和 WebSocket 请求都要携带 |
 | `server.allowed_origins` | list[str] | `[]` | 允许发起修改请求的其他来源（Origin），并为它们开启 CORS |
+| `server.ssl_certfile` | str \| null | `null` | PEM 证书：以 HTTPS 提供服务。其他电脑上的浏览器只在 HTTPS 下允许使用麦克风（实时变声的 **本浏览器**） |
+| `server.ssl_keyfile` | str \| null | `null` | 证书的私钥（证书文件不包含私钥时） |
 
 ### `paths`：文件夹
 
@@ -208,7 +210,7 @@ rvc-next config set server.access_token null # 清除令牌
 
 | 设置 | 何时生效 |
 | --- | --- |
-| `server.host`、`server.port`、`server.strict_port`、`server.open_browser` | 下次启动服务器（Web UI 中标注 **下次启动服务器时生效。**） |
+| `server.host`、`server.port`、`server.strict_port`、`server.open_browser`、`server.ssl_certfile`、`server.ssl_keyfile` | 下次启动服务器（Web UI 中标注 **下次启动服务器时生效。**） |
 | `server.access_token` | 立即 |
 | `server.allowed_origins` | Origin 检查立即生效；CORS 响应头在启动时配置，需要重启 |
 | `paths.*` | 立即；Web UI 修改后会重新扫描音色库 |

@@ -51,6 +51,8 @@ class Client:
     def __init__(self, conn: AnyConnection) -> None:
         self.conn = conn
         self.events: list[P.Message] = []
+        self.audio: list[bytes] = []
+        """Converted samples of a browser-audio session."""
         self._lock = threading.Lock()
         self._thread = threading.Thread(target=self._read, daemon=True)
         self._thread.start()
@@ -61,6 +63,11 @@ class Client:
                 data = self.conn.recv_bytes()
             except (EOFError, OSError):
                 return
+            pcm = P.audio_payload(data)
+            if pcm is not None:
+                with self._lock:
+                    self.audio.append(pcm)
+                continue
             msg = P.decode(data)
             if msg is not None:
                 with self._lock:
@@ -290,3 +297,27 @@ def test_release_memory_when_idle_and_unload_on_out_of_memory(worker) -> None:
     last = client.of(P.State)[-1]
     assert last.error["code"] == "compute_unavailable" and last.error["detail"] == {"reason": "out_of_memory"}
     assert last.cached == [] and w.engine is None
+
+
+def test_browser_audio_session(worker) -> None:
+    """Start with the browser as both devices: microphone frames in, as many converted samples back."""
+    from rvc_next.engine.audio_io.browser import browser_device, float_to_pcm16, pcm16_to_float
+
+    w, client, _backend, tmp = worker
+    voice = make_tiny_voice(tmp / "a.pth")
+    ep = {"device": browser_device(16000), "channels": None, "sample_rate": 16000, "exclusive": False}
+    config = start_config(voice)
+    config["devices"] = {"input": ep, "output": dict(ep), "monitor": None, "monitor_source": "converted", "monitor_gain_db": 0.0, "output_gain_db": 0.0, "input_gain_db": 0.0}
+    client.send(P.Start(config=config))
+    assert client.wait_state("running")
+    assert client.of(P.State)[-1].topology == "duplex" and client.of(P.State)[-1].sample_rate == 16000
+    t = np.arange(16000 * 3) / 16000
+    tone = (0.3 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+    for i in range(0, tone.shape[0], 320):
+        client.conn.send_bytes(P.encode_audio(float_to_pcm16(tone[i : i + 320])))
+        time.sleep(0.01)
+    assert client.wait(lambda: sum(len(p) for p in client.audio) >= 2 * tone.shape[0])
+    out = np.concatenate([pcm16_to_float(p) for p in client.audio])
+    assert out.shape[0] == tone.shape[0] and np.abs(out[-8000:]).max() > 0.01  # converted voice, not silence
+    client.send(P.Stop())
+    assert client.wait_state("stopped")

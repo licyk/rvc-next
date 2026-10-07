@@ -414,6 +414,16 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   one lock (`LiveService._control`), so a switch and the speaker change it causes cannot interleave;
   the worker answers every `SetVoice` with `State.voice_path` (the voice now converting — the old
   one, with `detail.reason == "voice_load"`, when the new one fails) and the state follows it.
+- **Browser audio** (`engine/audio_io/browser.py`, `LiveConfig.browser`, WebSocket `/live/browser-audio`):
+  the browser's microphone and speakers instead of the server's devices. The browser's clock drives
+  a duplex `BrowserBackend` stream: each microphone frame that arrives runs the callback, and as
+  many converted samples go back, so `AudioSession` runs unchanged. PCM (mono s16le) rides the worker
+  connection behind `P.AUDIO_PREFIX`; the worker feeds it on its receive thread while commands run
+  on a control thread (a voice load must not starve the stream; stall limit 3 s). One `BrowserLink`
+  at a time; its close, or the worker's device-lost, stops a browser session. The page's AudioWorklet
+  (`webui/src/audio/browserAudio.ts`) frames the mic at 20 ms and plays from a 60 ms jitter buffer.
+  `NoDevices` stands in when PortAudio cannot load, so a headless server still runs browser Live.
+  Remote browsers need HTTPS for the microphone: `server.ssl_certfile`/`ssl_keyfile`, `webui --ssl-*`.
 - **Measured latency** (`engine/audio_io/loopback.py`, `POST /live/devices/latency-test`, `live
   latency`, **Measure latency**): the devices worker opens an `AudioSession` with a
   `LoopbackProbe` as its processor, plays four distinct band-limited noise bursts and finds each in

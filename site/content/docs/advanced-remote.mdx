@@ -125,11 +125,18 @@ rvc-next config set paths.browse_roots '["D:/music", "D:/datasets"]'
 rvc-next config set server.allowed_origins '["http://localhost:5173"]'
 ```
 
-## 实时变声使用服务器的设备 [#live-devices]
+## 实时变声：服务器的设备或浏览器的设备 [#live-devices]
 
-实时变声在**服务器所在的电脑**上运行：麦克风输入、变声输出和监听都使用这台电脑的音频设备，而不是你打开网页的那台设备。设备面板的标题会写明主机名（**&lt;主机名> 上的音频设备**），远程访问时还会提示 **这些设备属于服务器所在的电脑，而不是此浏览器。**
+实时变声在**服务器所在的电脑**上运行。选 **服务器设备**（默认）时，麦克风输入、变声输出和监听都使用这台电脑的音频设备，而不是你打开网页的那台设备。设备面板的标题会写明主机名（**&lt;主机名> 上的音频设备**），远程访问时还会提示 **这些设备属于服务器所在的电脑，而不是此浏览器。** 命令行的 `rvc-next live devices` 同样列出服务器本机的设备。
 
-因此，从手机或另一台电脑打开 Web UI 时，可以远程控制服务器上的实时变声（开始、停止、调参数），但不能把手机的麦克风送进去。命令行的 `rvc-next live devices` 同样列出服务器本机的设备。
+在实时页顶部选 **本浏览器** 时，打开网页的手机或电脑的麦克风会发送到服务器，转换后的声音在那台设备上播放（[使用本浏览器的麦克风](/docs/guide-live#browser-audio)）。浏览器只允许 **HTTPS** 页面或服务器本机（`localhost`）上的页面使用麦克风。要从其他电脑使用，请给服务器配置证书：
+
+```bash
+rvc-next webui --host 0.0.0.0 --ssl-certfile cert.pem --ssl-keyfile key.pem
+# 或一次性设置：rvc-next config set server.ssl_certfile /path/cert.pem（以及 server.ssl_keyfile）
+```
+
+自签名证书在浏览器中确认警告后即可使用（`openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 365 -subj /CN=my-pc`）。由反向代理终止 HTTPS 也可以；它除了转发 `/ws/` 下的 WebSocket，还需要转发 `/api/v1/live/browser-audio`。
 
 ## 反向代理
 
@@ -137,7 +144,7 @@ rvc-next config set server.allowed_origins '["http://localhost:5173"]'
 
 - 服务器只监听本机时，代理转发的 `Host` 必须是 `localhost` 或 `127.0.0.1`（否则 400 `bad_host`）；
 - 浏览器发出的 `Origin` 是代理的地址，与转发后的 `Host` 不一致，需要把它加入 `server.allowed_origins`；
-- 需要转发 `/ws/` 的 WebSocket 连接；
+- 需要转发 `/ws/` 的 WebSocket 连接，以及 `/api/v1/live/browser-audio`（浏览器音频）；
 - 服务器以连接来源判断"本机"。代理和服务器在同一台电脑上、且代理不传递客户端地址时，所有访问者都会被当作本机，可以浏览服务器文件。无论如何都应设置访问令牌。
 
 ## 相关页面

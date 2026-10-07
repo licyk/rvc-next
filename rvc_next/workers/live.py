@@ -13,6 +13,7 @@ reports it and waits in ``reconnecting`` for ``set_devices`` (the reconnect poli
 from __future__ import annotations
 
 import logging
+import queue
 import sys
 import threading
 import traceback
@@ -21,6 +22,8 @@ from multiprocessing.connection import Client, Connection
 from pathlib import Path
 from typing import Any
 
+from rvc_next.engine.audio_io.browser import STALL_SECONDS as BROWSER_STALL_SECONDS
+from rvc_next.engine.audio_io.browser import BrowserBackend, NoDevices, is_browser
 from rvc_next.engine.audio_io.fake import backend_from_request
 from rvc_next.engine.audio_io.recorder import Recorder
 from rvc_next.engine.audio_io.streams import AudioSession, DeviceOpenError, Endpoint, SessionConfig, engine_rate
@@ -88,7 +91,14 @@ class LiveWorker:
     def __init__(self, conn: AnyConnection, request: P.WorkerRequest, backend: Any = None, runtime: Any = None) -> None:
         self.conn = conn
         self.request = request
-        self.backend = backend if backend is not None else backend_from_request(request.backend, request.enable_asio, request.fake)
+        if backend is None:
+            try:
+                backend = backend_from_request(request.backend, request.enable_asio, request.fake)
+            except (ImportError, OSError) as e:  # no sounddevice, or no PortAudio library
+                backend = NoDevices(str(e))
+        self.backend = backend
+        self.browser = BrowserBackend(self._send_audio)
+        """The browser's microphone and speakers, for a session whose endpoints are the browser's."""
         self.runtime = runtime
         self._send_lock = threading.Lock()
         self._lock = threading.RLock()
@@ -117,6 +127,13 @@ class LiveWorker:
         with self._send_lock:
             try:
                 self.conn.send_bytes(P.encode(message))
+            except (OSError, EOFError, BrokenPipeError):
+                self._closed.set()
+
+    def _send_audio(self, pcm: bytes) -> None:
+        with self._send_lock:
+            try:
+                self.conn.send_bytes(P.encode_audio(pcm))
             except (OSError, EOFError, BrokenPipeError):
                 self._closed.set()
 
@@ -185,30 +202,46 @@ class LiveWorker:
     # -- the main loop ------------------------------------------------------------------------------------
 
     def serve(self) -> None:
+        """Receive until Shutdown or the connection closes. Commands run in order on their own thread,
+        so a slow one (a voice loading) never holds up the browser's audio frames, which this thread
+        feeds straight to the stream."""
         self._stats_thread.start()
         self.set_state("stopped")
+        commands: queue.Queue[P.Message | None] = queue.Queue()
+        control = threading.Thread(target=self._control_loop, args=(commands,), name="rvc-live-control", daemon=True)
+        control.start()
         try:
             while not self._closed.is_set():
                 try:
                     data = self.conn.recv_bytes()
                 except (EOFError, OSError):
                     break
+                pcm = P.audio_payload(data)
+                if pcm is not None:
+                    self.browser.feed(pcm)
+                    continue
                 message = P.decode(data)
                 if message is None:
                     self.log("warning", f"Ignored a malformed message: {data[:200]!r}")
                     continue
                 if isinstance(message, P.Shutdown):
                     break
-                try:
-                    self.handle(message)
-                except Exception as e:
-                    self.log("error", traceback.format_exc())
-                    self._stop_sessions()
-                    self.set_state("error", self._failure(e))
+                commands.put(message)
         finally:
+            commands.put(None)
+            control.join(timeout=30)
             self._closed.set()
             self._stop_sessions()
             self.state = "stopped"
+
+    def _control_loop(self, commands: queue.Queue[P.Message | None]) -> None:
+        while (message := commands.get()) is not None:
+            try:
+                self.handle(message)
+            except Exception as e:
+                self.log("error", traceback.format_exc())
+                self._stop_sessions()
+                self.set_state("error", self._failure(e))
 
     def handle(self, message: P.Message) -> None:
         with self._lock:
@@ -286,14 +319,16 @@ class LiveWorker:
         if self._cold:
             self.engine.prewarm()
             self._cold = False
+        browser = is_browser(cfg.input)
         session = AudioSession(
-            self.backend,
+            self.browser if browser else self.backend,
             cfg,
             self.engine.block_size,
             self.engine.sample_rate,
             processor=self.engine.process,
             on_device_lost=self._device_lost,
             on_error=self._processing_failed,
+            stall_seconds=BROWSER_STALL_SECONDS if browser else None,
         )
         session.passthrough = self.passthrough
         try:

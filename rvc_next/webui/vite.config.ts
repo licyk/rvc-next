@@ -84,7 +84,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': apiProxy(),
+      '/api': apiProxy(true), // the browser-audio WebSocket is under /api
       '/openapi.json': apiProxy(),
       '/ws': apiProxy(true),
     },

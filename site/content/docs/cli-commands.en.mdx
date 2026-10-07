@@ -45,6 +45,8 @@ rvc-next webui [OPTIONS]
 | `--data-dir <directory>` | Data directory (settings, database, models, outputs) | `RVC_NEXT_DATA_DIR` or the system default location |
 | `--config-dir <directory>` | Folder for `settings.toml` | `RVC_NEXT_CONFIG_DIR` or the data directory |
 | `--api-prefix <str>` | Serve the API, the socket and the Web UI under this path, e.g. `/voice` | None |
+| `--ssl-certfile <file>` | PEM certificate: serve HTTPS (needed for **This browser** in Live from other computers) | `server.ssl_certfile` |
+| `--ssl-keyfile <file>` | The certificate's private key | `server.ssl_keyfile` |
 
 If the port is in use, subsequent ports are tried in order (up to 20), and the actual port is reported in the log. If all attempts fail, the command exits with code 3. Binding to a non-local address requires an access token first; otherwise the command exits with code 4 (see [Remote access and security](/docs/advanced-remote)). After a successful start, stdout prints one line: `SERVER_READY url=http://...`.
 

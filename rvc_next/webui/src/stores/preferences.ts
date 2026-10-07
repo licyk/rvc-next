@@ -23,6 +23,8 @@ export interface Preferences {
   separatePreset: string | null;
   /** The last text-to-speech voice. */
   ttsVoice: string | null;
+  /** Live's audio: the server's devices, or this browser's microphone and speakers. */
+  liveAudio: 'server' | 'browser';
   /** The shape of saved preferences; older ones are migrated on load (``merge``). */
   version: number;
 }
@@ -42,6 +44,7 @@ export const DEFAULTS: Preferences = {
   convertVoice: null,
   separatePreset: null,
   ttsVoice: null,
+  liveAudio: 'server',
   version: PREFERENCES_VERSION,
 };
 

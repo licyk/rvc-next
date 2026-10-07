@@ -2140,6 +2140,14 @@ export interface components {
             /** Roots */
             roots: string[];
         };
+        /**
+         * BrowserAudio
+         * @description The browser's microphone and speakers instead of the server's devices (browser audio).
+         */
+        BrowserAudio: {
+            /** Sample Rate */
+            sample_rate: number;
+        };
         /** BuildIndexRequest */
         BuildIndexRequest: {
             /** Experiment */
@@ -3496,6 +3504,8 @@ export interface components {
              * @default false
              */
             allow_output_fallback: boolean;
+            /** @default null */
+            browser: components["schemas"]["BrowserAudio"] | null;
         };
         /** LiveConfig */
         "LiveConfig-Input": {
@@ -3509,6 +3519,7 @@ export interface components {
              * @default false
              */
             allow_output_fallback?: boolean;
+            browser?: components["schemas"]["BrowserAudio"] | null;
         };
         /** LiveConfig */
         "LiveConfig-Output": {
@@ -3522,6 +3533,7 @@ export interface components {
              * @default false
              */
             allow_output_fallback: boolean;
+            browser: components["schemas"]["BrowserAudio"] | null;
         };
         /** LiveDevices */
         LiveDevices: {

@@ -29,9 +29,10 @@ class LiveSupervisor:
     ``on_exit`` is called once when the worker's connection closes, expectedly or not.
     """
 
-    def __init__(self, on_event: Callable[[Any], None], on_exit: Callable[[bool], None]) -> None:
+    def __init__(self, on_event: Callable[[Any], None], on_exit: Callable[[bool], None], on_audio: Callable[[bytes], None] | None = None) -> None:
         self._on_event = on_event
         self._on_exit = on_exit
+        self._on_audio = on_audio
         self._lock = threading.RLock()
         self._process: subprocess.Popen[str] | None = None
         self._conn: Connection | None = None
@@ -113,10 +114,27 @@ class LiveSupervisor:
             except OSError as e:
                 raise RvcNextError(f"The live worker is gone: {e}") from e
 
+    def send_audio(self, pcm: bytes) -> bool:
+        """Microphone samples for a browser-audio session; False when no worker runs."""
+        with self._lock:
+            conn = self._conn
+            if conn is None:
+                return False
+            try:
+                conn.send_bytes(P.encode_audio(pcm))
+            except OSError:
+                return False
+            return True
+
     def _read(self, conn: Connection) -> None:
         try:
             while True:
                 data = conn.recv_bytes()
+                pcm = P.audio_payload(data)
+                if pcm is not None:
+                    if self._on_audio is not None:
+                        self._on_audio(pcm)
+                    continue
                 message = P.decode(data)
                 if message is not None:
                     try:

@@ -3,6 +3,10 @@
 The core and the live worker exchange one JSON object per message over a
 ``multiprocessing.connection`` connection (``send_bytes``/``recv_bytes``). Every object carries a
 ``type``. Commands go to the worker; events come back.
+
+A browser-audio session (the browser's microphone and speakers instead of the server's devices)
+also sends raw audio both ways on the same connection: ``AUDIO_PREFIX`` and then mono 16-bit
+little-endian PCM at the session's rate (``encode_audio``). JSON never starts with that byte.
 """
 
 from __future__ import annotations
@@ -242,6 +246,19 @@ MESSAGE_TYPES: dict[str, Any] = {
 }
 
 STATS_FIELDS: tuple[str, ...] = tuple(f.name for f in fields(Stats) if f.name != "type")
+
+
+AUDIO_PREFIX = b"\x00pcm"
+
+
+def encode_audio(pcm: bytes) -> bytes:
+    """An audio frame: microphone samples to the worker, converted samples back."""
+    return AUDIO_PREFIX + pcm
+
+
+def audio_payload(data: bytes) -> bytes | None:
+    """The PCM of an audio frame; None for a JSON message."""
+    return data[len(AUDIO_PREFIX) :] if data[:1] == b"\x00" and data.startswith(AUDIO_PREFIX) else None
 
 
 def encode(message: Message) -> bytes:

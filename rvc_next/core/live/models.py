@@ -102,6 +102,13 @@ class ResolvedDevice(Record):
     message: str | None = None
 
 
+class BrowserAudio(Record):
+    """The browser's microphone and speakers instead of the server's devices (browser audio)."""
+
+    sample_rate: int = Field(ge=8000, le=192000)
+    """The browser's audio rate (its AudioContext's): the session runs at it."""
+
+
 class LiveConfig(Record):
     voice_id: str
     params: VoiceParamsModel = Field(default_factory=VoiceParamsModel)
@@ -109,6 +116,9 @@ class LiveConfig(Record):
     devices: LiveDevices = Field(default_factory=LiveDevices)
     allow_output_fallback: bool = False
     """Start even though the saved output device is gone and the system default would be used."""
+    browser: BrowserAudio | None = None
+    """Convert the browser's microphone and play to its speakers, over ``/live/browser-audio``,
+    instead of the server's devices (whose selection, ``devices``, is then left out but for its gains)."""
 
 
 class LiveStats(Record):

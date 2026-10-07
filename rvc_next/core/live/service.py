@@ -16,6 +16,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -67,6 +68,26 @@ METER_SETTLE = 0.3
 ACTIVE = ("starting", "loading", "prewarming", "running", "reconnecting")
 
 
+class BrowserLink:
+    """A browser's audio connection (``/live/browser-audio``): its microphone samples go to the live
+    worker, the converted ones come back through ``send``. One at a time; a new one replaces it."""
+
+    def __init__(self, service: LiveService, send: Callable[[bytes], None]) -> None:
+        self._service = service
+        self.send = send
+        self.received = 0
+        """Frames from the browser."""
+
+    def feed(self, pcm: bytes) -> None:
+        """Microphone samples (mono 16-bit PCM at the session's rate); dropped while no browser session runs."""
+        self.received += 1
+        if self._service._browser is self and self._service._browser_session():
+            self._service._supervisor.send_audio(pcm)
+
+    def close(self) -> None:
+        self._service._close_browser(self)
+
+
 class LiveService:
     def __init__(
         self,
@@ -108,11 +129,57 @@ class LiveService:
         self.backend = "sounddevice"
         """``fake`` in tests, with ``fake`` as the fake backend's configuration."""
         self.fake: dict[str, Any] | None = None
-        self._supervisor = LiveSupervisor(self._on_event, self._on_exit)
+        self._supervisor = LiveSupervisor(self._on_event, self._on_exit, self._on_audio)
+        self._browser: BrowserLink | None = None
         settings.on_keys_change(self._on_settings_keys)
         self._worker_cached: list[str] = []
         """The models the live worker keeps loaded, from its last state message."""
         compute.add_holder(MemoryHolder(LIVE_HOLDER, busy=self._busy, cached=self._cached, release=self._release_memory))
+
+    # -- browser audio -------------------------------------------------------------------
+
+    def open_browser_link(self, send: Callable[[bytes], None]) -> BrowserLink:
+        """Connect a browser's audio. ``send`` (thread-safe) carries converted samples to it."""
+        link = BrowserLink(self, send)
+        with self._lock:
+            old, self._browser = self._browser, link
+        if old is not None and self._browser_session():
+            logger.info("Live: another browser took over the browser audio")
+        return link
+
+    def _close_browser(self, link: BrowserLink) -> None:
+        with self._lock:
+            if self._browser is not link:
+                return
+            self._browser = None
+        if self._browser_session():
+            logger.info("Live: the browser's audio disconnected; stopping")
+            self.stop()
+
+    def _browser_session(self) -> bool:
+        with self._lock:
+            return self._state.state in ACTIVE and self._state.config is not None and self._state.config.browser is not None
+
+    def _on_audio(self, pcm: bytes) -> None:
+        link = self._browser
+        if link is not None:
+            link.send(pcm)
+
+    @staticmethod
+    def _browser_devices(sample_rate: int, devices: LiveDevices) -> dict[str, Any]:
+        """The worker's devices for a browser session: the browser both ways, the saved gains."""
+        from rvc_next.engine.audio_io.browser import browser_device
+
+        ep = {"device": browser_device(sample_rate), "channels": None, "sample_rate": sample_rate, "exclusive": False}
+        return {
+            "input": ep,
+            "output": dict(ep),
+            "monitor": None,
+            "monitor_source": "converted",
+            "monitor_gain_db": 0.0,
+            "output_gain_db": devices.output_gain_db,
+            "input_gain_db": devices.input_gain_db,
+        }
 
     # -- GPU memory ----------------------------------------------------------------------
 
@@ -160,6 +227,10 @@ class LiveService:
             with self._lock:
                 self._stats = stats
             self._events.publish(LiveStatsEvent(stats=stats))
+        elif isinstance(message, P.DeviceLost) and self._browser_session():
+            # Nothing to re-enumerate: the browser stopped sending (a closed or frozen tab).
+            logger.warning("Live: the browser stopped sending audio; stopping")
+            self.stop()
         elif isinstance(message, P.DeviceLost):
             logger.warning("Live: %s device lost (%s): %s", message.direction, message.reason, message.message)
             with self._lock:
@@ -644,7 +715,7 @@ class LiveService:
                 # Until Start reaches the worker, a "stopped" from it (a new worker announces itself so,
                 # an idle one answers the meter so) must not undo "starting".
                 self._awaiting_start = True
-            self._set_state(state="starting", stage="devices", voice_id=config.voice_id, config=config, error=None)
+            self._set_state(state="starting", stage="worker" if config.browser else "devices", voice_id=config.voice_id, config=config, error=None)
             try:
                 self._launch(config)
             except BaseException:
@@ -662,6 +733,9 @@ class LiveService:
     def _launch(self, config: LiveConfig) -> None:
         """The slow part of ``start``: resolve the devices against a fresh list, start the worker
         unless it runs, take the GPU lease and send Start. The state already says ``starting``."""
+        if config.browser is not None:
+            self._launch_browser(config)
+            return
         resolved = self.resolve(config.devices, self.devices(max_age=START_LIST_MAX_AGE))
         by_role = {r.role: r for r in resolved}
         for r in resolved:
@@ -689,6 +763,31 @@ class LiveService:
                     "params": config.params.model_dump(),
                     "stream": config.stream.model_dump(),
                     "devices": self._worker_devices(config.devices, resolved),
+                }
+            )
+        )
+
+    def _launch_browser(self, config: LiveConfig) -> None:
+        """``_launch`` for the browser's microphone and speakers: no devices to resolve."""
+        assert config.browser is not None
+        if self._browser is None:
+            raise ConflictError("The browser's audio is not connected: start from the Live page with “This browser” chosen", {"reason": "browser_not_connected"})
+        voice_path, index_path = self._voice_paths(config.voice_id, config.params.speaker_id)
+        if not self._supervisor.running:
+            self._set_state(stage="worker", resolved=[])
+        self._supervisor.ensure(self._worker_request(), env=self._worker_env())
+        if self._settings.settings.compute.device != "cpu":
+            self._compute.acquire_live()
+            self._jobs.notify()
+        self._set_state(state="starting", stage=None, resolved=[], error=None, meter=False, passthrough=False)
+        self._supervisor.send(
+            P.Start(
+                config={
+                    "voice_path": voice_path,
+                    "index_path": index_path,
+                    "params": config.params.model_dump(),
+                    "stream": config.stream.model_dump(),
+                    "devices": self._browser_devices(config.browser.sample_rate, config.devices),
                 }
             )
         )
@@ -753,7 +852,11 @@ class LiveService:
         with self._control:
             self._settings.update({"live": {"devices": devices.model_dump()}})
             current = self.state()
-            if current.state in ACTIVE and self._supervisor.running:
+            if current.state in ACTIVE and self._supervisor.running and current.config and current.config.browser:
+                # The browser stays the device; only the gains apply.
+                self._supervisor.send(P.SetDevices(devices=self._browser_devices(current.config.browser.sample_rate, devices)))
+                self._set_state(config=current.config.model_copy(update={"devices": devices}))
+            elif current.state in ACTIVE and self._supervisor.running:
                 resolved = self.resolve(devices, self.devices(refresh=True))
                 for r in resolved:
                     if r.status == "missing":

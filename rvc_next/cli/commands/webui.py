@@ -22,6 +22,8 @@ def webui(
     data_dir: Annotated[Path | None, typer.Option(help="Data directory (settings, database, models, outputs)", file_okay=False, resolve_path=True)] = None,
     config_dir: Annotated[Path | None, typer.Option(help="Folder for settings.toml (default: the data directory)", file_okay=False, resolve_path=True)] = None,
     api_prefix: Annotated[str | None, typer.Option(help="Serve the API, the socket and the web UI under this path, e.g. /voice")] = None,
+    ssl_certfile: Annotated[Path | None, typer.Option(help="PEM certificate: serve HTTPS (default from settings: server.ssl_certfile)", exists=True, dir_okay=False)] = None,
+    ssl_keyfile: Annotated[Path | None, typer.Option(help="The certificate's private key (default from settings: server.ssl_keyfile)", exists=True, dir_okay=False)] = None,
 ) -> None:
     """Start the server and open the web UI."""
     import uvicorn
@@ -41,6 +43,19 @@ def webui(
     port = server_settings.port if port is None else port
     strict = server_settings.strict_port if strict_port is None else strict_port
     should_open = server_settings.open_browser if open_browser is None else open_browser
+    if ssl_certfile is not None or ssl_keyfile is not None:
+        server_settings = server_settings.model_copy(
+            update={
+                "ssl_certfile": str(ssl_certfile or server_settings.ssl_certfile or "") or None,
+                "ssl_keyfile": str(ssl_keyfile) if ssl_keyfile else server_settings.ssl_keyfile,
+            }
+        )
+    tls = server_settings.ssl()
+    missing = [p for p in tls.values() if not Path(p).is_file()]
+    if missing:
+        services.close()
+        logger.error("The TLS file %s does not exist.", missing[0])
+        raise typer.Exit(4)
 
     if not is_loopback(host):
         logger.warning("Binding to %s makes the server reachable from other machines.", host)
@@ -60,10 +75,10 @@ def webui(
         logger.warning("Port %s is unavailable. Using port %s.", port, actual_port)
     url_host = f"[{host}]" if ":" in host else host
     url_host = "127.0.0.1" if host in ("0.0.0.0", "::") else url_host
-    url = f"http://{url_host}:{actual_port}{normalize_prefix(api_prefix)}"
+    url = f"{'https' if tls else 'http'}://{url_host}:{actual_port}{normalize_prefix(api_prefix)}"
 
     app = create_app(services, bound_host=host, bound_port=actual_port, api_prefix=api_prefix)
-    config = uvicorn.Config(app=app, log_level="warning", lifespan="on")
+    config = uvicorn.Config(app=app, log_level="warning", lifespan="on", ssl_certfile=tls.get("ssl_certfile"), ssl_keyfile=tls.get("ssl_keyfile"))
     server = uvicorn.Server(config)
     write_runtime_file(services.settings.data_dir, host, actual_port, url)
     print(f"SERVER_READY url={url}", flush=True)

@@ -98,6 +98,8 @@ In the "Type" column, `str?` and `int?` mean the value can be empty (`null`). An
 | `server.open_browser` | bool | `true` | Open the browser after starting |
 | `server.access_token` | str? | Empty | Access token; once set, all API and WebSocket requests must carry it |
 | `server.allowed_origins` | list[str] | `[]` | Other origins allowed to make modifying requests; also enables CORS for them |
+| `server.ssl_certfile` | str \| null | `null` | PEM certificate: serve HTTPS. Browsers on other computers allow the microphone (Live with **This browser**) only over HTTPS |
+| `server.ssl_keyfile` | str \| null | `null` | The certificate's private key, when the certificate file does not include it |
 
 ### `paths`: folders
 
@@ -208,7 +210,7 @@ A "device selection" is an object: `device_id` (empty follows the system default
 
 | Setting | When it takes effect |
 | --- | --- |
-| `server.host`, `server.port`, `server.strict_port`, `server.open_browser` | Next server start (marked **Takes effect the next time the server starts.** in the Web UI) |
+| `server.host`, `server.port`, `server.strict_port`, `server.open_browser`, `server.ssl_certfile`, `server.ssl_keyfile` | Next server start (marked **Takes effect the next time the server starts.** in the Web UI) |
 | `server.access_token` | Immediately |
 | `server.allowed_origins` | Origin checks take effect immediately; CORS response headers are configured at startup and require a restart |
 | `paths.*` | Immediately; changes in the Web UI rescan the voice library |

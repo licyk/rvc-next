@@ -323,3 +323,34 @@ def test_recording_becomes_an_output(live, services, tiny_voice_file):
     assert data.ndim == 2 and data.shape[1] == 2 and data.shape[0] > rate // 2 and out.model_id == voice.id
     live.stop()
     assert wait_for(lambda: live.state().state == "stopped")
+
+
+def test_browser_audio(live, services, tiny_voice_file):
+    """The browser's microphone and speakers: frames in through a link, converted frames back; its loss stops Live."""
+    import numpy as np
+
+    from rvc_next.core.errors import ConflictError
+    from rvc_next.core.live.models import BrowserAudio
+    from rvc_next.engine.audio_io.browser import float_to_pcm16, pcm16_to_float
+
+    voice = services.models.import_paths([tiny_voice_file]).voices[0]
+    config = LiveConfig(voice_id=voice.id, params=VoiceParamsModel(f0_method="pm"), stream=StreamParamsModel(block_ms=100, context_ms=300), browser=BrowserAudio(sample_rate=16000))
+    with pytest.raises(ConflictError):
+        live.start(config)  # no browser connected
+    received: list[bytes] = []
+    link = live.open_browser_link(received.append)
+    live.start(config)
+    assert wait_for(lambda: live.state().state == "running"), live.state()
+    assert live.state().sample_rate == 16000 and live.state().resolved == []
+    tone = float_to_pcm16((0.3 * np.sin(2 * np.pi * 220 * np.arange(32000) / 16000)).astype(np.float32))
+    for i in range(0, len(tone), 640):
+        link.feed(tone[i : i + 640])
+        time.sleep(0.01)
+    assert wait_for(lambda: sum(len(p) for p in received) >= len(tone))
+    assert np.abs(pcm16_to_float(b"".join(received))[-8000:]).max() > 0.01
+    # A newer page takes over; the old one's frames are dropped, and its closing changes nothing.
+    newer = live.open_browser_link(received.append)
+    link.close()
+    assert live.state().state == "running"
+    newer.close()
+    assert wait_for(lambda: live.state().state == "stopped")

@@ -1,5 +1,6 @@
 """Settings models."""
 
+import os
 from typing import Literal
 
 from pydantic import Field
@@ -18,6 +19,19 @@ class ServerSettings(Record):
     open_browser: bool = True
     access_token: str | None = None
     allowed_origins: list[str] = Field(default_factory=list)
+    ssl_certfile: str | None = None
+    """A PEM certificate (chain): serve HTTPS. Browsers on other machines let a page use the
+    microphone (Live with "This browser") only over HTTPS."""
+    ssl_keyfile: str | None = None
+    """The certificate's private key, when ``ssl_certfile`` does not include it."""
+
+    def ssl(self) -> dict[str, str]:
+        """The TLS files in use, ``ssl_certfile`` and ``ssl_keyfile`` (uvicorn's names), with ``~``
+        expanded; empty for plain HTTP."""
+        if not self.ssl_certfile:
+            return {}
+        files = {"ssl_certfile": self.ssl_certfile, **({"ssl_keyfile": self.ssl_keyfile} if self.ssl_keyfile else {})}
+        return {k: os.path.expanduser(v) for k, v in files.items()}
 
 
 class LegacyRoot(Record):

@@ -126,7 +126,10 @@ class RvcNextServer:
             port = self._socket.getsockname()[1]
             self._url = self._public_url(host, port)
             app = create_app(services, bound_host=host, bound_port=port, api_prefix=self.api_prefix)
-            self._server = uvicorn.Server(uvicorn.Config(app=app, log_level=self._log_level, lifespan="on"))
+            tls = services.settings.settings.server.ssl()
+            self._server = uvicorn.Server(
+                uvicorn.Config(app=app, log_level=self._log_level, lifespan="on", ssl_certfile=tls.get("ssl_certfile"), ssl_keyfile=tls.get("ssl_keyfile"))
+            )
             sock = self._socket
             self._thread = threading.Thread(target=lambda: self._server.run(sockets=[sock]), name="rvc-next", daemon=True)
             self._thread.start()
@@ -208,7 +211,8 @@ class RvcNextServer:
         shown = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
         if ":" in shown and not shown.startswith("["):
             shown = f"[{shown}]"
-        return f"http://{shown}:{port}{normalize_prefix(self.api_prefix)}"
+        scheme = "https" if self.services is not None and self.services.settings.settings.server.ssl_certfile else "http"
+        return f"{scheme}://{shown}:{port}{normalize_prefix(self.api_prefix)}"
 
     # typing.Self needs Python 3.11; this package supports 3.10.
     def __enter__(self) -> "RvcNextServer":

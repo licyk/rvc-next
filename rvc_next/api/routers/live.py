@@ -1,9 +1,14 @@
-"""Live conversion with the server's audio devices. Control is REST; the socket carries state and stats."""
+"""Live conversion with the server's audio devices, or the browser's. Control is REST; the socket
+carries state and stats; ``/browser-audio`` (a WebSocket) carries the browser's audio both ways."""
 
-from fastapi import APIRouter
+import asyncio
+import contextlib
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from rvc_next.api.deps import ServicesDep
 from rvc_next.api.errors import ERROR_RESPONSES
+from rvc_next.core.context import Services
 from rvc_next.core.live.models import (
     DeviceCheck,
     DeviceList,
@@ -105,3 +110,47 @@ def stop_recording(services: ServicesDep) -> LiveState:
 def passthrough(services: ServicesDep, body: Toggle) -> LiveState:
     """Hear yourself: pass the input straight to the monitor (or the output)."""
     return services.live.passthrough(body.on)
+
+
+BROWSER_QUEUE = 100
+"""Converted frames waiting for the browser (about two seconds); past it the oldest are dropped."""
+
+
+@router.websocket("/browser-audio")
+async def browser_audio(websocket: WebSocket) -> None:
+    """The browser's audio for a session started with ``LiveConfig.browser``: binary messages of mono
+    16-bit little-endian PCM at that rate, microphone samples in and converted samples out, as many
+    out as in once the session runs."""
+    services: Services = websocket.app.state.services
+    await websocket.accept()
+    loop = asyncio.get_running_loop()
+    outgoing: asyncio.Queue[bytes] = asyncio.Queue(maxsize=BROWSER_QUEUE)
+
+    def put(pcm: bytes) -> None:
+        if outgoing.full():
+            outgoing.get_nowait()
+        outgoing.put_nowait(pcm)
+
+    def send(pcm: bytes) -> None:  # on the supervisor's reader thread
+        with contextlib.suppress(RuntimeError):  # the loop has closed
+            loop.call_soon_threadsafe(put, pcm)
+
+    async def writer() -> None:
+        while True:
+            await websocket.send_bytes(await outgoing.get())
+
+    link = services.live.open_browser_link(send)
+    task = asyncio.create_task(writer())
+    try:
+        while True:
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                break
+            data = message.get("bytes")
+            if data:
+                link.feed(data)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        task.cancel()
+        link.close()

@@ -36,6 +36,7 @@ export default {
     actions: 'More actions',
   },
   errors: {
+    browser_audio: 'Browser audio',
     title: 'Something went wrong',
     not_found: 'Not found',
     conflict: 'That already exists or is in use',
@@ -318,6 +319,18 @@ export default {
     queued: 'Conversion queued',
   },
   live: {
+    audio: { server: 'Server devices', browser: 'This browser' },
+    browser: {
+      title: 'This browser’s microphone and speakers',
+      intro: 'The microphone of the device you are using goes to the server over the network, and the converted voice plays here. Use headphones. The network adds its delay to the latency shown below.',
+      only: 'The server has no audio devices, so Live uses this browser’s microphone and speakers over the network. Use headphones.',
+      insecure: 'Browsers allow the microphone only on pages served over HTTPS or from this computer (localhost). Start the server with a certificate (rvc-next webui --ssl-certfile …) or open it on the server itself.',
+      unsupported: 'This browser cannot record and play audio for Live (it lacks AudioWorklet or getUserMedia).',
+      denied: 'The browser was not allowed to use the microphone. Allow it in the address bar, then start again.',
+      noMicrophone: 'No microphone was found on this device.',
+      disconnected: 'The browser audio connection to the server closed.',
+      stats: 'Playback buffer {buffered} ms · {underruns} dropouts',
+    },
     record: 'Record',
     recordSource: { both: 'Voice and input (stereo)', converted: 'Converted voice', input: 'Input only' },
     stopRecording: 'Stop recording · {time}',

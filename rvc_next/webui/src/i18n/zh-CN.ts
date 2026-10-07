@@ -36,6 +36,7 @@ export default {
     actions: '更多操作',
   },
   errors: {
+    browser_audio: '浏览器音频',
     title: '出错了',
     not_found: '未找到',
     conflict: '已存在或正在使用',
@@ -318,6 +319,18 @@ export default {
     queued: '转换已加入队列',
   },
   live: {
+    audio: { server: '服务器设备', browser: '本浏览器' },
+    browser: {
+      title: '本浏览器的麦克风和扬声器',
+      intro: '当前设备的麦克风通过网络发送到服务器，转换后的声音在这里播放。请戴耳机。网络本身的延迟会加在下方显示的延迟上。',
+      only: '服务器没有音频设备，因此实时变声通过网络使用本浏览器的麦克风和扬声器。请戴耳机。',
+      insecure: '浏览器只允许 HTTPS 页面或本机（localhost）页面使用麦克风。请用证书启动服务器（rvc-next webui --ssl-certfile …），或在服务器本机上打开。',
+      unsupported: '此浏览器无法为实时变声录音和播放（缺少 AudioWorklet 或 getUserMedia）。',
+      denied: '浏览器未获准使用麦克风。请在地址栏中允许后重新开始。',
+      noMicrophone: '此设备上没有找到麦克风。',
+      disconnected: '浏览器与服务器之间的音频连接已断开。',
+      stats: '播放缓冲 {buffered} ms · {underruns} 次断音',
+    },
     record: '录音',
     recordSource: { both: '变声与输入（立体声）', converted: '仅变声', input: '仅输入' },
     stopRecording: '停止录音 · {time}',

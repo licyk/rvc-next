@@ -41,6 +41,7 @@ export {
   Gauge,
   GraduationCap,
   Hammer,
+  Globe,
   HardDrive,
   Headphones,
   History,

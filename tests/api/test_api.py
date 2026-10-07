@@ -121,3 +121,35 @@ def test_tts_over_api(client, services, wav_file):
     assert r.status_code == 200 and r.json()["name"] == "你好.mp3"
     assert client.get(f"/api/v1/audio/files/{r.json()['id']}").status_code in (200, 206)
     assert client.post("/api/v1/tts", json={"text": "", "voice": "x"}, headers=ORIGIN).status_code == 422
+
+
+LOCAL = {"host": "localhost"}  # the test client's sockets say "testserver", which the host check refuses
+
+
+def test_browser_audio_socket(client, app, services):
+    from starlette.websockets import WebSocketDisconnect
+
+    with client.websocket_connect("/api/v1/live/browser-audio", headers=LOCAL) as ws:
+        assert wait_until(lambda: services.live._browser is not None)
+        link = services.live._browser
+        ws.send_bytes(b"\x00\x00" * 160)
+        assert wait_until(lambda: link.received == 1)
+        link.send(b"\x01\x00" * 4)  # what the worker would send back
+        assert ws.receive_bytes() == b"\x01\x00" * 4
+    assert wait_until(lambda: services.live._browser is None)
+    services.settings.update({"server": {"access_token": "s3cret"}})
+    with pytest.raises(WebSocketDisconnect), client.websocket_connect("/api/v1/live/browser-audio", headers=LOCAL) as ws:
+        ws.receive_bytes()
+    with client.websocket_connect("/api/v1/live/browser-audio?token=s3cret", headers=LOCAL):
+        assert wait_until(lambda: services.live._browser is not None)
+
+
+def wait_until(predicate, timeout=5.0):
+    import time
+
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return False
