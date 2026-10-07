@@ -26,6 +26,8 @@
   </a>
 </p>
 
+[Website](https://rvc-next.netlify.app/en) · [Documentation](https://rvc-next.netlify.app/en/docs)
+
 English | [简体中文](https://github.com/licyk/rvc-next/blob/main/README.zh-CN.md)
 
 </div>
@@ -51,8 +53,9 @@ loop) is ported so existing voices sound the same; everything around it is new:
   be read in place, and new models are written in the same format.
 
 The documentation (tutorials, the command line and developer documentation, in Chinese and
-English) is in [site/content/docs/](site/content/docs/index.mdx), part of the project's website in
-`site/` (`python scripts/dev.py site-dev` to preview it).
+English) is on the project's website, [rvc-next.netlify.app](https://rvc-next.netlify.app/en/docs).
+Its source is in [site/content/docs/](site/content/docs/index.mdx), part of the website in `site/`
+(`python scripts/dev.py site-dev` to preview it).
 The design record, the conventions and the departures from the original plan are in [AGENTS.md](AGENTS.md).
 
 ## Install

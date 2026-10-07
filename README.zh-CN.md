@@ -26,6 +26,8 @@
   </a>
 </p>
 
+[官网](https://rvc-next.netlify.app) · [文档](https://rvc-next.netlify.app/docs)
+
 [English](README.md) | 简体中文
 
 </div>
@@ -40,7 +42,7 @@ rvc-next 是 [Retrieval-based-Voice-Conversion-WebUI](https://github.com/RVC-Pro
 - **音频设备**按物理设备列出，每个设备只出现一次；输入和输出可以使用任意驱动，可选监听输出，带电平表和测试音，设备重新接入后自动恢复；还可以用回环测试实测真实延迟，而不只是估算。
 - **已有模型无需改动即可加载**（`.pth` 和 `added_*.index`），可以直接读取已有的 RVC 安装，新生成的模型也使用同样的格式。
 
-文档（使用教程、命令行与开发文档，中英双语）位于 [site/content/docs/](site/content/docs/index.mdx)，是 `site/` 中项目网站的一部分（运行 `python scripts/dev.py site-dev` 可本地预览）。设计记录、约定以及与原计划的差异见 [AGENTS.md](AGENTS.md)。
+文档（使用教程、命令行与开发文档，中英双语）见项目官网 [rvc-next.netlify.app](https://rvc-next.netlify.app/docs)。其源文件位于 [site/content/docs/](site/content/docs/index.mdx)，是 `site/` 中项目网站的一部分（运行 `python scripts/dev.py site-dev` 可本地预览）。设计记录、约定以及与原计划的差异见 [AGENTS.md](AGENTS.md)。
 
 ## 安装
 
