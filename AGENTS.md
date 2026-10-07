@@ -121,6 +121,9 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
 ## 4. Conventions
 
 - **Python ≥ 3.10**, ruff and ty unpinned (latest), `lint.select` written out, line length 180.
+  CI runs ty with `--error-on-warning` per Python 3.10–3.14 and platform, without the optional
+  comparison packages (torchaudio, torchcrepe, onnxruntime…): load those with `importlib`/`importorskip`,
+  never a static import with a `ty: ignore` (its codes go unused in one environment or the other).
   Every function in `rvc_next/` is annotated (ruff `ANN`, `Any` allowed); the ported files, tests
   and scripts are exempt.
   The ported files (`engine/models/{attentions,commons,modules,transforms,synthesizer}.py`,
@@ -243,8 +246,9 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   `EFFECTS` is the one catalog of kinds, parameters and ranges (`GET /convert/effects`, `rvc-next effects`).
   `ConvertRequest.effects` runs on the converted voice before the remix; `StreamParams.effects` after
   SOLA, hot, never in passthrough. Streamed, pedalboard's PitchShift holds back ~1 s (and in 0.9 gives
-  silence), so it is offline only (`streams=False`, refused by `StreamParamsModel`); 0.9.25 is excluded
-  (SIGILL on older CPUs). `EffectModel.params` is required so FastAPI does not split the schema.
+  silence), so it is offline only (`streams=False`, refused by `StreamParamsModel`). Some pedalboard
+  wheels die with SIGILL on import (0.9.25; 0.9.24 cp314 on CI), killing the process: `unavailable_reason()`
+  imports it in a child process once and `board()` refuses until that succeeded; tests skip on it. `EffectModel.params` is required so FastAPI does not split the schema.
 
 ## 6. Core services
 

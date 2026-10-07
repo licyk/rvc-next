@@ -1,6 +1,9 @@
 """Effects over converted audio: a chain of pedalboard plugins, in the order given.
 
-pedalboard is optional (``rvc-next[effects]``) and imported only here, inside functions. ``EFFECTS``
+pedalboard is optional (``rvc-next[effects]``) and imported only here, inside functions, and only
+after ``unavailable_reason`` has imported it once in a child process: some of its wheels are built
+for newer CPUs and stop the importing process with an illegal instruction, which would take the
+server or the live worker down with it. ``EFFECTS``
 is the catalog — every kind with its parameters' defaults and ranges, pedalboard's own names — and
 the one place those numbers live: the core validates against it and the web UI draws it.
 
@@ -10,7 +13,10 @@ processes a stream block by block, keeping the plugins' state between blocks.
 
 from __future__ import annotations
 
+import functools
 import importlib.util
+import subprocess
+import sys
 from dataclasses import dataclass
 from typing import Any
 
@@ -119,9 +125,31 @@ class Effect:
         return {p.name: float(given.get(p.name, p.default)) for p in spec.params}
 
 
+ILLEGAL_INSTRUCTION = {-4, 132, 0xC000001D}
+"""SIGILL as a child's return code (POSIX, a shell's 128 + 4, Windows' STATUS_ILLEGAL_INSTRUCTION)."""
+
+
+@functools.cache
+def unavailable_reason() -> str | None:
+    """None when pedalboard is installed and loads on this computer; else why effects cannot run.
+    Found once per process, by importing it in a child process."""
+    if importlib.util.find_spec("pedalboard") is None:
+        return "Effects need pedalboard: pip install rvc-next[effects]"
+    try:
+        result = subprocess.run([sys.executable, "-c", "import pedalboard"], capture_output=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return f"pedalboard could not be loaded: {e}"
+    if result.returncode == 0:
+        return None
+    if result.returncode in ILLEGAL_INSTRUCTION:
+        return "This pedalboard build needs a newer processor (it stops with an illegal instruction); effects stay off until another pedalboard release is installed"
+    detail = result.stderr.decode(errors="replace").strip().splitlines()
+    return f"pedalboard could not be loaded: {detail[-1] if detail else f'exit code {result.returncode}'}"
+
+
 def available() -> bool:
-    """Whether pedalboard is installed."""
-    return importlib.util.find_spec("pedalboard") is not None
+    """Whether pedalboard is installed and loads here."""
+    return unavailable_reason() is None
 
 
 def effect(kind: str, params: dict[str, float] | None = None) -> Effect:
@@ -145,6 +173,9 @@ def from_dicts(items: Any) -> tuple[Effect, ...]:
 
 
 def board(effects: tuple[Effect, ...]) -> Any:
+    reason = unavailable_reason()
+    if reason is not None:
+        raise RuntimeError(reason)
     import pedalboard
 
     return pedalboard.Pedalboard([getattr(pedalboard, EFFECTS[e.kind].plugin)(**e.values()) for e in effects])

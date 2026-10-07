@@ -6,6 +6,7 @@ from rvc_next.core.audio.models import AudioRef
 from rvc_next.core.conversion.models import ConvertRequest
 from rvc_next.core.errors import AssetMissingError, ValidationError
 from rvc_next.core.params import VoiceParamsModel
+from rvc_next.engine.audio.effects import available as effects_available
 
 
 def test_convert_job_writes_output_with_provenance(services, tiny_voice_file, wav_file, no_asset_checks):
@@ -88,7 +89,8 @@ def test_analysis_of_an_output_and_its_source(services, tiny_voice_file, wav_fil
 
 
 def test_effects_over_the_converted_voice(services, tiny_voice_file, wav_file, no_asset_checks, monkeypatch):
-    pytest.importorskip("pedalboard")
+    if not effects_available():
+        pytest.skip("pedalboard is missing or cannot load here")
     from pydantic import ValidationError as PydanticError
 
     from rvc_next.core.params import EffectModel
@@ -104,7 +106,7 @@ def test_effects_over_the_converted_voice(services, tiny_voice_file, wav_file, n
     assert job.state == "completed", job.error
     out = services.audio.list_outputs(job_id=job.id).items[0]
     assert out.duration > 1.2  # the reverb's tail
-    monkeypatch.setattr("rvc_next.engine.audio.effects.available", lambda: False)
+    monkeypatch.setattr("rvc_next.engine.audio.effects.unavailable_reason", lambda: "Effects need pedalboard")
     with pytest.raises(ValidationError) as e:
         services.conversion.validate(request)
     assert e.value.detail["reason"] == "effects_unavailable"

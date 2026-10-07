@@ -291,7 +291,7 @@ OOM 之后由谁卸载什么，是核心层的策略（`release_after_oom`），
 | `audio/peaks.py` | `compute_peaks()`：波形显示用的交错 (min, max) 对，由核心层缓存到 `cache/peaks/` |
 | `audio/sola.py` | SOLA 交叉淡化 |
 | `audio/denoise.py` | TorchGate 谱门降噪，照搬原版 `tools/torchgate/`（它复用 `f0/rmvpe.py` 的 `STFT`） |
-| [`audio/effects.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/audio/effects.py) | 基于 pedalboard 的效果链（可选依赖，只在这里导入）：`EFFECTS` 是效果目录，列出每种效果的参数默认值和范围（沿用 pedalboard 的参数名；核心层据此校验，`GET /convert/effects` 把它发给界面）；`apply()` 处理整个文件，为混响和延迟补上尾音，并在 −80 dB 处截断；`EffectsChain` 处理音频流，块与块之间保留插件状态，每次都返回完整的一块。变调只用于离线（`streams=False`）：在流中，pedalboard 的变调会压住约一秒音频 |
+| [`audio/effects.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/audio/effects.py) | 基于 pedalboard 的效果链（可选依赖，只在这里导入）：`EFFECTS` 是效果目录，列出每种效果的参数默认值和范围（沿用 pedalboard 的参数名；核心层据此校验，`GET /convert/effects` 把它发给界面）；`apply()` 处理整个文件，为混响和延迟补上尾音，并在 −80 dB 处截断；`EffectsChain` 处理音频流，块与块之间保留插件状态，每次都返回完整的一块。变调只用于离线（`streams=False`）：在流中，pedalboard 的变调会压住约一秒音频。`unavailable_reason()` 会先在子进程中导入一次 pedalboard：它的某些安装包在较旧的处理器上会以非法指令终止导入它的进程，这时效果会被报告为不可用，而不是让进程崩溃 |
 
 PyAV 用的 libavformat/libswresample 正是原版通过 `ffmpeg` 命令调用的库，所以不必依赖系统里装了 ffmpeg。mp3 和 AAC 只接受固定的采样率，`_transcode()` 用 `encoder_rate()` 把 40 kHz 输出升到 44.1 kHz——原版的 `wav2` 不做这一步，40k 模型导出 mp3/m4a 会失败。
 

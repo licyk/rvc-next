@@ -97,10 +97,11 @@ def effects_to_engine(effects: list[EffectModel]) -> tuple[Effect, ...]:
 def require_effects(effects: list[EffectModel]) -> None:
     """Refuse a chain when pedalboard is missing."""
     from rvc_next.core.errors import ValidationError
-    from rvc_next.engine.audio.effects import available
+    from rvc_next.engine.audio.effects import unavailable_reason
 
-    if effects and not available():
-        raise ValidationError("Effects need pedalboard: pip install rvc-next[effects]", {"reason": "effects_unavailable"})
+    reason = unavailable_reason() if effects else None
+    if reason is not None:
+        raise ValidationError(reason, {"reason": "effects_unavailable"})
 
 
 class StreamParamsModel(Record):

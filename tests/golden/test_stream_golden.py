@@ -62,8 +62,9 @@ class OriginalStream:
     ) -> None:
         import torch
 
-        # The original's side: torchaudio, which the original checkout's environment provides (rvc-next does not use it).
-        import torchaudio.transforms as tat  # ty: ignore[unresolved-import, unused-ignore-comment]
+        # The original's side: torchaudio, which the original checkout's environment provides (rvc-next does
+        # not use it). Imported by name, so type-checking passes whether or not it is installed.
+        tat = importlib.import_module("torchaudio.transforms")
 
         from rvc_next.engine.audio.denoise import TorchGate
 

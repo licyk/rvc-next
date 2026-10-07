@@ -3,7 +3,7 @@ import pytest
 
 from rvc_next.engine.audio import effects as fx
 
-pytest.importorskip("pedalboard")
+needs_pedalboard = pytest.mark.skipif(not fx.available(), reason="pedalboard is missing or cannot load here")
 
 SR = 40000
 
@@ -12,6 +12,7 @@ def _tone(seconds: float = 1.0) -> np.ndarray:
     return (0.3 * np.sin(2 * np.pi * 220 * np.arange(int(seconds * SR)) / SR)).astype(np.float32)
 
 
+@needs_pedalboard
 def test_every_effect_runs_with_its_defaults() -> None:
     x = _tone()
     for kind, spec in fx.EFFECTS.items():
@@ -22,6 +23,7 @@ def test_every_effect_runs_with_its_defaults() -> None:
             assert p.min <= p.default <= p.max, (kind, p.name)
 
 
+@needs_pedalboard
 def test_tail_rings_out_then_stops() -> None:
     x = np.zeros(SR, dtype=np.float32)
     x[-400:] = 0.5
@@ -32,6 +34,7 @@ def test_tail_rings_out_then_stops() -> None:
     assert stereo.shape[0] == 2 and stereo.shape[1] > SR
 
 
+@needs_pedalboard
 def test_blocks_match_the_whole() -> None:
     x = _tone()
     chain = (fx.effect("compressor"), fx.effect("chorus"), fx.effect("reverb", {"room_size": 0.7}))
@@ -52,6 +55,7 @@ def test_checks() -> None:
             fx.effect(kind, params)
 
 
+@needs_pedalboard
 def test_a_stream_keeps_its_block_size_through_latency() -> None:
     """Pitch shift returns nothing for the first second of a stream (and, in pedalboard 0.9, silence after): Live leaves it out."""
     x = np.tile(_tone(), 4)
@@ -59,3 +63,24 @@ def test_a_stream_keeps_its_block_size_through_latency() -> None:
     blocks = [chain.process(x[i : i + 4000]) for i in range(0, len(x), 4000)]
     assert all(b.shape == (4000,) for b in blocks)
     assert not fx.EFFECTS["pitch_shift"].streams and all(s.streams for k, s in fx.EFFECTS.items() if k != "pitch_shift")
+
+
+def test_a_build_that_crashes_on_import_is_reported_not_loaded(monkeypatch) -> None:
+    """Some pedalboard wheels stop the importing process with an illegal instruction: the child process takes it."""
+    import subprocess
+
+    calls = []
+
+    def run(cmd, **kw):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 132, b"", b"")
+
+    monkeypatch.setattr(fx.subprocess, "run", run)
+    fx.unavailable_reason.cache_clear()
+    try:
+        assert not fx.available() and "newer processor" in (fx.unavailable_reason() or "")
+        assert len(calls) == 1  # once per process
+        with pytest.raises(RuntimeError, match="newer processor"):
+            fx.board((fx.effect("gain"),))
+    finally:
+        fx.unavailable_reason.cache_clear()

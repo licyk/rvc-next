@@ -67,7 +67,8 @@ dependencies = [
 
 [project.optional-dependencies]
 directml = ["torch-directml", "onnxruntime-directml"]
-# The effects chain (engine/audio/effects.py). 0.9.25's wheel stops with an illegal instruction on CPUs without the newer vector extensions.
+# The effects chain (engine/audio/effects.py). Some wheels stop with an illegal instruction on older CPUs (0.9.25 everywhere,
+# 0.9.24's for Python 3.14 on GitHub's runners); the engine imports pedalboard in a child process first and turns effects off.
 effects = ["pedalboard>=0.9.16,!=0.9.25"]
 # Text to speech as an audio source (core/tts): Microsoft Edge's online voices.
 tts = ["edge-tts>=7,<8"]
@@ -151,6 +152,8 @@ exclude = [
     "rvc_next/engine/models/transforms.py",
     "rvc_next/engine/models/synthesizer.py",
     "rvc_next/engine/f0/rmvpe.py",
+    # A one-off maintenance script that needs onnx, onnxruntime and swift-f0, which no environment installs.
+    "scripts/extract_swift_f0.py",
 ]
 
 [tool.pytest.ini_options]

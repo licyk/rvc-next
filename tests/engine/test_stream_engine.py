@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from rvc_next.engine.audio.effects import available as effects_available
 from rvc_next.engine.convert.params import VoiceParams
 from rvc_next.engine.stream.engine import StreamEngine
 from rvc_next.engine.stream.latency import engine_delay_ms, estimate_latency_ms
@@ -205,7 +206,8 @@ def test_stream_with_phase_vocoder_and_denoise_strength(tiny_runtime, voice) -> 
 
 
 def test_stream_effects_are_hot_and_keep_block_size(tiny_runtime, voice) -> None:
-    pytest.importorskip("pedalboard")
+    if not effects_available():
+        pytest.skip("pedalboard is missing or cannot load here")
     import torch
 
     from rvc_next.engine.audio.effects import effect
