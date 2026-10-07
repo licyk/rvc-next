@@ -352,7 +352,7 @@ PortAudio cannot record a render endpoint: an output device has no input channel
 | `UpdateStream(stream)` | Hot-update threshold and denoising; block size and similar changes close streams, `reconfigure`, reopen streams, without reloading the voice |
 | `SetVoice(voice_path, index_path, speaker_id)` | Switch voice while running: the old voice keeps converting while the new one loads; loading failure reports `detail.reason == "voice_load"` and retains the old voice. Success or failure returns `State` with `voice_path`, telling core which voice is actually converting |
 | `SetDevices(devices)` | Only close and reopen streams; rebuild the engine only if engine sample rate changes (the voice remains in the runtime cache) |
-| `Meter(on, input)` | Open input alone while stopped to measure levels |
+| `Meter(on, input, input_gain_db)` | Open the input alone while idle to measure its level; asked again for the same input, keep the stream and take the new gain. The core decides when (lease, state, retries) |
 | `TestTone(device)` | Play a chime on an output |
 | `Passthrough(on)` | Pass input straight to monitor (or output) to check routing |
 | `ReleaseMemory` | Unload engine and all models; ignored during an active session |
@@ -360,7 +360,7 @@ PortAudio cannot record a render endpoint: an output device has no input channel
 | From the worker | Contents |
 | --- | --- |
 | `State` | `state`, `error` (`{code, message, detail}`), `topology`, `sample_rate`, `meter`, `passthrough`, `cached` (models loaded in the worker runtime, for “Free GPU memory”), `voice_path` |
-| `Stats` | 10 Hz levels, inference time, block size, estimated latency, underruns/overruns, drift, GPU memory |
+| `Stats` | 10 Hz levels (input, output, monitor), inference time, block size, estimated latency, underruns/overruns, drift, GPU memory |
 | `DeviceLost` | Role, device id, reason, message |
 | `Log` | Logs |
 

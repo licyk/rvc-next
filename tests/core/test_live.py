@@ -2,6 +2,7 @@
 
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -104,6 +105,47 @@ def test_session(live, services, tiny_voice_file):
     assert services.compute.usage().can_release
     services.compute.release()
     assert wait_for(lambda: not any(m.startswith("live:") for m in services.compute.usage().cached))
+
+
+def test_meter_runs_whenever_live_is_idle(live, services, tiny_voice_file):
+    """Asking for the meter returns at once; it opens in the background before any Start, steps aside
+    for a session, comes back after it (an error included, which stays in the state) and closes when
+    no longer wanted."""
+    voice = services.models.import_paths([tiny_voice_file]).voices[0]
+    began = time.monotonic()
+    state = live.meter(True)
+    assert time.monotonic() - began < 0.5 and not state.meter  # the worker starts on the meter's thread
+    assert wait_for(lambda: live.state().meter and live.stats().input_peak_db > -60), live.state()
+    params = VoiceParamsModel(f0_method="pm", index_rate=0, rms_mix_rate=0)
+    live.start(LiveConfig(voice_id=voice.id, params=params, stream=StreamParamsModel(block_ms=200, context_ms=500)))
+    assert wait_for(lambda: live.state().state == "running")
+    assert not live.state().meter
+    live.stop()
+    assert wait_for(lambda: live.state().state == "stopped" and live.state().meter), live.state()
+    # A session that fails: the meter comes back and the error stays.
+    Path(voice.model_path).unlink()
+    live.start(LiveConfig(voice_id=voice.id, params=params))
+    assert wait_for(lambda: live.state().state == "error")
+    assert wait_for(lambda: live.state().meter)
+    time.sleep(0.5)
+    assert live.state().error and live.state().error["code"] == "not_found"
+    live.meter(False)
+    assert wait_for(lambda: not live.state().meter)
+
+
+def test_meter_follows_the_input_and_its_lease(live, services, monkeypatch):
+    """The meter takes a new gain or input selection while open, and the lease lapses unless renewed."""
+    from rvc_next.core.live import service as live_service
+
+    monkeypatch.setattr(live_service, "METER_LEASE", 3.0)
+    live.meter(True)
+    assert wait_for(lambda: live.state().meter)
+    services.settings.update({"live": {"devices": {"input_gain_db": -6.0}}})
+    assert wait_for(lambda: (live._meter_sent or {}).get("input_gain_db") == -6.0)
+    services.settings.update({"live": {"devices": {"input": DeviceSelection(channels=[1]).model_dump()}}})
+    assert wait_for(lambda: (live._meter_sent or {}).get("input", {}).get("channels") == [1] and live.state().meter)
+    # Unrenewed, the lease lapses and the microphone is let go.
+    assert wait_for(lambda: not live.state().meter, timeout=10)
 
 
 def test_voice_switch_while_running(live, services, tmp_path, monkeypatch):

@@ -109,6 +109,8 @@ class LiveWorker:
         self.recorder: Recorder | None = None
         self.aux: AudioSession | None = None
         """A session without the voice: the meter, or passthrough while stopped."""
+        self.aux_on_monitor = False
+        """The passthrough ``aux`` plays on the monitor device: its output levels are the monitor's."""
         self.params = VoiceParams()
         self.stream = StreamParams()
         self.devices: dict[str, Any] = {}
@@ -116,6 +118,7 @@ class LiveWorker:
         self.index_path: str | None = None
         self.passthrough = False
         self.meter = False
+        """``aux`` meters the input (the core decides when: ``LiveService._sync_meter``)."""
         self._cold = False
         """The engine has buffers or a sample rate it has not run with: prewarm before audio flows."""
         self._closed = threading.Event()
@@ -258,7 +261,7 @@ class LiveWorker:
             elif isinstance(message, P.SetDevices):
                 self.set_devices(message.devices)
             elif isinstance(message, P.Meter):
-                self.set_meter(message.on, message.input)
+                self.set_meter(message.on, message.input, message.input_gain_db)
             elif isinstance(message, P.TestTone):
                 self.test_tone(message.device)
             elif isinstance(message, P.Passthrough):
@@ -408,6 +411,7 @@ class LiveWorker:
             setattr(self, name, None)
             if s is not None:
                 s.stop()
+        self.meter = self.aux_on_monitor = False
 
     def update_voice(self, params: dict[str, Any]) -> None:
         new = _dataclass(VoiceParams, params, self.params)
@@ -497,24 +501,32 @@ class LiveWorker:
             self.engine.reset()
         self._open_session(cfg)
 
-    def set_meter(self, on: bool, input: dict[str, Any] | None) -> None:
-        self.meter = on
-        if self.session is not None:
-            self.set_state(self.state)
+    def set_meter(self, on: bool, input: dict[str, Any] | None, input_gain_db: float = 0.0) -> None:
+        """Open (or close) the input alone for its level. A session, or passthrough while stopped,
+        meters the input already. Every answer keeps the last error: the meter comes back after a
+        failed session, and must not wipe the message saying why it failed."""
+        ep = Endpoint.from_dict(input) or session_config(self.devices).input
+        if on and (self.session is not None or self.passthrough):
+            self.set_state(self.state, self._last_error)
             return
-        if self.aux is not None:
-            self.aux.stop()
+        aux = self.aux
+        if on and self.meter and aux is not None and aux.running and aux.config.input == ep:
+            aux.config = replace(aux.config, input_gain_db=input_gain_db)  # the same device: only the gain changed
+            self.set_state(self.state, self._last_error)
+            return
+        if self.meter and aux is not None:
+            aux.stop()
             self.aux = None
+        self.meter = False
         if on:
-            ep = Endpoint.from_dict(input) or session_config(self.devices).input
-            aux = AudioSession(self.backend, SessionConfig(input=ep), self._aux_block(ep), on_device_lost=self._device_lost)
+            aux = AudioSession(self.backend, SessionConfig(input=ep, input_gain_db=input_gain_db), self._aux_block(ep), on_device_lost=self._device_lost)
             try:
                 aux.start()
                 self.aux = aux
+                self.meter = True
             except DeviceOpenError as e:
-                self.meter = False
                 self.send(P.DeviceLost(direction="input", device_id=e.device_id, reason=e.reason, message=e.message))
-        self.set_state(self.state)
+        self.set_state(self.state, self._last_error)
 
     def _aux_block(self, ep: Endpoint | None) -> int:
         rate = engine_rate(ep)
@@ -524,13 +536,15 @@ class LiveWorker:
         self.passthrough = on
         if self.session is not None:
             self.session.passthrough = on
-            self.set_state(self.state)
+            self.set_state(self.state, self._last_error)
             return
         if self.aux is not None:
             self.aux.stop()
             self.aux = None
+        self.meter = self.aux_on_monitor = False  # the core opens the meter again once passthrough is off
         if on:
             cfg = session_config(self.devices)
+            on_monitor = cfg.monitor is not None
             if cfg.monitor is not None:
                 cfg = replace(cfg, output=cfg.monitor, monitor=None)
             aux = AudioSession(self.backend, cfg, self._aux_block(cfg.output), processor=None, on_device_lost=self._device_lost)
@@ -538,13 +552,11 @@ class LiveWorker:
             try:
                 aux.start()
                 self.aux = aux
+                self.aux_on_monitor = on_monitor
             except DeviceOpenError as e:
                 self.passthrough = False
                 self.send(P.DeviceLost(direction=e.role or "output", device_id=e.device_id, reason=e.reason, message=e.message))
-        elif self.meter:
-            self.set_meter(True, None)
-            return
-        self.set_state(self.state)
+        self.set_state(self.state, self._last_error)
 
     def test_tone(self, device: dict[str, Any] | None) -> None:
         ep = Endpoint.from_dict(device)
@@ -572,8 +584,8 @@ class LiveWorker:
                 if self.aux is not None and not self.aux.running:
                     self.aux.stop()
                     self.aux = None
-                    self.meter = self.passthrough = False
-                    self.set_state(self.state)
+                    self.meter = self.passthrough = self.aux_on_monitor = False
+                    self.set_state(self.state, self._last_error)
 
         threading.Thread(target=settle, daemon=True).start()
 
@@ -603,11 +615,16 @@ class LiveWorker:
         if self.runtime is not None:
             used = self.runtime.vram()
             vram = round(used[0], 1) if used else None
+        out, mon = session.output_levels, session.monitor_levels
+        if session is self.aux and self.aux_on_monitor:
+            out, mon = mon, out  # Hear yourself while stopped plays on the monitor
         return P.Stats(
             input_peak_db=round(session.input_levels.peak_db, 2),
             input_rms_db=round(session.input_levels.rms_db, 2),
-            output_peak_db=round(session.output_levels.peak_db, 2),
-            output_rms_db=round(session.output_levels.rms_db, 2),
+            output_peak_db=round(out.peak_db, 2),
+            output_rms_db=round(out.rms_db, 2),
+            monitor_peak_db=round(mon.peak_db, 2),
+            monitor_rms_db=round(mon.rms_db, 2),
             infer_ms_p50=round(p50, 2),
             infer_ms_p95=round(p95, 2),
             block_ms=round(block_ms, 2),

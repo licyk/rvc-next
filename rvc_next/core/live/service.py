@@ -65,6 +65,13 @@ START_LIST_MAX_AGE = 10.0
 is added or removed; the Live page re-enumerates every 5 s, so Start from it rarely enumerates."""
 METER_SETTLE = 0.3
 """Seconds for the live worker to close the input meter before a measurement opens the input."""
+METER_LEASE = 15.0
+"""Seconds the input meter stays wanted after the last request for it. The device panel asks again
+every 5 s while it is shown, so a closed or hidden page lets the microphone go."""
+METER_RETRY = (1.0, 2.0, 5.0, 10.0)
+"""Seconds before opening the meter again after its device refused or was lost, by attempt."""
+METER_RESEND = 0.5
+"""The least time between two requests for the same meter, when the worker answers without one."""
 ACTIVE = ("starting", "loading", "prewarming", "running", "reconnecting")
 
 
@@ -122,6 +129,19 @@ class LiveService:
         self._lost: set[str] = set()
         self._reconnect: threading.Thread | None = None
         self._closing = False
+        # The input meter while Live is idle. Asking for it only extends a lease (``meter``); a thread
+        # of its own opens it, follows the selected input and retries a refused device
+        # (``_sync_meter``), so no request waits for the worker to start or a device to open.
+        self._meter_until = 0.0
+        self._meter_sent: dict[str, Any] | None = None
+        """What the worker was last asked to meter (input and gain), until it says the meter is off."""
+        self._meter_failures = 0
+        self._meter_retry_at = 0.0
+        self._meter_wake = threading.Event()
+        self._meter_thread: threading.Thread | None = None
+        self._meter_lock = threading.Lock()
+        """Held while deciding about the meter and telling the worker, so a measurement's pause and
+        the meter thread cannot cross."""
         self._awaiting_start = False
         self._measuring = False
         self._recording_seen = False
@@ -217,6 +237,7 @@ class LiveService:
             self._state = self._state.model_copy(update=changes)
             snapshot = self._state.model_copy(deep=True)
         self._events.publish(LiveStateEvent(state=snapshot))
+        self._meter_wake.set()  # a session started or stopped, passthrough changed: the meter may follow
         return snapshot
 
     def _on_event(self, message: Any) -> None:
@@ -231,6 +252,11 @@ class LiveService:
             # Nothing to re-enumerate: the browser stopped sending (a closed or frozen tab).
             logger.warning("Live: the browser stopped sending audio; stopping")
             self.stop()
+        elif isinstance(message, P.DeviceLost) and self.state().state not in ACTIVE:
+            # The meter (or passthrough while stopped) could not open its device, or lost it: no
+            # session to reconnect; the meter tries again later.
+            logger.info("Live: the idle %s device is unavailable (%s): %s", message.direction, message.reason, message.message)
+            self._meter_failed()
         elif isinstance(message, P.DeviceLost):
             logger.warning("Live: %s device lost (%s): %s", message.direction, message.reason, message.message)
             with self._lock:
@@ -260,6 +286,14 @@ class LiveService:
                 if state == "stopped":
                     return
                 self._awaiting_start = False
+        with self._lock:
+            if message.meter:
+                self._meter_failures = 0
+            elif self._meter_sent is not None:
+                # The worker's meter is off (closed for a session, lost, or not yet open when the
+                # worker announced itself): ask again, though not at once.
+                self._meter_sent = None
+                self._meter_retry_at = max(self._meter_retry_at, time.monotonic() + METER_RESEND)
         changes: dict[str, Any] = {"state": state, "meter": message.meter, "passthrough": message.passthrough, "stage": message.stage}
         recording = self._state.recording
         if recording is not None:
@@ -303,6 +337,9 @@ class LiveService:
     def _on_exit(self, expected: bool) -> None:
         with self._lock:
             self._worker_cached = []
+            self._meter_sent = None
+        if not expected:
+            self._meter_failed()
         self._release_gpu()
         if not self._closing:
             self._compute.emit_usage(force=True)
@@ -403,6 +440,9 @@ class LiveService:
                 self._devices_at = started
         if changed and cached is not None:
             self._events.publish(DevicesChangedEvent(devices=self._view(fresh)))
+            with self._lock:
+                self._meter_failures, self._meter_retry_at = 0, 0.0  # a device came or went: the meter tries at once
+            self._meter_wake.set()
         return self._view(fresh)
 
     def _view(self, listing: DeviceList) -> DeviceList:
@@ -415,6 +455,10 @@ class LiveService:
     def _on_settings_keys(self, keys: list[str]) -> None:
         if any(k.startswith(("live.devices", "live.stream")) for k in keys):
             self._sync_latency_test()
+        if any(k.startswith("live.devices") for k in keys):
+            with self._lock:
+                self._meter_failures, self._meter_retry_at = 0, 0.0
+            self._meter_wake.set()  # another input or gain: the meter follows
         if "live.show_all_devices" in keys:
             # The loopback sources are listed (or not) by the enumeration itself: list again, off the
             # caller's thread; a changed list goes out as devices_changed.
@@ -578,27 +622,28 @@ class LiveService:
             for r in resolved:
                 if r.device is None:
                     raise DeviceError(r.message or f"No {r.role} device", "missing", {"role": r.role})
-            meter = current.meter and self._supervisor.running
-            if meter:
-                self._supervisor.send(P.Meter(on=False))
+            with self._meter_lock:
+                # ``_measuring`` keeps the meter thread from opening it again meanwhile.
+                paused = self._supervisor.running and (self._meter_sent is not None or self.state().meter)
+                if paused:
+                    self._supervisor.send(P.Meter(on=False))
+                    self._meter_sent = None
+            if paused:
                 time.sleep(METER_SETTLE)
-            try:
-                result = self._run_devices(
-                    {
-                        "action": "measure_latency",
-                        "input": _probe_selection(devices.input, by_role["input"]),
-                        "output": _probe_selection(devices.output, by_role["output"]),
-                        "block_ms": stream.block_ms,
-                        "level_db": request.level_db,
-                    },
-                    timeout=60.0 + 10.0 * stream.block_ms / 1000,
-                )
-            finally:
-                if meter:
-                    self.meter(True)
+            result = self._run_devices(
+                {
+                    "action": "measure_latency",
+                    "input": _probe_selection(devices.input, by_role["input"]),
+                    "output": _probe_selection(devices.output, by_role["output"]),
+                    "block_ms": stream.block_ms,
+                    "level_db": request.level_db,
+                },
+                timeout=60.0 + 10.0 * stream.block_ms / 1000,
+            )
         finally:
             with self._lock:
                 self._measuring = False
+            self._meter_wake.set()
         if not result.get("ok"):
             raise DeviceError(result.get("message") or "The devices could not be opened", result.get("reason") or "busy", {"role": result.get("role") or "output"})
         engine = stream.to_engine()
@@ -869,19 +914,94 @@ class LiveService:
             return self.state()
 
     def meter(self, on: bool) -> LiveState:
-        current = self.state()
-        if not on and not self._supervisor.running:
-            return self._set_state(meter=False)
-        if current.state in ACTIVE:
-            # While a session runs, its own meters are shown.
-            return current
+        """Want the input meter for the next ``METER_LEASE`` seconds (``on``), or no longer.
+
+        Returns at once: the meter thread starts the worker if needed and opens the selected input
+        whenever Live is idle (stopped or failed, no Hear yourself, no measurement), so the level
+        shows before the first Start, again after a session, and once a refused or unplugged
+        device can be opened."""
+        with self._lock:
+            self._meter_until = time.monotonic() + METER_LEASE if on else 0.0
+            if on and (self._meter_thread is None or not self._meter_thread.is_alive()) and not self._closing:
+                self._meter_thread = threading.Thread(target=self._meter_loop, name="rvc-live-meter", daemon=True)
+                self._meter_thread.start()
+        self._meter_wake.set()
+        return self.state()
+
+    def _meter_failed(self) -> None:
+        """The meter's device refused or went away, or the worker died: try again after a pause that grows."""
+        with self._lock:
+            self._meter_sent = None
+            delay = METER_RETRY[min(self._meter_failures, len(METER_RETRY) - 1)]
+            self._meter_failures += 1
+            self._meter_retry_at = time.monotonic() + delay
+        self._meter_wake.set()
+
+    def _meter_loop(self) -> None:
+        while not self._closing:
+            self._meter_wake.clear()
+            try:
+                wait = self._sync_meter()
+            except RvcNextError as e:  # the worker would not start, or went away
+                logger.warning("Live: the input meter: %s", e.message)
+                self._meter_failed()
+                wait = None
+            except Exception:
+                logger.exception("Live: the input meter failed")
+                self._meter_failed()
+                wait = None
+            self._meter_wake.wait(wait)
+
+    def _meter_idle(self) -> bool:
+        """Live has nothing open that meters the input already, and no measurement needs it."""
+        with self._lock:
+            state = self._state
+            return state.state not in (*ACTIVE, "stopping") and not state.passthrough and not self._measuring
+
+    def _sync_meter(self) -> float | None:
+        """Bring the worker's meter in line with the lease and the state; the seconds until the next look (None: on a change)."""
+        now = time.monotonic()
+        with self._lock:
+            until, retry_at, sent = self._meter_until, self._meter_retry_at, self._meter_sent
+        wanted = now < until
+        if not wanted or not self._meter_idle():
+            # A session, passthrough or a measurement has the input (the worker closes the meter for
+            # the first two, the measurement itself for the third); a meter no longer wanted is closed here.
+            with self._meter_lock:
+                if (sent is not None or self.state().meter) and self._meter_idle() and self._supervisor.running:
+                    self._supervisor.send(P.Meter(on=False))
+                with self._lock:
+                    self._meter_sent = None
+            return until - now if wanted else None
+        if now < retry_at:
+            return min(retry_at, until) - now
+        target = self._meter_target()
+        if target is None:
+            self._meter_failed()
+            return None
+        if target == sent and self._supervisor.running:
+            return until - now
+        self._supervisor.ensure(self._worker_request(), env=self._worker_env())  # seconds, on the first use
+        with self._meter_lock:
+            if not self._meter_idle():
+                return None
+            self._supervisor.send(P.Meter(on=True, input=target["input"], input_gain_db=target["input_gain_db"]))
+            with self._lock:
+                self._meter_sent = target
+        return until - now
+
+    def _meter_target(self) -> dict[str, Any] | None:
+        """The selected input as the worker opens it, and its gain; None when no input device is there."""
         devices = self._settings.settings.live.devices
-        resolved = self.resolve(LiveDevices(input=devices.input, output=devices.output), self.devices())
-        if on:
-            self._supervisor.ensure(self._worker_request(), env=self._worker_env())
-        endpoint = self._endpoint(devices.input, next((r for r in resolved if r.role == "input"), None))
-        self._supervisor.send(P.Meter(on=on, input=endpoint))
-        return self._set_state(meter=on)
+        try:
+            resolved = self.resolve(LiveDevices(input=devices.input, output=devices.output), self.devices())
+        except RvcNextError as e:
+            logger.warning("Live: no device list for the input meter: %s", e.message)
+            return None
+        r = next((r for r in resolved if r.role == "input"), None)
+        if r is None or r.device is None:
+            return None
+        return {"input": self._endpoint(devices.input, r), "input_gain_db": devices.input_gain_db}
 
     def passthrough(self, on: bool) -> LiveState:
         devices = self._settings.settings.live.devices
@@ -982,6 +1102,7 @@ class LiveService:
 
     def close(self) -> None:
         self._closing = True
+        self._meter_wake.set()
         if self._supervisor.running:
             self._supervisor.shutdown()
         self._release_gpu()

@@ -126,6 +126,9 @@ class LiveStats(Record):
     input_rms_db: float = -120.0
     output_peak_db: float = -120.0
     output_rms_db: float = -120.0
+    monitor_peak_db: float = -120.0
+    monitor_rms_db: float = -120.0
+    """What goes to the monitor device (or to the output while stopped with Hear yourself on and no monitor)."""
     infer_ms_p50: float = 0.0
     infer_ms_p95: float = 0.0
     block_ms: float = 0.0

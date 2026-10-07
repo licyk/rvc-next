@@ -1787,7 +1787,9 @@ export interface paths {
         put?: never;
         /**
          * Meter
-         * @description Open the input alone and stream its level while Live is stopped.
+         * @description Stream the selected input's level whenever Live is idle, for the next 15 seconds (ask again to
+         *     keep it; ``on: false`` ends it). Returns at once; the meter opens in the background, follows the
+         *     selected input and retries a device that is unavailable.
          */
         post: operations["set_live_meter"];
         delete?: never;
@@ -3724,6 +3726,16 @@ export interface components {
              * @default -120
              */
             output_rms_db: number;
+            /**
+             * Monitor Peak Db
+             * @default -120
+             */
+            monitor_peak_db: number;
+            /**
+             * Monitor Rms Db
+             * @default -120
+             */
+            monitor_rms_db: number;
             /**
              * Infer Ms P50
              * @default 0

@@ -503,6 +503,7 @@ class AudioSession:
         self.mon_reader = DriftCorrector(self.mon_ring, self.sample_rate, self.block, self.block * 2)
         self.input_levels = _Levels()
         self.output_levels = _Levels()
+        self.monitor_levels = _Levels()
         self.infer_ms: collections.deque[float] = collections.deque(maxlen=50)
         self._untimed = 0
         """Blocks still to process without timing them (see ``skip_timing``)."""
@@ -734,6 +735,7 @@ class AudioSession:
                 mon = y
             if cfg.monitor_gain_db:
                 mon = mon * db_to_gain(cfg.monitor_gain_db)
+            self.monitor_levels.update(mon)
             self.mon_ring.write(mon.astype(np.float32, copy=False))
         self.processed_blocks += 1
 

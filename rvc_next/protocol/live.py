@@ -81,10 +81,12 @@ class SetDevices:
 
 @dataclass
 class Meter:
-    """Open the input alone and report levels, without a voice. ``input`` is an endpoint."""
+    """Open the input alone and report levels, without a voice. ``input`` is an endpoint; asked
+    again for the input it already meters, the worker keeps the stream and only takes the gain."""
 
     on: bool
     input: dict[str, Any] | None = None
+    input_gain_db: float = 0.0
     type: str = "meter"
 
 
@@ -161,6 +163,8 @@ class Stats:
     input_rms_db: float = -120.0
     output_peak_db: float = -120.0
     output_rms_db: float = -120.0
+    monitor_peak_db: float = -120.0
+    monitor_rms_db: float = -120.0
     infer_ms_p50: float = 0.0
     infer_ms_p95: float = 0.0
     block_ms: float = 0.0

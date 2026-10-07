@@ -422,6 +422,13 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   one lock (`LiveService._control`), so a switch and the speaker change it causes cannot interleave;
   the worker answers every `SetVoice` with `State.voice_path` (the voice now converting — the old
   one, with `detail.reason == "voice_load"`, when the new one fails) and the state follows it.
+  **Input meter:** `meter(on)` only extends a 15 s lease (`METER_LEASE`) and returns at once; a
+  thread (`_sync_meter`) opens it whenever Live is idle (stopped or `error`, no passthrough, no
+  measurement), starting the worker if needed, follows `live.devices` (a new gain alone keeps the
+  stream) and retries a `DeviceLost` or a dead worker after 1/2/5/10 s. Each shown `DevicePanel`
+  holds a claim (`useMeterClaim`); the page renews every 5 s while visible. The worker's answers to
+  `Meter`/`Passthrough` keep its last error (they used to clear a failed session's error at once).
+  `Stats` carry monitor levels; Live's footer errors stay until the next Start or their close button.
 - **Browser audio** (`engine/audio_io/browser.py`, `LiveConfig.browser`, WebSocket `/live/browser-audio`):
   the browser's microphone and speakers instead of the server's devices. The browser's clock drives
   a duplex `BrowserBackend` stream: each microphone frame that arrives runs the callback, and as

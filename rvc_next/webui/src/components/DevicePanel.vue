@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
 import { useMeta, useSettings } from '@/api/queries/app';
-import { checkDevices, useLiveControl, useLiveDevices, useMeasureLatency, useRefreshDevices } from '@/api/queries/live';
+import { checkDevices, useLiveControl, useLiveDevices, useMeasureLatency, useMeterClaim, useRefreshDevices } from '@/api/queries/live';
 import type { AudioDevice, DeviceCheck, DeviceList, DeviceSelection, LiveDevices, PhysicalDevice } from '@/api/types';
 import ErrorNotice from '@/components/ErrorNotice.vue';
 import { DEFAULT_VALUE, channelOptions, deviceOptions, devicesFor, driverOptions, selectionFor, selectionValue, statusMessage, variantOf } from '@/components/devices';
@@ -12,9 +12,10 @@ import { AppButton, ExpansionPanel, IconButton, LevelMeter, ParamSlider, PickerM
 
 /**
  * The device picker, on the Live screen and in Settings › Audio: physical devices with
- * full names, the server's host name in the title, a live input meter, a test sound, an optional
- * monitor, the driver under Advanced, problems shown at the device they concern, and a loopback
- * measurement of the real latency.
+ * full names, the server's host name in the title, a level meter under each device (the input's
+ * live whenever the panel is shown, running or not), a test sound, an optional monitor, the driver
+ * under Advanced, problems shown at the device they concern, and a loopback measurement of the
+ * real latency.
  */
 const props = withDefaults(defineProps<{ running?: boolean }>(), { running: false });
 /** A device list this long gets a search field (Windows lists each device under several drivers' names). */
@@ -132,11 +133,10 @@ watch(
   { deep: true, immediate: true },
 );
 
-// The input meter runs while the panel is visible and Live is stopped (live.show_meters).
-const meterWanted = computed(() => !props.running && (settings.data.value?.live.show_meters ?? true) && !!list.data.value);
-watch(meterWanted, (on, before) => {
-  if (on !== before) control.meter.mutate(on);
-});
+// The input meter: while Live runs, the session's own levels; otherwise the server opens the input
+// alone (in the background, retrying a device that is not there) for as long as a panel is shown
+// (live.show_meters).
+useMeterClaim(() => settings.data.value?.live.show_meters ?? true);
 // Re-enumerate every 5 s while shown and stopped; the server emits devices_changed only on a difference.
 // Never a second request while one is out (an enumeration can outlast the interval on Windows), and
 // none from a view kept alive in the background.
@@ -147,16 +147,12 @@ function startPoll() {
     if (!props.running && document.visibilityState === 'visible' && !refresh.isPending.value && !list.isFetching.value) refresh.mutate();
   }, 5000);
 }
-onMounted(() => {
-  if (meterWanted.value) control.meter.mutate(true);
-  startPoll();
-});
+onMounted(startPoll);
 onActivated(startPoll);
 onDeactivated(() => clearInterval(poll));
 onBeforeUnmount(() => {
   clearInterval(poll);
   clearTimeout(timer);
-  if (meterWanted.value) control.meter.mutate(false);
 });
 // Measured latency: bursts out of the output, found again in the input. The state keeps the last
 // measurement while it still fits the devices and the block.
@@ -172,7 +168,16 @@ const measuredLine = computed(() => {
   return t('devices.measured', { ms: Math.round(m.latency_ms ?? 0), rt: Math.round(m.round_trip_ms ?? 0), engine: Math.round(m.engine_ms), est: Math.round(m.estimated_ms) });
 });
 const passthrough = computed({ get: () => live.state.passthrough, set: (on) => control.passthrough.mutate(on) });
-const inLevels = computed(() => (live.stats ? { rms: live.stats.input_rms_db, peak: live.stats.input_peak_db } : { rms: null, peak: null }));
+// What reaches each device: the microphone; the converted voice (or Hear yourself) on the output and
+// the monitor. Silent ("—") while nothing plays there.
+const levels = computed(() => {
+  const s = live.stats;
+  return {
+    input: { rms: s?.input_rms_db ?? null, peak: s?.input_peak_db ?? null },
+    output: { rms: s?.output_rms_db ?? null, peak: s?.output_peak_db ?? null },
+    monitor: { rms: s?.monitor_rms_db ?? null, peak: s?.monitor_peak_db ?? null },
+  };
+});
 </script>
 
 <template>
@@ -197,7 +202,7 @@ const inLevels = computed(() => (live.stats ? { rms: live.stats.input_rms_db, pe
             :model-value="roleValue('input')"
             @update:model-value="setRole('input', $event)"
           />
-          <LevelMeter :label="t('devices.meter')" :rms-db="inLevels.rms" :peak-db="inLevels.peak" />
+          <LevelMeter :label="t('devices.meter')" :rms-db="levels.input.rms" :peak-db="levels.input.peak" />
           <p v-if="status('input')" class="type-body-small warn">{{ status('input') }}</p>
           <div v-for="p in problems('input')" :key="p.reason" class="problem type-body-small">
             <span>{{ tOr(`devices.reasons.${p.reason}`, p.reason) }}: {{ p.message }}<template v-if="p.action === 'grant_permission' || p.action === 'choose'"> · {{ tOr(`devices.actions.${p.action}`, p.action) }}</template></span>
@@ -213,6 +218,7 @@ const inLevels = computed(() => (live.stats ? { rms: live.stats.input_rms_db, pe
             @update:model-value="setRole('output', $event)"
           />
           <div class="below">
+            <LevelMeter class="level" :label="t('devices.outputMeter')" :rms-db="levels.output.rms" :peak-db="levels.output.peak" />
             <AppButton variant="tonal" :icon="icons.Volume2" :disabled="loading" @click="control.testTone.mutate({ role: 'output', device: model.output })">{{ t('devices.test') }}</AppButton>
           </div>
           <p v-if="status('output')" class="type-body-small warn">{{ status('output') }}</p>
@@ -230,6 +236,7 @@ const inLevels = computed(() => (live.stats ? { rms: live.stats.input_rms_db, pe
             @update:model-value="setRole('monitor', $event)"
           />
           <div v-if="model.monitor" class="below">
+            <LevelMeter class="level" :label="t('devices.monitorMeter')" :rms-db="levels.monitor.rms" :peak-db="levels.monitor.peak" />
             <AppButton variant="tonal" :icon="icons.Headphones" :disabled="loading" @click="control.testTone.mutate({ role: 'monitor', device: model.monitor })">{{ t('devices.test') }}</AppButton>
           </div>
           <div v-if="model.monitor" class="monitor">
@@ -302,7 +309,9 @@ const inLevels = computed(() => (live.stats ? { rms: live.stats.input_rms_db, pe
 .title { flex: 1; margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .roles { display: flex; flex-direction: column; gap: var(--app-space-5); }
 .group { display: flex; flex-direction: column; gap: var(--app-space-2); min-width: 0; }
-.below { display: flex; flex-wrap: wrap; align-items: center; gap: var(--app-space-2); }
+.below { display: flex; flex-wrap: wrap; align-items: center; gap: var(--app-space-2) var(--app-space-4); }
+/* The meter takes the row, as the input's does; the Test button keeps its size at the end. */
+.level { flex: 1 1 240px; }
 .monitor { display: flex; flex-direction: column; gap: var(--app-space-2); padding-left: var(--app-space-3); }
 .advanced { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); gap: var(--app-space-3) var(--app-space-6); align-items: center; padding: var(--app-space-2) 0; }
 .warn { margin: 0; color: var(--md-sys-color-tertiary); }

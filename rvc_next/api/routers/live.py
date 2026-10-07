@@ -90,7 +90,9 @@ def measure_latency(services: ServicesDep, body: LatencyTestRequest) -> LatencyM
 
 @router.post("/meter", operation_id="set_live_meter")
 def meter(services: ServicesDep, body: Toggle) -> LiveState:
-    """Open the input alone and stream its level while Live is stopped."""
+    """Stream the selected input's level whenever Live is idle, for the next 15 seconds (ask again to
+    keep it; ``on: false`` ends it). Returns at once; the meter opens in the background, follows the
+    selected input and retries a device that is unavailable."""
     return services.live.meter(body.on)
 
 

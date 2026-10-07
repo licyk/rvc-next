@@ -12,7 +12,8 @@ export const useLiveStore = defineStore('live', () => {
 
   function setState(next: LiveState) {
     state.value = next;
-    if (next.state === 'stopped' && !next.meter) stats.value = null;
+    // Nothing open any more (the meter comes back on its own): no levels, rather than the last ones frozen.
+    if ((next.state === 'stopped' || next.state === 'error') && !next.meter && !next.passthrough) stats.value = null;
   }
   function setStats(next: LiveStats) {
     stats.value = next;

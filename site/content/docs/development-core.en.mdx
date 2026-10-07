@@ -363,6 +363,12 @@ When switching voices, the worker replies with a `State` containing `voice_path`
 
 The worker announces `stopped` immediately after connecting; `_awaiting_start` makes the service ignore it until `Start` is processed, avoiding a flash back to “Stopped” in the UI during startup.
 
+### Input meter while idle
+
+`POST /live/meter` only extends a 15-second lease (`METER_LEASE`; `on: false` ends it) and returns at once: no request waits for the worker to start or a device to open. A thread of its own (`_meter_loop` / `_sync_meter`) opens the meter whenever the lease holds and Live is idle (stopped or `error`, no **Hear yourself**, no latency measurement): it starts the worker if needed, resolves the saved input against the cached list and sends `Meter(on, input, input_gain_db)`. It wakes on every state change, on a `live.devices` setting change (another input or gain: the worker reopens or only takes the gain) and on `devices_changed`. A `DeviceLost` while idle, or a worker that died, is retried after 1, 2, 5, then 10 s (`METER_RETRY`), at once when the device list changes. So the level shows before the first Start and comes back by itself after a session, a failure or an unplugged microphone. Every device panel shown in the web UI holds a claim (`useMeterClaim`) and the page renews the lease every 5 s while visible; a closed or hidden page lets the microphone go.
+
+The worker answers a meter or passthrough request with its last error kept: the meter coming back after a failed session used to clear the error before it could be read.
+
 ### Devices
 
 - **Enumeration** runs in a short-lived `workers.devices` subprocess (`action: enumerate`), importing sounddevice but not torch. The original refreshes devices by calling private `sd._terminate()`/`sd._initialize()` and stopping streams; a separate process never disturbs active streams. Results are cached; `devices(refresh=True)` re-enumerates and publishes `devices_changed` when the signature (without timestamps or PortAudio indexes) changes. With `live.enable_asio`, the subprocess gets `SD_ENABLE_ASIO=1`.

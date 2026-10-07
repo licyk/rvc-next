@@ -209,6 +209,15 @@ const recordedFor = computed(() => {
 function record(source: string) {
   control.startRecording.mutate(source as 'both' | 'converted' | 'input', { onError: (e) => (error.value = e) });
 }
+
+// The session's own error stays in the state until the next Start (the meter coming back after a
+// failure keeps it); the close button hides it here until another error replaces it.
+const stateErrorKey = computed(() => (live.state.error ? JSON.stringify(live.state.error) : null));
+const dismissedError = ref<string | null>(null);
+watch(stateErrorKey, (key) => {
+  if (key === null) dismissedError.value = null;
+});
+const stateError = computed(() => (stateErrorKey.value !== null && stateErrorKey.value !== dismissedError.value ? live.state.error : null));
 </script>
 
 <template>
@@ -246,8 +255,8 @@ function record(source: string) {
       </Surface>
     </div>
     <PageFooter>
-      <ErrorNotice v-if="error" :error="error" />
-      <ErrorNotice v-else-if="live.state.error" :error="live.state.error" />
+      <ErrorNotice v-if="error" :error="error" dismissible @dismiss="error = null" />
+      <ErrorNotice v-else-if="stateError" :error="stateError" dismissible @dismiss="dismissedError = stateErrorKey" />
       <div class="bar">
         <AssetGate :assets="required">
           <AppButton class="start" :icon="running ? icons.Square : icons.Mic" :loading="live.busy || requested" :disabled="!voiceId && !running" @click="toggle">{{ buttonText }}</AppButton>

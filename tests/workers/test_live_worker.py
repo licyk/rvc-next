@@ -235,6 +235,38 @@ def test_meter_passthrough_and_tone(worker) -> None:
     assert client.wait(lambda: any(i == 1 for i, _ in backend.played))
 
 
+def test_meter_keeps_its_stream_and_the_last_error(worker) -> None:
+    """Asked again for the same input, the meter keeps its stream and takes the new gain. A meter (or
+    passthrough) answer after a failed session keeps the error: it used to clear it at once."""
+    w, client, backend, tmp = worker
+    client.send(P.Start(config=start_config(tmp / "missing.pth")))
+    assert client.wait(lambda: client.states()[-1:] == ["error"])
+    mic = {"device": devices_by_name()["Mic"]}
+    client.send(P.Meter(on=True, input=mic))
+    assert client.wait(lambda: w.meter and client.of(P.State)[-1].meter)
+    assert client.of(P.State)[-1].error["code"] == "not_found"
+    aux = w.aux
+    client.send(P.Meter(on=True, input=mic, input_gain_db=-12.0))
+    assert client.wait(lambda: aux.config.input_gain_db == -12.0)
+    assert w.aux is aux
+    w.devices = devices(monitor="Headphones")
+    client.send(P.Passthrough(on=True))
+    assert client.wait(lambda: client.of(P.State)[-1].passthrough)
+    assert not w.meter and client.of(P.State)[-1].error["code"] == "not_found"
+    # Hear yourself while stopped plays on the monitor: its level is the monitor's, not the output's.
+    assert client.wait(lambda: client.of(P.Stats)[-1].monitor_peak_db > -30)
+    assert client.of(P.Stats)[-1].output_peak_db == -120.0
+    client.send(P.Passthrough(on=False))
+    assert client.wait(lambda: w.aux is None and not client.of(P.State)[-1].passthrough)
+    # A new session clears it.
+    client.send(P.Start(config=start_config(make_tiny_voice(tmp / "a.pth"), monitor="Headphones")))
+    assert client.wait_state("running")
+    assert client.of(P.State)[-1].error is None and not w.meter
+    assert client.wait(lambda: client.of(P.Stats)[-1].monitor_peak_db > -60 and client.of(P.Stats)[-1].output_peak_db > -60)
+    client.send(P.Stop())
+    assert client.wait_state("stopped")
+
+
 def test_worker_process_end_to_end(tmp_path: Path, tiny_assets_dir: Path) -> None:
     authkey = secrets.token_bytes(16)
     listener = Listener(("127.0.0.1", 0), authkey=authkey)

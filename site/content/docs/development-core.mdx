@@ -363,6 +363,12 @@ worker 在会话停止后仍保持运行（为了电平表和快速再启动）�
 
 worker 一连上就会宣告一次 `stopped`；`_awaiting_start` 让服务忽略这条，直到 `Start` 被处理，否则界面会在启动时闪回「已停止」。
 
+### 空闲时的输入电平
+
+`POST /live/meter` 只是把一份 15 秒的租约延长（`METER_LEASE`；`on: false` 立即结束）并马上返回：没有请求需要等 worker 启动或设备打开。另有一个线程（`_meter_loop` / `_sync_meter`）在租约有效且实时变声空闲（已停止或 `error`、未开 **监听自己**、不在测量延迟）时打开电平表：必要时启动 worker，用缓存的设备列表解析保存的输入，发送 `Meter(on, input, input_gain_db)`。每次状态变化、`live.devices` 设置变化（换了输入或增益：worker 重开流，或只更新增益）和 `devices_changed` 都会唤醒它。空闲时收到 `DeviceLost`、或 worker 意外退出，按 1、2、5、10 秒重试（`METER_RETRY`），设备列表变化时立即重试。因此第一次开始之前就有电平，会话结束、出错或麦克风重新插上后也会自动恢复。Web 界面里每个显示中的设备面板持有一个占用（`useMeterClaim`），页面可见时每 5 秒续约；页面关闭或隐藏后麦克风会被释放。
+
+worker 回应电平表或直通请求时保留上一个错误：以前会话失败后电平表重新打开，会在用户看清之前把错误清掉。
+
 ### 设备
 
 - **枚举**在一个短命子进程 `workers.devices` 里完成（`action: enumerate`），只导入 sounddevice、不导入 torch。原版刷新设备要调用私有的 `sd._terminate()`/`sd._initialize()` 并停止音频流；放在别的进程里则永远不会打扰正在运行的流。结果缓存；`devices(refresh=True)` 重新枚举，签名（去掉时间戳和 PortAudio 序号）不同时发布 `devices_changed`。`live.enable_asio` 打开时给子进程设置 `SD_ENABLE_ASIO=1`。

@@ -352,7 +352,7 @@ PortAudio 无法录制渲染端点：输出设备没有输入声道，按输入�
 | `UpdateStream(stream)` | 阈值、降噪热更新；块长等变化时关流、`reconfigure`、重新开流，音色不重载 |
 | `SetVoice(voice_path, index_path, speaker_id)` | 运行中换音色：新音色加载期间旧音色继续转换；加载失败报 `detail.reason == "voice_load"` 并继续用旧音色。无论成败都回送带 `voice_path` 的 `State`，核心层据此知道实际在转换的是哪个音色 |
 | `SetDevices(devices)` | 只关闭和重开流；引擎采样率变了才重建引擎（音色仍在运行时缓存里） |
-| `Meter(on, input)` | 停止时单独打开输入，只测电平 |
+| `Meter(on, input, input_gain_db)` | 空闲时单独打开输入，只测电平；同一输入再次请求时保留流、只更新增益。何时打开由核心层决定（租约、状态、重试） |
 | `TestTone(device)` | 在一个输出上播放提示音 |
 | `Passthrough(on)` | 把输入直通到监听（或输出），检查路由 |
 | `ReleaseMemory` | 卸载引擎和全部模型；会话活动时忽略 |
@@ -360,7 +360,7 @@ PortAudio 无法录制渲染端点：输出设备没有输入声道，按输入�
 | 来自 worker | 内容 |
 | --- | --- |
 | `State` | `state`、`error`（`{code, message, detail}`）、`topology`、`sample_rate`、`meter`、`passthrough`、`cached`（worker 运行时里加载的模型，用于“释放显存”）、`voice_path` |
-| `Stats` | 10 Hz 的电平、推理耗时、块长、估算延迟、欠载/过载、漂移、显存 |
+| `Stats` | 10 Hz 的电平（输入、输出、监听）、推理耗时、块长、估算延迟、欠载/过载、漂移、显存 |
 | `DeviceLost` | 角色、设备 id、原因、消息 |
 | `Log` | 日志 |
 

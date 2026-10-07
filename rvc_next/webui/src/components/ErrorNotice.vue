@@ -2,10 +2,14 @@
 import { computed, ref } from 'vue';
 import { errorView } from '@/components/errors';
 import { useI18n } from '@/i18n';
-import { AppIcon, icons } from '@/ui';
+import { AppIcon, IconButton, icons } from '@/ui';
 
-/** A domain error in place: its translated title, the server's message, and the detail on request. */
-const props = defineProps<{ error: unknown }>();
+/**
+ * A domain error in place: its translated title, the server's message, and the detail on request.
+ * ``dismissible`` adds a close button for an error that otherwise stays until it is resolved.
+ */
+const props = defineProps<{ error: unknown; dismissible?: boolean }>();
+defineEmits<{ dismiss: [] }>();
 const { t, tOr } = useI18n();
 const view = computed(() => errorView(props.error, t, tOr));
 const open = ref(false);
@@ -21,6 +25,7 @@ const hasDetail = computed(() => Object.keys(view.value.detail).length > 0);
       <button v-if="hasDetail" type="button" class="toggle type-label-large" @click="open = !open">{{ t('common.details') }}</button>
       <pre v-if="open" class="type-body-small detail">{{ JSON.stringify(view.detail, null, 2) }}</pre>
     </div>
+    <IconButton v-if="dismissible" class="dismiss" :icon="icons.X" :label="t('common.dismiss')" @click="$emit('dismiss')" />
   </div>
 </template>
 
@@ -29,5 +34,6 @@ const hasDetail = computed(() => Object.keys(view.value.detail).length > 0);
 .body { display: flex; flex-direction: column; gap: var(--app-space-1); min-width: 0; flex: 1; }
 .message { overflow-wrap: anywhere; }
 .toggle { align-self: flex-start; padding: 0; border: 0; background: none; color: inherit; text-decoration: underline; cursor: pointer; }
+.dismiss { flex: none; align-self: flex-start; margin: calc(-1 * var(--app-space-2)) calc(-1 * var(--app-space-2)) 0 0; --md-icon-button-icon-color: currentColor; --md-icon-button-hover-icon-color: currentColor; --md-icon-button-focus-icon-color: currentColor; --md-icon-button-pressed-icon-color: currentColor; }
 .detail { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 200px; overflow: auto; }
 </style>
