@@ -121,6 +121,7 @@ rvc-next convert [OPTIONS] INPUTS...
 | `--format <str>` | `wav`, `flac`, `mp3`, `m4a`, or `ogg` (Opus) | `convert.output_format` in settings (`wav`) |
 | `--resample <int>` | Resample the result to this rate, at least 16000 | The voice's own sample rate |
 | `--denoise <float>` | Noise reduction over the converted voice, `[0, 1]`; 0 turns it off | 0 |
+| `--effect <spec>` | An effect over the converted voice, repeatable, applied in order: `KIND` or `KIND:NAME=VALUE,...`, for example `--effect compressor --effect reverb:room_size=0.6,wet_level=0.3`; [`effects`](#effects) lists them. Needs `rvc-next[effects]` | None |
 | `--recursive / --no-recursive` | Look into subfolders of folder inputs | `--no-recursive` |
 | `--overwrite / --no-overwrite` | Replace existing files in the output folder | `--no-overwrite` |
 | `--preview <float>` | Convert only the first N seconds, `[1, 120]` | — |
@@ -146,6 +147,14 @@ rvc-next analyse [OPTIONS] PATH
 | --- | --- |
 | `--csv <path>` | Write the pitch curve as `time_s,f0_hz` (0 where there is no pitch) |
 | `--json` | Print the whole analysis, the spectrogram included (base64) |
+
+### `effects`
+
+List the effects `convert --effect` and `live run --effect` take, each with its parameters' defaults and ranges, and whether pedalboard is installed.
+
+```text
+rvc-next effects [--json]
+```
 
 ### `separate`
 
@@ -817,6 +826,7 @@ Convert live with the server's devices until <kbd>ctrl</kbd>+<kbd>c</kbd>, with 
 | `--threshold-db <float>` | Input gate in dB, `[-60, 0]`; -60 turns it off | Saved value (-60) |
 | `--denoise-strength <float>` | Noise reduction strength, `[0, 1]` | Saved value (0.9) |
 | `--phase-vocoder` / `--no-phase-vocoder` | Phase-vocoder crossfade between blocks | Saved value (off) |
+| `--effect <spec>` | Effects over the converted voice, as `convert --effect`; replaces the saved chain, `none` clears it | Saved chain |
 | `--input-gain <float>` | Input level in dB, `[-24, 24]` | Saved value (0) |
 | `--record <source>` | Record the session to the outputs folder once it runs: `both` (stereo, input left), `converted` or `input`; the file is printed when Live stops | Not recorded |
 | `--allow-fallback` | Start even if the saved output device is missing and the default would be used | Off |

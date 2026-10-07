@@ -11,14 +11,14 @@ import numpy as np
 from rvc_next.core.assets.service import AssetService
 from rvc_next.core.audio.service import AudioFileService
 from rvc_next.core.compute.service import ComputeService
-from rvc_next.core.conversion.models import ConvertRequest
+from rvc_next.core.conversion.models import ConvertRequest, EffectParamSpec, EffectsCatalog, EffectSpec
 from rvc_next.core.errors import ValidationError
 from rvc_next.core.files import slugify
 from rvc_next.core.jobs.models import Job, JobStep
 from rvc_next.core.jobs.service import JobContext, JobService, JobSpec
 from rvc_next.core.models.models import VoiceModel
 from rvc_next.core.models.service import VoiceModelService
-from rvc_next.core.params import f0_assets
+from rvc_next.core.params import effects_to_engine, f0_assets, require_effects
 from rvc_next.core.separation.service import SeparationService
 from rvc_next.core.settings import SettingsService
 
@@ -55,6 +55,18 @@ class ConversionService:
             ids += f0_assets(f0_method, self._settings.settings.compute.device == "dml")
         return ids
 
+    @staticmethod
+    def effects_catalog() -> EffectsCatalog:
+        from rvc_next.engine.audio.effects import EFFECTS, available
+
+        return EffectsCatalog(
+            available=available(),
+            effects=[
+                EffectSpec(kind=s.kind, params=[EffectParamSpec(name=p.name, default=p.default, min=p.min, max=p.max, unit=p.unit) for p in s.params], live=s.streams)
+                for s in EFFECTS.values()
+            ],
+        )
+
     def validate(self, request: ConvertRequest) -> VoiceModel:
         voice = self._models.get(request.voice_id)
         if request.params.speaker_id >= max(voice.speaker_slots, 1):
@@ -64,6 +76,7 @@ class ConversionService:
             self._separation.require(request.separate.preset)
         if request.remix and not request.separate:
             raise ValidationError("Adding the accompaniment back needs a separation step")
+        require_effects(request.effects)
         return voice
 
     def convert(self, request: ConvertRequest, foreground: bool = False) -> Job:
@@ -119,6 +132,7 @@ class ConversionService:
         if index is None and req.params.index_rate > 0:
             ctx.log("No index for this voice; index strength has no effect")
         converter = OfflineConverter(runtime)
+        effects = effects_to_engine(req.effects)
         written: list[str] = []
         voice_slug = slugify(voice.name)
         for i, (src, name) in enumerate(files):
@@ -138,6 +152,10 @@ class ConversionService:
             )
             if params.auto_pitch != "off" and voice.pitch_guidance:
                 ctx.log(f"Automatic key: {converter.last_auto_key:+d} semitones (towards {params.auto_pitch_target:.0f} Hz)")
+            if effects:
+                from rvc_next.engine.audio.effects import apply
+
+                out = np.clip(apply(_float(out), sr, effects), -1.0, 1.0)  # an effect may overshoot; never let the encoder wrap
             stem = Path(name).stem
             kind = "preview" if preview else "converted"
             if req.remix and req.separate:
@@ -171,12 +189,12 @@ class ConversionService:
         return rest[0] if rest else None
 
     @staticmethod
-    def _remix(vocal_int16: np.ndarray, sr: int, accompaniment: Path, gain_db: float, vocal_gain_db: float, preview: float | None) -> np.ndarray:
+    def _remix(vocal: np.ndarray, sr: int, accompaniment: Path, gain_db: float, vocal_gain_db: float, preview: float | None) -> np.ndarray:
         """Mix the converted vocal over the accompaniment at the vocal's rate; return stereo ``[2, T]`` float."""
         from rvc_next.engine.audio.dsp import db_to_gain
         from rvc_next.engine.audio.io import decode
 
-        vocal = vocal_int16.astype(np.float32) / 32768.0 * db_to_gain(vocal_gain_db)
+        vocal = _float(vocal) * db_to_gain(vocal_gain_db)
         acc, _ = decode(accompaniment, sr, mono=False, max_seconds=preview)
         if acc.shape[0] == 1:
             acc = np.repeat(acc, 2, axis=0)
@@ -189,3 +207,8 @@ class ConversionService:
         if peak > 0.99:
             mix *= 0.99 / peak
         return mix
+
+
+def _float(audio: np.ndarray) -> np.ndarray:
+    """The converter's int16 samples (or float ones, after effects) as float32 in [-1, 1]."""
+    return audio.astype(np.float32) / 32768.0 if audio.dtype == np.int16 else audio.astype(np.float32, copy=False)

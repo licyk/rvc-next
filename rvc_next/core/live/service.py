@@ -46,7 +46,7 @@ from rvc_next.core.live.models import (
 )
 from rvc_next.core.live.supervisor import LiveSupervisor
 from rvc_next.core.models.service import VoiceModelService
-from rvc_next.core.params import StreamParamsModel, VoiceParamsModel, f0_assets
+from rvc_next.core.params import StreamParamsModel, VoiceParamsModel, f0_assets, require_effects
 from rvc_next.core.safety import unique_path
 from rvc_next.core.settings import SettingsService
 from rvc_next.protocol import live as P
@@ -632,6 +632,7 @@ class LiveService:
                 if self._state.state in ACTIVE:
                     raise BusyError("Live is already running")
             voice = self._models.get(config.voice_id)
+            require_effects(config.stream.effects)
             if config.params.speaker_id >= max(voice.speaker_slots, 1):
                 raise ValidationError(f"Speaker {config.params.speaker_id} is outside this voice's 0–{voice.speaker_slots - 1}")
             self._require_assets(config.voice_id, config.params)
@@ -721,6 +722,7 @@ class LiveService:
             return self.state()
 
     def update_stream(self, stream: StreamParamsModel) -> LiveState:
+        require_effects(stream.effects)
         with self._control:
             current = self.state()
             if current.state in ACTIVE and self._supervisor.running:

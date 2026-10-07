@@ -89,6 +89,15 @@ Keep in mind:
 - **Sample rate**: defaults to **The voice's own** (for example, a 40 kHz voice outputs 40 kHz); you can also choose 22.05, 32, 40, 44.1 or 48 kHz, and the result is resampled to that rate.
 - **Noise reduction**: 0–1, default 0 (off). Removes hiss and background noise from the converted voice with a spectral gate that follows the noise as it changes (Applio's "clean audio"); higher values remove more and can dull the voice.
 
+### Effects [#effects]
+
+**Effects** under **Output** add a chain of studio effects to the converted voice, applied top to bottom, before the accompaniment is added back: high-pass and low-pass filters, noise gate, compressor, pitch shift, distortion, bitcrusher, clipping, chorus, phaser, delay, reverb, gain and limiter (the plugins of Spotify's [pedalboard](https://github.com/spotify/pedalboard), as Applio's post-processing uses them, but in any order and as many as 16). **Add effect** appends one with its default settings; each one's sliders show its parameters, and the arrows and the bin move and remove it.
+
+- A reverb or delay rings out past the end of the voice: the result is longer by its audible tail.
+- The limiter also raises the level as it limits (pedalboard's limiter has make-up gain); put a **Gain** before it to aim it.
+- The server needs `pip install "rvc-next[effects]"`; without it the section says so and a conversion with effects is refused.
+- The effects are not stored in presets; the command line takes them as `--effect` ([`convert`](/docs/cli-commands#convert)).
+
 ## Preview and convert
 
 The bottom action bar has two buttons:

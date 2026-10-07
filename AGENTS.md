@@ -239,6 +239,12 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   an output of kind `recording`.
 - `StreamEngine` calls `remove_weight_norm()` on its voice's net, as the original does; it runs
   in the live worker's own runtime, never the server's.
+- **Effects** (`engine/audio/effects.py`, extra `rvc-next[effects]`; `pedalboard` only there, lazily):
+  `EFFECTS` is the one catalog of kinds, parameters and ranges (`GET /convert/effects`, `rvc-next effects`).
+  `ConvertRequest.effects` runs on the converted voice before the remix; `StreamParams.effects` after
+  SOLA, hot, never in passthrough. Streamed, pedalboard's PitchShift holds back ~1 s (and in 0.9 gives
+  silence), so it is offline only (`streams=False`, refused by `StreamParamsModel`); 0.9.25 is excluded
+  (SIGILL on older CPUs). `EffectModel.params` is required so FastAPI does not split the schema.
 
 ## 6. Core services
 

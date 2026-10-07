@@ -134,6 +134,12 @@ python -m pip install rvc-next
 
 Since PyTorch is already installed, pip considers the `torch` dependency satisfied and will not replace it with another build. After installation, the `rvc-next` command is available in the environment.
 
+The **effects** chain on Convert and Live (reverb, compressor, delay and more) needs [pedalboard](https://github.com/spotify/pedalboard), an optional extra:
+
+```bash
+python -m pip install "rvc-next[effects]"
+```
+
 ### Install from source
 
 To use the latest code or contribute to development, install from source:

@@ -10,6 +10,7 @@ from rvc_next.cli.commands.analyse import analyse
 from rvc_next.cli.commands.assets import assets_download, assets_list, assets_verify
 from rvc_next.cli.commands.config import config_get, config_path, config_set, config_show
 from rvc_next.cli.commands.convert import convert
+from rvc_next.cli.commands.effects import effects
 from rvc_next.cli.commands.jobs import jobs_list, jobs_show
 from rvc_next.cli.commands.live import live_check, live_devices, live_latency, live_run, live_test_tone
 from rvc_next.cli.commands.model import (
@@ -47,6 +48,7 @@ def get_app() -> typer.Typer:
     app.command(help="List the environment variables rvc-next reads", name="env")(env)
     app.command(help="Check torch and its GPU backend, audio devices and the assets", name="doctor")(doctor)
     app.command(help="Convert audio files or folders with a voice", name="convert")(convert)
+    app.command(help="List the effects convert and live run can add", name="effects")(effects)
     app.command(help="Separate vocals, accompaniment and reverb", name="separate")(separate)
     app.command(help="Show an audio file's pitch and format; write its pitch curve", name="analyse")(analyse)
 

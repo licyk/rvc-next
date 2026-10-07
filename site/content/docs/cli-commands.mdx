@@ -121,6 +121,7 @@ rvc-next convert [OPTIONS] INPUTS...
 | `--format <str>` | `wav`、`flac`、`mp3`、`m4a` 或 `ogg`（Opus） | 设置 `convert.output_format`（`wav`） |
 | `--resample <int>` | 把结果重采样到这个采样率，至少 16000 | 音色自身的采样率 |
 | `--denoise <float>` | 对转换结果降噪，`[0, 1]`；0 为关闭 | 0 |
+| `--effect <spec>` | 转换结果上的效果，可重复，按顺序处理：`KIND` 或 `KIND:NAME=VALUE,...`，例如 `--effect compressor --effect reverb:room_size=0.6,wet_level=0.3`；[`effects`](#effects) 列出全部效果。需要 `rvc-next[effects]` | 无 |
 | `--recursive / --no-recursive` | 进入文件夹输入的子文件夹 | `--no-recursive` |
 | `--overwrite / --no-overwrite` | 替换输出文件夹里已有的文件 | `--no-overwrite` |
 | `--preview <float>` | 只转换前 N 秒，`[1, 120]` | — |
@@ -146,6 +147,14 @@ rvc-next analyse [OPTIONS] PATH
 | --- | --- |
 | `--csv <path>` | 把音高曲线写成 `time_s,f0_hz`（没有音高处为 0） |
 | `--json` | 输出完整分析，包括频谱图（base64） |
+
+### `effects`
+
+列出 `convert --effect` 和 `live run --effect` 可用的效果，以及每个参数的默认值和范围，并说明是否已安装 pedalboard。
+
+```text
+rvc-next effects [--json]
+```
 
 ### `separate`
 
@@ -817,6 +826,7 @@ rvc-next live test-tone [OPTIONS] [DEVICE]
 | `--threshold-db <float>` | 输入门限（dB），`[-60, 0]`；-60 为关闭 | 已保存的值（-60） |
 | `--denoise-strength <float>` | 降噪强度，`[0, 1]` | 已保存的值（0.9） |
 | `--phase-vocoder` / `--no-phase-vocoder` | 块之间用相位声码器交叉淡化 | 已保存的值（关） |
+| `--effect <spec>` | 转换结果上的效果，写法同 `convert --effect`；替换已保存的效果链，`none` 清空 | 已保存的效果链 |
 | `--input-gain <float>` | 输入音量（dB），`[-24, 24]` | 已保存的值（0） |
 | `--record <source>` | 运行后把会话录到输出文件夹：`both`（立体声，左为输入）、`converted` 或 `input`；实时变声停止时打印文件路径 | 不录音 |
 | `--allow-fallback` | 已保存的输出设备不存在、将使用默认设备时仍然启动 | 关 |

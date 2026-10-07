@@ -162,6 +162,10 @@ Estimated latency ≈ block length + crossfade + 10 ms (alignment search) + bloc
 </Callout>
 Buffer changes made while stopped are saved directly to settings. Changes made while running are sent immediately to the active session and saved as well.
 
+### Effects [#effects]
+
+Below the buffering settings, **Effects** is the same chain as on Convert ([Effects](/docs/guide-convert#effects)), applied to each converted block before it plays; a reverb's tail and a compressor's envelope carry over from block to block. Changes apply from the next block without a rebuffer and are saved with the other Live settings; **Hear yourself** passes the input without them. **Pitch shift** is not offered here: in a stream pedalboard's pitch shift holds back about a second of audio; use the voice's **Pitch**.
+
 ## Start, stop and the status bar
 
 A bar stays fixed at the bottom of the page:

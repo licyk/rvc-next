@@ -291,6 +291,7 @@ All entry points share an `RLock`, so control-thread updates cannot interleave w
 | `audio/peaks.py` | `compute_peaks()`: interleaved (min, max) pairs for waveform display, cached by core in `cache/peaks/` |
 | `audio/sola.py` | SOLA crossfade |
 | `audio/denoise.py` | TorchGate spectral gate denoising, copied from the original's `tools/torchgate/` (reuses `STFT` from `f0/rmvpe.py`) |
+| [`audio/effects.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/engine/audio/effects.py) | The effects chain over pedalboard (an optional dependency, imported only here): `EFFECTS`, the catalog of kinds with each parameter's default and range (pedalboard's own names; the core validates against it and `GET /convert/effects` serves it); `apply()` for a file, which pads a reverb's or delay's tail and cuts it at −80 dB; `EffectsChain` for a stream, which keeps the plugins' state between blocks and always returns a whole block. Pitch shift is offline only (`streams=False`): streamed, pedalboard's holds back about a second |
 
 PyAV uses the same libavformat/libswresample libraries that the original invokes through `ffmpeg`, so no system ffmpeg installation is required. mp3 and AAC accept only specific sample rates; `_transcode()` uses `encoder_rate()` to raise 40 kHz output to 44.1 kHz—the original's `wav2` omits this, so mp3/m4a export from 40k models fails.
 

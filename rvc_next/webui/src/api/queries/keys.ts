@@ -15,6 +15,7 @@ export const keys = {
   model: (id: string) => ['models', 'id', id] as const,
   presets: (voiceId?: string | null) => (voiceId ? (['presets', voiceId] as const) : (['presets'] as const)),
   separationPresets: ['separate', 'presets'] as const,
+  effects: ['convert', 'effects'] as const,
   outputs: ['outputs'] as const,
   outputList: (filter: Record<string, string | undefined>) => ['outputs', 'list', filter] as const,
   peaks: (kind: string, id: string, points: number) => ['peaks', kind, id, points] as const,

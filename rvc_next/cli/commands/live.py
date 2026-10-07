@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
 from rvc_next.cli.output import console, err_console, open_services, print_json, print_table
-from rvc_next.cli.params import ParamOptions, build_params
+from rvc_next.cli.params import ParamOptions, build_params, parse_effects
 
 if TYPE_CHECKING:
     from rvc_next.core.context import Services
@@ -150,6 +150,10 @@ def live_run(
     denoise_strength: Annotated[float | None, typer.Option(min=0, max=1, help="How much input/output noise reduction lowers the noise")] = None,
     phase_vocoder: Annotated[bool | None, typer.Option("--phase-vocoder/--no-phase-vocoder", help="Phase-vocoder crossfade between blocks")] = None,
     input_gain: Annotated[float | None, typer.Option("--input-gain", min=-24, max=24, help="Input gain in dB")] = None,
+    effect: Annotated[
+        list[str] | None,
+        typer.Option("--effect", help="Effects over the converted voice, as convert's --effect; replaces the saved chain, 'none' clears it"),
+    ] = None,
     record: Annotated[str | None, typer.Option("--record", help="Record the session to the outputs folder: both (stereo, input left), converted or input")] = None,
     allow_fallback: Annotated[bool, typer.Option("--allow-fallback", help="Start even if the saved output is gone and the default would be used")] = False,
     seconds: Annotated[float | None, typer.Option(help="Stop after this many seconds (default: until Ctrl+C)")] = None,
@@ -169,7 +173,7 @@ def live_run(
         )
         if record is not None and record not in ("both", "converted", "input"):
             raise typer.BadParameter("--record is both, converted or input")
-        changes = {
+        changes: dict[str, Any] = {
             "block_ms": block_ms,
             "crossfade_ms": crossfade_ms,
             "context_ms": context_ms,
@@ -177,6 +181,8 @@ def live_run(
             "denoise_strength": denoise_strength,
             "phase_vocoder": phase_vocoder,
         }
+        if effect:
+            changes["effects"] = parse_effects(effect)
         stream = live.stream.model_copy(update={k: val for k, val in changes.items() if val is not None})
         listing = services.live.devices(refresh=True)
         devices = live.devices.model_copy()

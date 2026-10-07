@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from rvc_next.engine.audio.effects import Effect
+
 
 @dataclass(frozen=True)
 class StreamParams:
@@ -17,6 +19,8 @@ class StreamParams:
     """How much the noise gate lowers what it takes for noise (TorchGate's ``prop_decrease``)."""
     phase_vocoder: bool = False
     """Crossfade blocks with the phase vocoder (``audio/sola.py``) instead of the plain sin² fade."""
+    effects: tuple[Effect, ...] = ()
+    """A pedalboard chain over the converted voice (``audio/effects.py``); empty: none."""
 
     def same_buffers(self, other: "StreamParams") -> bool:
         """Whether ``other`` keeps the buffer layout, so only hot fields changed."""

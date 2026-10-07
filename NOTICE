@@ -46,6 +46,8 @@ SwiftF0 (https://github.com/lars76/swift-f0)
   its weights ship as rvc_next/engine/f0/data/swift_f0.pt (scripts/extract_swift_f0.py).
 
 PyMSS (music source separation), used as a dependency, MIT License.
+pedalboard (https://github.com/spotify/pedalboard), the optional effects chain, used as a dependency,
+  GPL-3.0. Copyright (c) 2021-2023 Spotify AB.
 
 RMVPE: https://github.com/Dream-High/RMVPE, trained by yxlllc and RVC-Boss.
 DDSP-SVC (the SOLA crossfade): https://github.com/yxlllc/DDSP-SVC, MIT License.

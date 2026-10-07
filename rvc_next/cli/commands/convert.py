@@ -6,7 +6,7 @@ from typing import Annotated
 import typer
 
 from rvc_next.cli.output import console, open_services, print_json
-from rvc_next.cli.params import ParamOptions, build_params
+from rvc_next.cli.params import EffectOption, ParamOptions, build_params, parse_effects
 from rvc_next.cli.progress import finish, job_progress
 
 
@@ -35,6 +35,7 @@ def convert(
     fmt: Annotated[str | None, typer.Option("--format", help="wav, flac, mp3, m4a or ogg (Opus)")] = None,
     resample: Annotated[int | None, typer.Option(min=16000, help="Resample the result to this rate")] = None,
     denoise: Annotated[float, typer.Option(min=0, max=1, help="Noise reduction over the converted voice; 0 turns it off")] = 0.0,
+    effect: EffectOption = None,
     recursive: Annotated[bool, typer.Option(help="Look into sub-folders of folder inputs")] = False,
     overwrite: Annotated[bool, typer.Option(help="Replace existing files in the output folder")] = False,
     preview: Annotated[float | None, typer.Option(min=1, max=120, help="Convert only the first N seconds")] = None,
@@ -46,6 +47,7 @@ def convert(
 
     if remix and not separate:
         raise typer.BadParameter("--remix needs --separate")
+    effects = parse_effects(effect or [])
     with open_services() as services:
         v = (
             services.models.temporary(Path(voice).expanduser(), index)
@@ -81,6 +83,7 @@ def convert(
             output_format=fmt,  # ty: ignore[invalid-argument-type]
             resample_to=resample,
             output_denoise=denoise,
+            effects=effects,
             preview_seconds=preview,
             output_dir=str(output.resolve()) if output else None,
             overwrite=overwrite,

@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from rvc_next.engine.audio.effects import EffectsChain
 from rvc_next.engine.audio.sola import Sola, fade_windows
 from rvc_next.engine.convert.params import VoiceParams
 from rvc_next.engine.features.hubert import extract_features
@@ -86,6 +87,7 @@ class StreamEngine:
         self.cache_pitchf = torch.zeros(PITCH_CACHE, device=self.device, dtype=torch.float32)
         self.cache_voiced = torch.zeros(PITCH_CACHE, device=self.device, dtype=torch.bool)
         self.tg = TorchGate(sr=self.sample_rate, n_fft=4 * self.zc, prop_decrease=0.9).to(self.device)
+        self.effects = EffectsChain(stream.effects, self.sample_rate)
         self._set_voice(voice)
         self._build()
 
@@ -158,6 +160,8 @@ class StreamEngine:
         """Change stream parameters. Threshold and denoise are hot; block, crossfade and context rebuild the buffers (about one block of silence) while the voice stays loaded."""
         with self._lock:
             old, self.stream = self.stream, stream
+            if stream.effects != old.effects:
+                self.effects = EffectsChain(stream.effects, self.sample_rate)
             if not old.same_buffers(stream):
                 self._build()
 
@@ -179,6 +183,7 @@ class StreamEngine:
                 t.zero_()
             self.sola.reset()
             self.rms_buffer[:] = 0
+            self.effects.reset()
 
     def prewarm(self) -> None:
         """Run test blocks through the whole of ``process`` before the audio starts, then clear the buffers.
@@ -286,7 +291,10 @@ class StreamEngine:
             infer_wav *= torch.pow(rms1 / rms2, 1.0 - params.rms_mix_rate)
 
         out = self.sola.apply(infer_wav, self.block_frame, s.phase_vocoder)
-        return out.detach().cpu().numpy().astype(np.float32, copy=True)
+        out = out.detach().cpu().numpy().astype(np.float32, copy=True)
+        if s.effects and not self.passthrough:
+            out = np.clip(self.effects.process(out), -1.0, 1.0)
+        return out
 
     # -- inference (``rtrvc.RVC.infer``) ------------------------------------------------------
 

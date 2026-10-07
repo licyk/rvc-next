@@ -8,6 +8,7 @@ import type { LiveDevices, StreamParams, VoiceModel, VoiceParams } from '@/api/t
 import AssetGate from '@/components/AssetGate.vue';
 import DevicePanel from '@/components/DevicePanel.vue';
 import DevicePanelSkeleton from '@/components/DevicePanelSkeleton.vue';
+import EffectsPanel from '@/components/EffectsPanel.vue';
 import ErrorNotice from '@/components/ErrorNotice.vue';
 import LiveStatsBar from '@/components/LiveStatsBar.vue';
 import ResultsList from '@/components/ResultsList.vue';
@@ -159,6 +160,7 @@ function record(source: string) {
         </Surface>
         <Surface :level="0" shape="large" class="section">
           <StreamParamsPanel v-model="stream" @change="onStream" />
+          <EffectsPanel live :model-value="stream.effects ?? []" @update:model-value="stream = { ...stream, effects: $event }" @change="onStream({ ...stream, effects: $event })" />
         </Surface>
         <Surface v-if="recordingItems.length" :level="0" shape="large" class="section">
           <h2 class="type-title-medium title">{{ t('live.recordings') }}</h2>

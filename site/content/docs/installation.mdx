@@ -134,6 +134,12 @@ python -m pip install rvc-next
 
 由于 PyTorch 已经装好，pip 会认为 `torch` 依赖已满足，不会再替换成别的构建。安装完成后，环境中会多出 `rvc-next` 命令。
 
+转换和实时变声页上的 **效果** 链（混响、压缩、延迟等）需要 [pedalboard](https://github.com/spotify/pedalboard)，它是可选附加项：
+
+```bash
+python -m pip install "rvc-next[effects]"
+```
+
 ### 从源码安装
 
 如果你想使用最新的代码，或者参与开发，可以从源码安装：

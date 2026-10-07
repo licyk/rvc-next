@@ -1,4 +1,4 @@
-"""The voice-parameter options shared by convert, live run and preset save."""
+"""The voice-parameter options shared by convert, live run and preset save, and the effects option."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Annotated, Any, get_args
 
 import typer
 
-from rvc_next.core.params import AutoPitchMode, F0Method, HighRegisterMode, UnvoicedMode, VoiceParamsModel
+from rvc_next.core.params import AutoPitchMode, EffectModel, F0Method, HighRegisterMode, UnvoicedMode, VoiceParamsModel
 
 F0_METHODS = get_args(F0Method)
 
@@ -48,3 +48,34 @@ def build_params(base: VoiceParamsModel, **overrides: Any) -> VoiceParamsModel:
     if "f0_high_register" in patch and patch["f0_high_register"] not in get_args(HighRegisterMode):
         raise typer.BadParameter(f"--high-register is one of {', '.join(get_args(HighRegisterMode))}")
     return VoiceParamsModel.model_validate({**base.model_dump(), **patch})
+
+
+EffectOption = Annotated[
+    list[str] | None,
+    typer.Option("--effect", help="An effect over the converted voice, repeatable, applied in order: KIND or KIND:NAME=VALUE,... ('rvc-next effects' lists them)"),
+]
+
+
+def parse_effects(values: list[str]) -> list[EffectModel]:
+    """``--effect`` values as a chain: ``reverb`` or ``reverb:room_size=0.6,wet_level=0.3``; ``none`` alone is an empty chain."""
+    from pydantic import ValidationError
+
+    if values == ["none"]:
+        return []
+    chain = []
+    for value in values:
+        kind, _, rest = value.partition(":")
+        params: dict[str, float] = {}
+        for item in filter(None, (s.strip() for s in rest.split(","))):
+            name, eq, number = item.partition("=")
+            try:
+                params[name.strip()] = float(number)
+            except ValueError:
+                raise typer.BadParameter(f"--effect {value}: write NAME=VALUE, not {item!r}") from None
+            if not eq:
+                raise typer.BadParameter(f"--effect {value}: write NAME=VALUE, not {item!r}")
+        try:
+            chain.append(EffectModel.model_validate({"kind": kind.strip(), "params": params}))
+        except ValidationError as e:
+            raise typer.BadParameter(f"--effect {value}: {e.errors()[0]['msg']}") from None
+    return chain

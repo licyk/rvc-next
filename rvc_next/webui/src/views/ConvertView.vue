@@ -4,9 +4,10 @@ import { computed, onActivated, ref } from 'vue';
 import { useSettings } from '@/api/queries/app';
 import { useConvert } from '@/api/queries/convert';
 import { useSeparationPresets } from '@/api/queries/separate';
-import type { Output, VoiceModel, VoiceParams } from '@/api/types';
+import type { EffectModel, Output, VoiceModel, VoiceParams } from '@/api/types';
 import AssetGate from '@/components/AssetGate.vue';
 import AudioSourceInput from '@/components/AudioSourceInput.vue';
+import EffectsPanel from '@/components/EffectsPanel.vue';
 import ErrorNotice from '@/components/ErrorNotice.vue';
 import JobCard from '@/components/JobCard.vue';
 import ResultsList from '@/components/ResultsList.vue';
@@ -41,6 +42,7 @@ const remixGain = ref(0);
 const format = ref<string | null>(null);
 const resample = ref<string | null>('');
 const denoise = ref(0);
+const effects = ref<EffectModel[]>([]);
 const stepsOpen = ref(false);
 const error = ref<unknown>(null);
 
@@ -78,6 +80,7 @@ function run(preview: boolean) {
       output_format: chosenFormat.value as 'wav',
       resample_to: resample.value ? Number(resample.value) : null,
       output_denoise: denoise.value,
+      effects: effects.value,
       preview_seconds: preview ? 15 : null,
     },
     { onError: (e) => (error.value = e) },
@@ -136,6 +139,7 @@ onActivated(() => {
               <SelectField v-model="resample" :label="t('convert.resample')" :options="resampleOptions" />
               <ParamSlider v-model="denoise" :label="t('convert.denoise')" :help="t('convert.denoiseHelp')" :min="0" :max="1" :step="0.05" unit="" :default-value="0" :reset-label="t('common.reset')" />
             </div>
+            <EffectsPanel v-model="effects" />
           </div>
         </ExpansionPanel>
       </Surface>

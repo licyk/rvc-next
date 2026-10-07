@@ -4,7 +4,7 @@ from fastapi import APIRouter, Request
 
 from rvc_next.api.deps import ServicesDep, require_trusted
 from rvc_next.api.errors import ERROR_RESPONSES
-from rvc_next.core.conversion.models import ConvertRequest
+from rvc_next.core.conversion.models import ConvertRequest, EffectsCatalog
 from rvc_next.core.errors import ValidationError
 from rvc_next.core.jobs.models import Job
 
@@ -19,3 +19,8 @@ def convert(request: Request, services: ServicesDep, body: ConvertRequest) -> Jo
     if body.output_dir or body.overwrite:
         raise ValidationError("output_dir and overwrite are for the command line")
     return services.conversion.convert(body)
+
+
+@router.get("/effects", operation_id="get_effects")
+def get_effects(services: ServicesDep) -> EffectsCatalog:
+    return services.conversion.effects_catalog()

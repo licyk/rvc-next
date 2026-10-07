@@ -14,6 +14,7 @@ EXPECTED_TREE = {
     "config": {"get": None, "path": None, "set": None, "show": None},
     "convert": None,
     "doctor": None,
+    "effects": None,
     "env": None,
     "jobs": {"list": None, "show": None},
     "live": {"check": None, "devices": None, "latency": None, "run": None, "test-tone": None},

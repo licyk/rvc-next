@@ -166,6 +166,11 @@ export const PARAM_SPECS: Record<'voice' | 'stream', Record<string, ParamSpec>> 
       "type": "boolean",
       "default": false,
       "help": "Phase-vocoder crossfade: joins blocks without the dip a plain crossfade can leave"
+    },
+    "effects": {
+      "type": "array",
+      "default": [],
+      "help": "Effects over the converted voice, in order (needs pedalboard)"
     }
   }
 };

@@ -54,6 +54,16 @@ def _dataclass(cls: Any, data: dict[str, Any] | None, base: Any = None) -> Any:
     return replace(base, **values) if base is not None else cls(**values)
 
 
+def _stream(data: dict[str, Any] | None, base: StreamParams | None = None) -> StreamParams:
+    """``StreamParams`` from the protocol's dict: the effects come as ``[{"kind", "params"}]``."""
+    from rvc_next.engine.audio.effects import from_dicts
+
+    data = dict(data or {})
+    if "effects" in data:
+        data["effects"] = from_dicts(data["effects"])
+    return _dataclass(StreamParams, data, base)
+
+
 def session_config(devices: dict[str, Any] | None) -> SessionConfig:
     """A ``SessionConfig`` from the protocol's ``devices`` dict; missing input/output follow the system defaults."""
     devices = devices or {}
@@ -232,7 +242,7 @@ class LiveWorker:
         self.voice_path = config["voice_path"]
         self.index_path = config.get("index_path")
         self.params = _dataclass(VoiceParams, config.get("params"))
-        self.stream = _dataclass(StreamParams, config.get("stream"))
+        self.stream = _stream(config.get("stream"))
         self.devices = dict(config.get("devices") or {})
         self.set_state("starting")
         try:
@@ -378,7 +388,7 @@ class LiveWorker:
             self.engine.update(new)
 
     def update_stream(self, stream: dict[str, Any]) -> None:
-        new = _dataclass(StreamParams, stream, self.stream)
+        new = _stream(stream, self.stream)
         old, self.stream = self.stream, new
         if self.engine is None:
             return

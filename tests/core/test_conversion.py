@@ -85,3 +85,26 @@ def test_analysis_of_an_output_and_its_source(services, tiny_voice_file, wav_fil
     assert services.audio.analyse(Path(out.path), columns=200) == result  # cached
     source = services.audio.analyse(Path(out.source_path))
     assert source.duration > result.duration  # the preview is the first second
+
+
+def test_effects_over_the_converted_voice(services, tiny_voice_file, wav_file, no_asset_checks, monkeypatch):
+    pytest.importorskip("pedalboard")
+    from pydantic import ValidationError as PydanticError
+
+    from rvc_next.core.params import EffectModel
+
+    catalog = services.conversion.effects_catalog()
+    assert catalog.available and {"reverb", "delay", "limiter"} <= {e.kind for e in catalog.effects}
+    with pytest.raises(PydanticError):
+        EffectModel(kind="reverb", params={"room_size": 2.0})
+    voice = services.models.import_paths([tiny_voice_file]).voices[0]
+    effects = [EffectModel(kind="reverb", params={"room_size": 0.8, "wet_level": 0.5}), EffectModel(kind="limiter", params={})]
+    request = ConvertRequest(inputs=[AudioRef(kind="path", path=str(wav_file))], voice_id=voice.id, params=VoiceParamsModel(f0_method="pm"), effects=effects, preview_seconds=1.0)
+    job = services.conversion.convert(request, foreground=True)
+    assert job.state == "completed", job.error
+    out = services.audio.list_outputs(job_id=job.id).items[0]
+    assert out.duration > 1.2  # the reverb's tail
+    monkeypatch.setattr("rvc_next.engine.audio.effects.available", lambda: False)
+    with pytest.raises(ValidationError) as e:
+        services.conversion.validate(request)
+    assert e.value.detail["reason"] == "effects_unavailable"

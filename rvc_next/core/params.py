@@ -9,11 +9,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from rvc_next.core.record import Record
 
 if TYPE_CHECKING:
+    from rvc_next.engine.audio.effects import Effect
     from rvc_next.engine.convert.params import VoiceParams
     from rvc_next.engine.stream.params import StreamParams
 
@@ -67,6 +68,41 @@ class VoiceParamsModel(Record):
         return VoiceParams(**values)
 
 
+EffectKind = Literal[
+    "highpass", "lowpass", "noise_gate", "compressor", "pitch_shift", "distortion", "bitcrush", "clipping", "chorus", "phaser", "delay", "reverb", "gain", "limiter"
+]
+
+
+class EffectModel(Record):
+    """One effect of a chain (``engine/audio/effects.py``)."""
+
+    kind: EffectKind
+    params: dict[str, float]
+    """By name; a parameter left out takes its default (an empty object: every default)."""
+
+    @model_validator(mode="after")
+    def _check(self) -> EffectModel:
+        from rvc_next.engine.audio.effects import effect
+
+        effect(self.kind, self.params)  # its ValueError becomes a validation error
+        return self
+
+
+def effects_to_engine(effects: list[EffectModel]) -> tuple[Effect, ...]:
+    from rvc_next.engine.audio.effects import Effect
+
+    return tuple(Effect(e.kind, tuple(e.params.items())) for e in effects)
+
+
+def require_effects(effects: list[EffectModel]) -> None:
+    """Refuse a chain when pedalboard is missing."""
+    from rvc_next.core.errors import ValidationError
+    from rvc_next.engine.audio.effects import available
+
+    if effects and not available():
+        raise ValidationError("Effects need pedalboard: pip install rvc-next[effects]", {"reason": "effects_unavailable"})
+
+
 class StreamParamsModel(Record):
     """Live buffering and clean-up; the defaults are the original realtime GUI's."""
 
@@ -78,8 +114,19 @@ class StreamParamsModel(Record):
     output_denoise: bool = False
     denoise_strength: float = Field(default=0.9, ge=0, le=1, description="How much input and output noise reduction lowers the noise")
     phase_vocoder: bool = Field(default=False, description="Phase-vocoder crossfade: joins blocks without the dip a plain crossfade can leave")
+    # A list default (pydantic copies it), not a factory: the schema then carries it, and the web UI starts from the schema's defaults.
+    effects: list[EffectModel] = Field(default=[], max_length=16, description="Effects over the converted voice, in order (needs pedalboard)")
+
+    @model_validator(mode="after")
+    def _live_effects(self) -> StreamParamsModel:
+        from rvc_next.engine.audio.effects import EFFECTS
+
+        for e in self.effects:
+            if not EFFECTS[e.kind].streams:
+                raise ValueError(f"{e.kind} does not suit Live (it holds back about a second of audio); use the voice's pitch instead")
+        return self
 
     def to_engine(self) -> StreamParams:
         from rvc_next.engine.stream.params import StreamParams
 
-        return StreamParams(**self.model_dump())
+        return StreamParams(**self.model_dump(exclude={"effects"}), effects=effects_to_engine(self.effects))

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -201,3 +202,22 @@ def test_stream_with_phase_vocoder_and_denoise_strength(tiny_runtime, voice) -> 
     outs = _run(engine, tone(0.5, sr=48000), 4)
     assert all(o.shape == (engine.block_size,) and np.isfinite(o).all() for o in outs)
     assert engine.tg.prop_decrease == 0.5
+
+
+def test_stream_effects_are_hot_and_keep_block_size(tiny_runtime, voice) -> None:
+    pytest.importorskip("pedalboard")
+    import torch
+
+    from rvc_next.engine.audio.effects import effect
+
+    stream = StreamParams(block_ms=100, crossfade_ms=50, context_ms=300)
+    engine = StreamEngine(tiny_runtime, voice, VoiceParams(f0_method="pm"), stream, 48000)
+    torch.manual_seed(0)
+    plain = _run(engine, tone(0.5, sr=48000), 3)
+    engine.reset()
+    engine.reconfigure(replace(stream, effects=(effect("gain", {"gain_db": -12.0}),)))
+    torch.manual_seed(0)
+    quiet = _run(engine, tone(0.5, sr=48000), 3)
+    assert all(o.shape == (engine.block_size,) for o in quiet)
+    ratio = np.sqrt(np.mean(quiet[-1] ** 2) / np.mean(plain[-1] ** 2))
+    assert abs(ratio - 10 ** (-12 / 20)) < 0.02

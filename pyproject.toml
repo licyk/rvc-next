@@ -67,10 +67,12 @@ dependencies = [
 
 [project.optional-dependencies]
 directml = ["torch-directml", "onnxruntime-directml"]
+# The effects chain (engine/audio/effects.py). 0.9.25's wheel stops with an illegal instruction on CPUs without the newer vector extensions.
+effects = ["pedalboard>=0.9.16,!=0.9.25"]
 
 [dependency-groups]
 # tomli lets ty resolve the Python 3.10 fallback import on newer Pythons.
-dev = ["pytest", "pytest-cov", "ruff", "ty", "python-docstring-checker", "httpx", "tomli"]
+dev = ["pytest", "pytest-cov", "ruff", "ty", "python-docstring-checker", "httpx", "tomli", "pedalboard>=0.9.16,!=0.9.25"]
 
 [project.scripts]
 rvc-next = "rvc_next.cli.app:main"

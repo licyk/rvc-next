@@ -1172,6 +1172,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/convert/effects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Effects */
+        get: operations["get_effects"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/separate/presets": {
         parameters: {
             query?: never;
@@ -2354,6 +2371,8 @@ export interface components {
              * @default 0
              */
             output_denoise?: number;
+            /** Effects */
+            effects?: components["schemas"]["EffectModel"][];
             /** Resample To */
             resample_to?: number | null;
             /** Preview Seconds */
@@ -2606,6 +2625,53 @@ export interface components {
              * @default true
              */
             verify_checksums: boolean;
+        };
+        /**
+         * EffectModel
+         * @description One effect of a chain (``engine/audio/effects.py``).
+         */
+        EffectModel: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "highpass" | "lowpass" | "noise_gate" | "compressor" | "pitch_shift" | "distortion" | "bitcrush" | "clipping" | "chorus" | "phaser" | "delay" | "reverb" | "gain" | "limiter";
+            /** Params */
+            params: {
+                [key: string]: number;
+            };
+        };
+        /** EffectParamSpec */
+        EffectParamSpec: {
+            /** Name */
+            name: string;
+            /** Default */
+            default: number;
+            /** Min */
+            min: number;
+            /** Max */
+            max: number;
+            /** Unit */
+            unit: string;
+        };
+        /** EffectSpec */
+        EffectSpec: {
+            /** Kind */
+            kind: string;
+            /** Params */
+            params: components["schemas"]["EffectParamSpec"][];
+            /** Live */
+            live: boolean;
+        };
+        /**
+         * EffectsCatalog
+         * @description The effects a chain can hold, with their parameters' ranges.
+         */
+        EffectsCatalog: {
+            /** Available */
+            available: boolean;
+            /** Effects */
+            effects: components["schemas"]["EffectSpec"][];
         };
         /** ErrorInfo */
         ErrorInfo: {
@@ -4426,6 +4492,12 @@ export interface components {
              * @default false
              */
             phase_vocoder: boolean;
+            /**
+             * Effects
+             * @description Effects over the converted voice, in order (needs pedalboard)
+             * @default []
+             */
+            effects: components["schemas"]["EffectModel"][];
         };
         /**
          * StreamParamsModel
@@ -4478,6 +4550,12 @@ export interface components {
              * @default false
              */
             phase_vocoder?: boolean;
+            /**
+             * Effects
+             * @description Effects over the converted voice, in order (needs pedalboard)
+             * @default []
+             */
+            effects?: components["schemas"]["EffectModel"][];
         };
         /**
          * StreamParamsModel
@@ -4530,6 +4608,12 @@ export interface components {
              * @default false
              */
             phase_vocoder: boolean;
+            /**
+             * Effects
+             * @description Effects over the converted voice, in order (needs pedalboard)
+             * @default []
+             */
+            effects: components["schemas"]["EffectModel"][];
         };
         /** TestToneRequest */
         TestToneRequest: {
@@ -9752,6 +9836,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_effects: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EffectsCatalog"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
