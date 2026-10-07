@@ -21,7 +21,7 @@ import { useI18n } from '@/i18n';
 import { useLiveStore } from '@/stores/live';
 import { usePreferencesStore } from '@/stores/preferences';
 import { formatDuration } from '@/format';
-import { AppButton, AppMenu, ConfirmDialog, PageFooter, SegmentedButton, Surface, icons, type MenuItem } from '@/ui';
+import { AppButton, AppMenu, ConfirmDialog, PageFooter, SegmentedButton, Surface, TRANSITIONS, icons, useAxisDirection, type MenuItem } from '@/ui';
 
 /**
  * Live: devices on top, voice and parameters in the middle (both hot), buffering below,
@@ -49,6 +49,33 @@ const audioMode = computed({
   },
 });
 const browserMode = computed(() => audioMode.value === 'browser');
+// The panel slides the way the switch moved (shared-axis-x), as tabs do.
+const AUDIO_MODES = ['server', 'browser'] as const;
+const audioAxis = useAxisDirection(audioMode, () => AUDIO_MODES);
+// Their box grows or shrinks to the new panel over the same time, so the sections below glide
+// rather than jump: held at the old height when the switch starts, then eased to the new one.
+// Meanwhile it clips, so a taller leaving panel does not draw over the next section; only then,
+// since the device pickers list in place and must not be clipped.
+const audioPanes = ref<HTMLElement | null>(null);
+function holdPanesHeight() {
+  const box = audioPanes.value;
+  if (!box) return;
+  box.style.height = `${box.offsetHeight}px`;
+  box.style.overflow = 'clip';
+}
+function growPanes(el: Element) {
+  const box = audioPanes.value;
+  if (!box) return;
+  const target = (el as HTMLElement).offsetHeight;
+  requestAnimationFrame(() => {
+    box.style.transition = 'height var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized)';
+    box.style.height = `${target}px`;
+  });
+}
+function releasePanes() {
+  const box = audioPanes.value;
+  if (box) box.style.height = box.style.transition = box.style.overflow = '';
+}
 const audioOptions = computed(() => [
   { value: 'server' as const, label: t('live.audio.server'), icon: icons.HardDrive },
   { value: 'browser' as const, label: t('live.audio.browser'), icon: icons.Globe },
@@ -215,19 +242,23 @@ function record(source: string) {
     <div class="sections">
       <Surface :level="0" shape="large" class="section">
         <SegmentedButton v-if="serverAudio" v-model="audioMode" :options="audioOptions" class="audio-mode" />
-        <div v-if="browserMode" class="browser">
-          <h2 class="type-title-medium title">{{ t('live.browser.title') }}</h2>
-          <p class="type-body-medium muted">{{ t(serverAudio ? 'live.browser.intro' : 'live.browser.only') }}</p>
-          <ErrorNotice v-if="browserProblem" :error="{ code: 'browser_audio', message: t(`live.browser.${browserProblem}`) }" />
-          <p v-if="browserStats" class="type-body-small muted">
-            {{ t('live.browser.stats', { buffered: Math.round(browserStats.bufferedMs), underruns: browserStats.underruns }) }}
-          </p>
+        <div ref="audioPanes" class="audio-panes" :style="{ '--axis-dir': audioAxis }">
+          <Transition :name="TRANSITIONS.sharedAxisX" @before-leave="holdPanesHeight" @enter="growPanes" @after-enter="releasePanes" @enter-cancelled="releasePanes">
+            <div v-if="browserMode" key="browser" class="browser">
+              <h2 class="type-title-medium title">{{ t('live.browser.title') }}</h2>
+              <p class="type-body-medium muted">{{ t(serverAudio ? 'live.browser.intro' : 'live.browser.only') }}</p>
+              <ErrorNotice v-if="browserProblem" :error="{ code: 'browser_audio', message: t(`live.browser.${browserProblem}`) }" />
+              <p v-if="browserStats" class="type-body-small muted">
+                {{ t('live.browser.stats', { buffered: Math.round(browserStats.bufferedMs), underruns: browserStats.underruns }) }}
+              </p>
+            </div>
+            <div v-else key="server" class="server">
+              <DevicePanel v-if="devices" v-model="devices" :running="running" @change="onDevices" />
+              <ErrorNotice v-else-if="settings.error.value" :error="settings.error.value" />
+              <DevicePanelSkeleton v-else />
+            </div>
+          </Transition>
         </div>
-        <template v-else>
-          <DevicePanel v-if="devices" v-model="devices" :running="running" @change="onDevices" />
-          <ErrorNotice v-else-if="settings.error.value" :error="settings.error.value" />
-          <DevicePanelSkeleton v-else />
-        </template>
       </Surface>
       <Surface :level="0" shape="large" class="section">
         <VoicePicker v-model="voiceId" v-model:speaker="speaker" @voice="onVoice" />
@@ -275,7 +306,10 @@ function record(source: string) {
 .stats { flex: 1; min-width: 0; }
 .title { margin: 0; }
 .audio-mode { align-self: flex-start; }
-.browser { display: flex; flex-direction: column; gap: var(--app-space-2); }
+/* The leaving panel is taken out of the flow (shared-axis-x) and slides inside this box, as tabs do. */
+.audio-panes { position: relative; overflow-x: clip; }
+.server { min-width: 0; }
+.browser { display: flex; flex-direction: column; gap: var(--app-space-2); min-width: 0; }
 .browser p { margin: 0; }
 .muted { color: var(--md-sys-color-on-surface-variant); }
 @container app-content (max-width: 599px) {
