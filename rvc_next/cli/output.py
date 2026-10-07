@@ -2,7 +2,7 @@
 
 import json
 import sys
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Generator, Iterable, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -58,7 +58,7 @@ def print_table(title: str | None, columns: Sequence[str], rows: Iterable[Sequen
 
 
 @contextmanager
-def open_services() -> "Iterator[Services]":
+def open_services() -> "Generator[Services, None, None]":
     """Build the services for one command and close them afterwards. No background threads run."""
     from rvc_next.core.context import build_services
 

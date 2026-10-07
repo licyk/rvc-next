@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 @contextmanager
-def job_progress(services: Services, enabled: bool = True) -> Iterator[None]:
+def job_progress(services: Services, enabled: bool = True) -> Generator[None, None, None]:
     """A Rich progress bar on stderr for every job that updates while the block runs."""
     from rvc_next.core.events.models import JobLogEvent, JobUpdatedEvent
 
