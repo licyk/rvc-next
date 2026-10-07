@@ -50,6 +50,7 @@ export { default as SideSheet } from '@/ui/SideSheet.vue';
 export { default as Skeleton } from '@/ui/Skeleton.vue';
 export { default as Slider } from '@/ui/Slider.vue';
 export { default as Snackbar } from '@/ui/Snackbar.vue';
+export { default as Spectrogram } from '@/ui/Spectrogram.vue';
 export { default as Stepper } from '@/ui/Stepper.vue';
 export type { StepItem } from '@/ui/Stepper.vue';
 export { default as Surface } from '@/ui/Surface.vue';

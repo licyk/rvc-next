@@ -10,7 +10,7 @@ from rvc_next.api.deps import ServicesDep, require_trusted
 from rvc_next.api.errors import ERROR_RESPONSES
 from rvc_next.api.files import audio_response
 from rvc_next.api.uploads import RAW_BODY, read_chunks, spool
-from rvc_next.core.audio.models import AudioFile, BrowseListing, Peaks, ResolvePathRequest
+from rvc_next.core.audio.models import AudioAnalysis, AudioFile, BrowseListing, Peaks, ResolvePathRequest
 
 router = APIRouter(prefix="/v1/audio", tags=["audio"], responses=ERROR_RESPONSES)
 
@@ -33,6 +33,12 @@ def get_file(services: ServicesDep, file_id: str) -> AudioFile:
 @router.get("/files/{file_id}/content", operation_id="get_audio_content", response_class=FileResponse)
 def get_content(services: ServicesDep, file_id: str, download: bool = False) -> FileResponse:
     return audio_response(services.audio.file_path(file_id), download)
+
+
+@router.get("/files/{file_id}/analysis", operation_id="analyse_audio_file")
+def analyse_file(services: ServicesDep, file_id: str, columns: int = 800) -> AudioAnalysis:
+    """A spectrogram and the pitch curve of an uploaded file (cached)."""
+    return services.audio.analyse(services.audio.file_path(file_id), columns)
 
 
 @router.get("/files/{file_id}/peaks", operation_id="get_audio_peaks")

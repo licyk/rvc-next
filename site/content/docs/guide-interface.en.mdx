@@ -90,9 +90,12 @@ Items in the **More actions** menu:
 | **Download** | Download the file to the computer running the browser | Always |
 | **Show in folder** | Locate the file in the server computer's file manager | When browser and server are on the same computer |
 | **Use as input** | Add this result to the current page's inputs for another pass | Always |
+| **Analyse** | Open its spectrogram and pitch curve, beside its source's (see below) | Always |
 | **Convert this** | Send this stem to **Convert** | Stem results |
 | **Re-run with these settings** | Restore the voice and parameters used to generate it on **Convert**, and add its source file back to the inputs | Conversion results |
 | **Delete** | Move the file to the system trash and remove its record | Always |
+
+**Analyse** opens a window with the result's **spectrogram** (time left to right, frequency bottom to top, brighter is louder) and its **pitch** curve, with the source's when the result has one: **Result** and **Source** switch the spectrogram, and the pitch chart draws both. It also lists the duration, format and median pitch, and how many semitones the result sits from the source. A spectrogram shows what the ears have to search for: a voice's sample rate as the top of its sound (a 32k voice stops at 16 kHz), hiss and buzz as haze, and separation bleed as the accompaniment's pattern. The pitch curve shows octave jumps and how a parameter moved the pitch. The pitch comes from SwiftF0 on the processor, so analysing never waits for the GPU; files over 30 minutes are not analysed. On the command line: `rvc-next analyse <file> [--csv curve.csv]`.
 
 When there is more than one result, **Download all** appears at the top right of the list to download them as a zip.
 

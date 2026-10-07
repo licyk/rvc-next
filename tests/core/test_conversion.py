@@ -69,3 +69,19 @@ def test_automatic_key_denoise_and_ogg(services, tiny_voice_file, wav_file, no_a
     assert any("Automatic key" in line for line in services.jobs.read_log(job.id).lines)
     out = services.audio.list_outputs(job_id=job.id).items[0]
     assert out.path.endswith(".ogg") and out.sample_rate == 48000
+
+
+def test_analysis_of_an_output_and_its_source(services, tiny_voice_file, wav_file, no_asset_checks):
+    import base64
+
+    voice = services.models.import_paths([tiny_voice_file]).voices[0]
+    request = ConvertRequest(inputs=[AudioRef(kind="path", path=str(wav_file))], voice_id=voice.id, params=VoiceParamsModel(f0_method="pm"), preview_seconds=1.0)
+    job = services.conversion.convert(request, foreground=True)
+    out = services.audio.list_outputs(job_id=job.id).items[0]
+    result = services.audio.analyse(Path(out.path), columns=200)
+    spec = result.spectrogram
+    assert len(base64.b64decode(spec.data)) == spec.rows * spec.cols and 150 <= spec.cols <= 260 and spec.rows == 128
+    assert abs(len(result.pitch) * result.pitch_hop - result.duration) < 0.05
+    assert services.audio.analyse(Path(out.path), columns=200) == result  # cached
+    source = services.audio.analyse(Path(out.source_path))
+    assert source.duration > result.duration  # the preview is the first second

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useMeta } from '@/api/queries/app';
 import { revealOutput, useDeleteOutput } from '@/api/queries/outputs';
 import { downloadOutputsZip, downloadUrl, urls } from '@/api/client';
 import type { Output } from '@/api/types';
 import type { Track } from '@/audio/player';
 import ABCompare from '@/components/ABCompare.vue';
+import AnalysisDialog from '@/components/AnalysisDialog.vue';
 import ResultWave from '@/components/ResultWave.vue';
 import { useI18n } from '@/i18n';
 import { formatDuration } from '@/format';
@@ -46,6 +47,7 @@ const menu = (o: Output): MenuItem[] => [
   { id: 'download', label: t('common.download'), icon: icons.Download },
   ...(meta.data.value?.local ? [{ id: 'reveal', label: t('common.reveal'), icon: icons.FolderOpen }] : []),
   { id: 'input', label: t('results.useAsInput'), icon: icons.ArrowRight },
+  { id: 'analyse', label: t('results.analyse'), icon: icons.AudioWaveform },
   ...(o.kind === 'stem' ? [{ id: 'convert', label: t('results.convertThis'), icon: icons.AudioLines }] : []),
   ...(o.model_id && o.voice ? [{ id: 'rerun', label: t('results.rerun'), icon: icons.Repeat }] : []),
   { id: 'delete', label: t('common.delete'), icon: icons.Trash2, danger: true },
@@ -54,6 +56,10 @@ function onMenu(o: Output, id: string) {
   if (id === 'download') downloadUrl(urls.output(o.id, true));
   else if (id === 'reveal') revealOutput(o.id).catch((e) => snackbar.error(e.message));
   else if (id === 'input') emit('useAsInput', o);
+  else if (id === 'analyse') {
+    analysing.value = o;
+    analysisOpen.value = true;
+  }
   else if (id === 'convert') emit('convertThis', o);
   else if (id === 'rerun') emit('rerun', o);
   else if (id === 'delete') {
@@ -61,6 +67,8 @@ function onMenu(o: Output, id: string) {
     remove.mutate(o.id, { onSuccess: () => snackbar.show(t('results.deleted')) });
   }
 }
+const analysing = ref<Output | null>(null);
+const analysisOpen = ref(false);
 function downloadAll() {
   downloadOutputsZip(props.outputs.filter((o) => o.exists).map((o) => o.id)).catch((e) => snackbar.error(e.message));
 }
@@ -95,6 +103,7 @@ function downloadAll() {
         </li>
       </TransitionGroup>
     </div>
+    <AnalysisDialog v-model:open="analysisOpen" :output="analysing" />
   </section>
 </template>
 

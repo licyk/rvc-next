@@ -53,8 +53,8 @@ icon: Plug
 | `assets` | `/v1/assets` | `GET ""`、`GET repositories`、`POST download`、`POST verify`（同一个下载任务，`verify_only=True`）、`DELETE {asset_id}` |
 | `models` | `/v1/models` | 音色库 CRUD、`/catalog` 与 `/catalog/download`（演示音色）、导入会话 `/imports…`、未分配索引 `/indexes…`、底模 `/base…`、分离模型 `/separation…`、一步导入 `PUT /import` 与 `POST /import-path`、`POST inspect`、`POST merge`、`POST extract`、旧版安装 `/legacy-roots…`、`/{voice_id}/index`（上传、配对或解除）、`/{voice_id}/index/build`、`/{voice_id}/reveal`、`GET /{voice_id}/archive`（音色 zip） |
 | `presets` | `/v1/presets` | 列表（带 `voice_id` 时先 `ensure_default`）、创建、修改、删除 |
-| `audio` | `/v1/audio` | `PUT uploads`、`GET files/{id}`、`files/{id}/content`、`files/{id}/peaks`、`GET browse`、`POST resolve-path`、`GET path-peaks` |
-| `outputs` | `/v1/outputs` | 列表、`POST zip`（流式）、单个输出、`content`、`source`（A/B 用的原始输入）、`peaks`、`source-peaks`、删除、`reveal` |
+| `audio` | `/v1/audio` | `PUT uploads`、`GET files/{id}`、`files/{id}/content`、`files/{id}/peaks`、`files/{id}/analysis`、`GET browse`、`POST resolve-path`、`GET path-peaks` |
+| `outputs` | `/v1/outputs` | 列表、`POST zip`（流式）、单个输出、`content`、`source`（A/B 用的原始输入）、`peaks`、`source-peaks`、`analysis`、`source-analysis`（频谱图和音高曲线）、删除、`reveal` |
 | `convert` | `/v1/convert` | `POST ""` → `Job` |
 | `separate` | `/v1/separate` | `GET presets`、`POST ""` → `Job` |
 | `train` | `/v1/train` | 实验 CRUD、`dataset/scan`、`PUT/DELETE dataset/files`（上传的音频）、`speakers`、`speakers/from-folders`、`run` → `Job`、`stop`、`metrics?since=`、`checkpoints`、`samples`（每次保存渲染的一段训练片段）、`export` → `Job`、`try`（临时音色）、`POST /import`（旧实验） |

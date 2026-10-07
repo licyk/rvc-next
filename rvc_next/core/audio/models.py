@@ -76,6 +76,29 @@ class Peaks(Record):
     """Interleaved min and max, each in -1..1."""
 
 
+class SpectrogramData(Record):
+    rows: int
+    cols: int
+    fmax: float
+    """Frequency of the top row, in Hz (half the sample rate); rows are mel-spaced from 0."""
+    data: str
+    """``rows × cols`` bytes, row 0 the lowest band, base64: 0 is 80 dB below the loudest, 255 the loudest."""
+
+
+class AudioAnalysis(Record):
+    """A spectrogram and the pitch curve of one file, for judging a result."""
+
+    duration: float
+    sample_rate: int
+    channels: int
+    codec: str | None = None
+    spectrogram: SpectrogramData
+    pitch_hop: float = 0.01
+    pitch: list[float]
+    """Hz every ``pitch_hop`` seconds; 0 where there is no pitch."""
+    pitch_median: float | None = None
+
+
 class BrowseEntry(Record):
     name: str
     path: str

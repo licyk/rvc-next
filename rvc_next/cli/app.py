@@ -6,6 +6,7 @@ import traceback
 import typer
 from typer import Abort, Exit
 
+from rvc_next.cli.commands.analyse import analyse
 from rvc_next.cli.commands.assets import assets_download, assets_list, assets_verify
 from rvc_next.cli.commands.config import config_get, config_path, config_set, config_show
 from rvc_next.cli.commands.convert import convert
@@ -47,6 +48,7 @@ def get_app() -> typer.Typer:
     app.command(help="Check torch and its GPU backend, audio devices and the assets", name="doctor")(doctor)
     app.command(help="Convert audio files or folders with a voice", name="convert")(convert)
     app.command(help="Separate vocals, accompaniment and reverb", name="separate")(separate)
+    app.command(help="Show an audio file's pitch and format; write its pitch curve", name="analyse")(analyse)
 
     config_cli = typer_factory(help="Show and change settings")
     config_cli.command(help="Show the effective settings", name="show")(config_show)

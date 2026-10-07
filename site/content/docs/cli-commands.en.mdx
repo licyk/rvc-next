@@ -134,6 +134,19 @@ rvc-next convert ./in --recursive -v kikiv1 --f0 fcpe -o ./out --format mp3
 rvc-next convert song.flac -v ./voice.pth --index ./added.index --separate vocals --remix
 ```
 
+### `analyse`
+
+Show an audio file's duration, format and median pitch, and optionally write its pitch curve (SwiftF0, on the processor; 10 ms steps).
+
+```text
+rvc-next analyse [OPTIONS] PATH
+```
+
+| Option | Description |
+| --- | --- |
+| `--csv <path>` | Write the pitch curve as `time_s,f0_hz` (0 where there is no pitch) |
+| `--json` | Print the whole analysis, the spectrogram included (base64) |
+
 ### `separate`
 
 Separate vocals, accompaniment, and reverb. Use a single preset or a chained preset.

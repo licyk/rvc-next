@@ -134,6 +134,19 @@ rvc-next convert ./in --recursive -v kikiv1 --f0 fcpe -o ./out --format mp3
 rvc-next convert song.flac -v ./voice.pth --index ./added.index --separate vocals --remix
 ```
 
+### `analyse`
+
+显示音频文件的时长、格式和中位音高，并可写出它的音高曲线（SwiftF0，在处理器上计算；10 ms 一步）。
+
+```text
+rvc-next analyse [OPTIONS] PATH
+```
+
+| 选项 | 说明 |
+| --- | --- |
+| `--csv <path>` | 把音高曲线写成 `time_s,f0_hz`（没有音高处为 0） |
+| `--json` | 输出完整分析，包括频谱图（base64） |
+
 ### `separate`
 
 分离人声、伴奏和混响。可以用单个预设，也可以用串联预设。

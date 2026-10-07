@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from rvc_next.api.deps import LocalDep, ServicesDep
 from rvc_next.api.errors import ERROR_RESPONSES
 from rvc_next.api.files import audio_response, content_disposition
-from rvc_next.core.audio.models import Output, OutputPage, Peaks, ZipRequest
+from rvc_next.core.audio.models import AudioAnalysis, Output, OutputPage, Peaks, ZipRequest
 
 router = APIRouter(prefix="/v1/outputs", tags=["outputs"], responses=ERROR_RESPONSES)
 
@@ -48,6 +48,23 @@ def get_source(services: ServicesDep, output_id: str) -> FileResponse:
 @router.get("/{output_id}/peaks", operation_id="get_output_peaks")
 def get_peaks(services: ServicesDep, output_id: str, points: int = 1024) -> Peaks:
     return services.audio.peaks(services.audio.output_file(output_id), points)
+
+
+@router.get("/{output_id}/analysis", operation_id="analyse_output")
+def analyse_output(services: ServicesDep, output_id: str, columns: int = 800) -> AudioAnalysis:
+    """A spectrogram and the pitch curve of an output (cached)."""
+    return services.audio.analyse(services.audio.output_file(output_id), columns)
+
+
+@router.get("/{output_id}/source-analysis", operation_id="analyse_output_source")
+def analyse_output_source(services: ServicesDep, output_id: str, columns: int = 800) -> AudioAnalysis:
+    """The same for the file the output was made from."""
+    from rvc_next.core.errors import NotFoundError
+
+    out = services.audio.get_output(output_id)
+    if not out.source_path or not Path(out.source_path).is_file():
+        raise NotFoundError("This output has no source file")
+    return services.audio.analyse(Path(out.source_path), columns)
 
 
 @router.get("/{output_id}/source-peaks", operation_id="get_output_source_peaks")

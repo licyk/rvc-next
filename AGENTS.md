@@ -355,6 +355,11 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   trusted). Left empty, the roots are home, the legacy roots, the data directory and every drive
   (Windows, `core/files.windows_drives`) or mounted volume (`/Volumes`, `/media/<user>`, `/mnt`), never resolved (resolving a drive opens it: a
   disconnected network drive would stall every `GET /settings`); peaks cached under `cache/peaks/`; outputs carry provenance; zip streamed.
+- **Analysis** (`engine/audio/analysis.py`, `audio.analyse`, `GET /outputs/{id}/analysis` and
+  `source-analysis`, `GET /audio/files/{id}/analysis`, `rvc-next analyse`): a 128-band mel
+  spectrogram as base64 bytes and the pitch every 10 ms from SwiftF0 on the CPU (never the GPU
+  lease), cached beside the peaks; up to 30 minutes. The UI's `AnalysisDialog` (results menu) and
+  `ui/Spectrogram` draw them; `LineChart` breaks lines at NaN.
 - **Conversion:** one job per request; separate first (one worker for all inputs), convert each
   primary stem, then remix over the `instrumental` stem; names `<stem>.<voice slug>.<fmt>`, never
   overwriting (the CLI's `--overwrite` with `-o` excepted). Preview = first N s, priority 10.

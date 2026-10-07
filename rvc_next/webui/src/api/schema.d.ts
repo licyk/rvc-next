@@ -887,6 +887,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/audio/files/{file_id}/analysis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analyse File
+         * @description A spectrogram and the pitch curve of an uploaded file (cached).
+         */
+        get: operations["analyse_audio_file"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audio/files/{file_id}/peaks": {
         parameters: {
             query?: never;
@@ -1053,6 +1073,46 @@ export interface paths {
         };
         /** Get Peaks */
         get: operations["get_output_peaks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/outputs/{output_id}/analysis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analyse Output
+         * @description A spectrogram and the pitch curve of an output (cached).
+         */
+        get: operations["analyse_output"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/outputs/{output_id}/source-analysis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analyse Output Source
+         * @description The same for the file the output was made from.
+         */
+        get: operations["analyse_output_source"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1849,6 +1909,30 @@ export interface components {
             key: string;
             /** Name */
             name: string;
+        };
+        /**
+         * AudioAnalysis
+         * @description A spectrogram and the pitch curve of one file, for judging a result.
+         */
+        AudioAnalysis: {
+            /** Duration */
+            duration: number;
+            /** Sample Rate */
+            sample_rate: number;
+            /** Channels */
+            channels: number;
+            /** Codec */
+            codec: string | null;
+            spectrogram: components["schemas"]["SpectrogramData"];
+            /**
+             * Pitch Hop
+             * @default 0.01
+             */
+            pitch_hop: number;
+            /** Pitch */
+            pitch: number[];
+            /** Pitch Median */
+            pitch_median: number | null;
         };
         /** AudioDevice */
         AudioDevice: {
@@ -4206,6 +4290,17 @@ export interface components {
              * @default 1
              */
             repeat: number;
+        };
+        /** SpectrogramData */
+        SpectrogramData: {
+            /** Rows */
+            rows: number;
+            /** Cols */
+            cols: number;
+            /** Fmax */
+            fmax: number;
+            /** Data */
+            data: string;
         };
         /** StagePathsRequest */
         StagePathsRequest: {
@@ -8505,6 +8600,75 @@ export interface operations {
             };
         };
     };
+    analyse_audio_file: {
+        parameters: {
+            query?: {
+                columns?: number;
+            };
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AudioAnalysis"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_audio_peaks: {
         parameters: {
             query?: {
@@ -9202,6 +9366,144 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Peaks"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analyse_output: {
+        parameters: {
+            query?: {
+                columns?: number;
+            };
+            header?: never;
+            path: {
+                output_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AudioAnalysis"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analyse_output_source: {
+        parameters: {
+            query?: {
+                columns?: number;
+            };
+            header?: never;
+            path: {
+                output_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AudioAnalysis"];
                 };
             };
             /** @description Bad Request */

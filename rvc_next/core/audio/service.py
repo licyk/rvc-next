@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from rvc_next.core.audio.models import AudioFile, AudioInfo, AudioRef, BrowseEntry, BrowseListing, Output, OutputPage, Peaks
+from rvc_next.core.audio.models import AudioAnalysis, AudioFile, AudioInfo, AudioRef, BrowseEntry, BrowseListing, Output, OutputPage, Peaks, SpectrogramData
 from rvc_next.core.clock import new_id, now_iso
 from rvc_next.core.db import Database
 from rvc_next.core.errors import InvalidPathError, NotFoundError, ValidationError
@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 UPLOAD_TTL_SECONDS = 24 * 3600
 MIN_POINTS, MAX_POINTS = 64, 4096
+MAX_ANALYSIS_SECONDS = 30 * 60
 
 
 def _audio_ext(name: str) -> bool:
@@ -246,6 +247,50 @@ class AudioFileService:
             raise ValidationError(str(e), {"reason": "audio"}) from e
         data = compute_peaks(audio, points)
         result = Peaks(points=points, duration=audio.shape[0] / sr if sr else 0.0, sample_rate=sr, data=[round(float(v), 4) for v in data])
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cache.with_suffix(".tmp")
+        tmp.write_text(result.model_dump_json(), encoding="utf-8")
+        tmp.replace(cache)
+        return result
+
+    # -- analysis ----------------------------------------------------------------------
+
+    def analyse(self, path: Path, columns: int = 800) -> AudioAnalysis:
+        """A spectrogram and the pitch curve of ``path`` (cached like the peaks)."""
+        import base64
+
+        from rvc_next.engine.audio.analysis import median_pitch, pitch_curve, spectrogram
+        from rvc_next.engine.audio.io import decode
+        from rvc_next.engine.errors import AudioError
+
+        columns = max(64, min(4000, int(columns)))
+        st = path.stat()
+        key = hashlib.sha1(f"analysis|{path.resolve()}|{st.st_size}|{st.st_mtime_ns}|{columns}".encode()).hexdigest()
+        cache = self.peaks_dir / key[:2] / f"{key}.json"
+        if cache.is_file():
+            try:
+                return AudioAnalysis.model_validate_json(cache.read_text(encoding="utf-8"))
+            except ValueError:
+                pass
+        info = self.probe(path)
+        if info.duration and info.duration > MAX_ANALYSIS_SECONDS:
+            raise ValidationError(f"{path.name} is longer than {MAX_ANALYSIS_SECONDS // 60} minutes; analysis covers shorter audio", {"reason": "too_long"})
+        try:
+            audio, sr = decode(path, None, mono=True)
+            audio_16k, _ = decode(path, 16000, mono=True)
+        except AudioError as e:
+            raise ValidationError(str(e), {"reason": "audio"}) from e
+        spec = spectrogram(audio, sr, columns)
+        f0 = pitch_curve(audio_16k)
+        result = AudioAnalysis(
+            duration=audio.shape[0] / sr if sr else 0.0,
+            sample_rate=sr,
+            channels=info.channels,
+            codec=info.codec,
+            spectrogram=SpectrogramData(rows=spec.rows, cols=spec.cols, fmax=spec.fmax, data=base64.b64encode(spec.data.tobytes()).decode("ascii")),
+            pitch=[round(float(v), 2) for v in f0],
+            pitch_median=median_pitch(f0),
+        )
         cache.parent.mkdir(parents=True, exist_ok=True)
         tmp = cache.with_suffix(".tmp")
         tmp.write_text(result.model_dump_json(), encoding="utf-8")

@@ -31,11 +31,22 @@ const bounds = computed(() => {
 const sx = (x: number) => (bounds.value ? PAD.l + ((x - bounds.value.x0) / (bounds.value.x1 - bounds.value.x0)) * (W - PAD.l - PAD.r) : 0);
 const sy = (y: number) => (bounds.value ? PAD.t + (1 - (y - bounds.value.y0) / (bounds.value.y1 - bounds.value.y0)) * (props.height - PAD.t - PAD.b) : 0);
 
-/** At most 400 points per line: a long run is thinned by stride, keeping the last point. */
+/** At most 400 points per line: a long run is thinned by stride, keeping the last point. A point
+ * whose value is not finite (NaN) breaks the line, so a gap is not drawn across. */
 function path(points: [number, number][]): string {
   const stride = Math.max(1, Math.ceil(points.length / 400));
-  const kept = points.filter((_, i) => i % stride === 0 || i === points.length - 1).filter(([, y]) => Number.isFinite(y));
-  return kept.map(([x, y], i) => `${i ? 'L' : 'M'}${sx(x).toFixed(1)},${sy(y).toFixed(1)}`).join(' ');
+  const kept = points.filter((_, i) => i % stride === 0 || i === points.length - 1);
+  let out = '';
+  let pen = false;
+  for (const [x, y] of kept) {
+    if (!Number.isFinite(y)) {
+      pen = false;
+      continue;
+    }
+    out += `${pen ? 'L' : 'M'}${sx(x).toFixed(1)},${sy(y).toFixed(1)} `;
+    pen = true;
+  }
+  return out.trim();
 }
 
 const ticks = computed(() => {

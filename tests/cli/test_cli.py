@@ -9,6 +9,7 @@ from rvc_next.cli.app import get_app
 from rvc_next.logger import LOGGER_NAME
 
 EXPECTED_TREE = {
+    "analyse": None,
     "assets": {"download": None, "list": None, "verify": None},
     "config": {"get": None, "path": None, "set": None, "show": None},
     "convert": None,
