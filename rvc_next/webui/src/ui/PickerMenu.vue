@@ -6,7 +6,7 @@ import ProgressCircle from '@/ui/ProgressCircle.vue';
 import TextField from '@/ui/TextField.vue';
 import { ChevronDown, Search } from '@/ui/icons';
 import { useRevealWhileOpen } from '@/ui/reveal';
-import { useLayer } from '@/ui/useLayer';
+import { useLayer } from '@/ui/layers';
 
 export interface PickerOption {
   value: string;
@@ -49,7 +49,8 @@ const open = ref(false);
 const query = ref('');
 const root = ref<HTMLElement | null>(null);
 const popover = ref<HTMLElement | null>(null);
-useLayer(() => open.value, () => (open.value = false));
+// Lists in place (its z-index is the page's), but Escape and a click elsewhere close it before the dialog it sits in.
+useLayer({ kind: 'inline', open: () => open.value, close: () => (open.value = false), elements: () => [root.value] });
 useRevealWhileOpen(() => open.value, popover);
 
 const current = computed(() => props.options.find((o) => o.value === model.value) ?? null);

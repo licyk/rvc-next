@@ -52,7 +52,7 @@ rvc_next/webui/
     audio/          player.ts (one player for the entire page, testable without a browser)
     stores/         jobs live train player preferences auth handoff
     theme/          scheme.ts applyTheme.ts breakpoints.ts tokens.css
-    ui/             Shared primitives, icons.ts, motion/, useLayer reveal useSnackbar …
+    ui/             Shared primitives, icons.ts, motion/, layers reveal useSnackbar …
     components/     Feature components composed from ui/
     views/          One View per screen
     i18n/           index.ts en.ts zh-CN.ts
@@ -84,7 +84,7 @@ There are two kinds of components:
 
 Several mechanisms span components:
 
-- `useLayer`: dialogs, side sheets, and menus are stacked in opening order; `Escape` closes only the top layer.
+- `layers.ts` (`useLayer`, `useLayerBase`): the one record of what is open over the page — dialogs, side sheets, menus, an open picker or select — in opening order. A layer opened later paints above every earlier one (each kind keeps a floor in `LAYER_Z`); `Escape` and a click outside close only the top layer; a modal layer makes the page and the layers under it `inert`; focus moves into a layer and back to whatever opened it.
 - `reveal.ts` (`revealDropdown`, `useRevealWhileOpen`): if an inline dropdown (voice picker, device menu) is hidden by the sticky `PageFooter`, scroll the container upward until it is visible, without passing the list's top. `PageFooter` marks itself with `data-page-footer`.
 - `useSnackbar`: a global queue, showing one message at a time.
 
@@ -92,7 +92,7 @@ Several mechanisms span components:
 
 - [`theme/scheme.ts`](https://github.com/licyk/rvc-next/blob/main/rvc_next/webui/src/theme/scheme.ts): `DEFAULT_SOURCE_COLOR = '#3f5f90'` is the project's only hand-picked color (the logo blue); `SOURCE_COLORS` supplies the alternatives in Settings. `generateScheme()` uses `SchemeTonalSpot` to generate every role in `ROLES`, supporting light/dark and contrast values 0, 0.5, and 1.
 - `theme/applyTheme.ts` writes roles to `--md-sys-color-*` on `:root`; `watchSystemTheme` reacts to system changes in “System” mode. The inline script in `index.html` sets `data-theme` before the bundle loads to avoid an initial flash.
-- `theme/tokens.css`: MD3 tokens for fonts, shapes, heights, motion, state layers (hover 8%, focus 12%, pressed 12%, dragged 16%), and project `--app-*` tokens: spacing `--app-space-*`, widths `--app-width-*` (all `clamp()`, growing with wider screens), stacking `--app-z-*`, disabled opacity, etc. Some tokens (such as `--app-z-viewer`) are inherited from Hanaikada and currently unused.
+- `theme/tokens.css`: MD3 tokens for fonts, shapes, heights, motion, state layers (hover 8%, focus 12%, pressed 12%, dragged 16%), and project `--app-*` tokens: spacing `--app-space-*`, widths `--app-width-*` (all `clamp()`, growing with wider screens), in-page stacking `--app-z-*` (what opens over the page is stacked by `ui/layers.ts`), disabled opacity, etc.
 - `theme/breakpoints.ts`: MD3 window size classes (600, 840, 1200, 1600 px). `AppShell` uses bottom navigation in compact mode (&lt; 600 px), otherwise a navigation rail.
 
 Rules: components and views use tokens rather than literal colors, corner radii, font sizes, or durations (colors are enforced by `tokens.test.ts`); pair color roles (`on-primary` on `primary`); express hierarchy through surface tones first, shadows second.
@@ -189,7 +189,7 @@ A few more conventions:
 | Rule | `layout.test.ts` | Shrinkable names, one column of sections + `PageFooter`, centered field rows, no grids placing sections side by side |
 | Rule | `i18n/i18n.test.ts` | Matching keys and placeholders in both languages; fixed terminology |
 | Motion | `ui/motion/motion.test.ts` | Exits finish under the zero-duration test stylesheet (`test/motion-zero.css`) with both full and reduced motion (no waiting forever for `transitionend` at duration 0); rules cover both reduced-motion sources; destination changes use view transitions; reduced motion uses a short crossfade |
-| Component | `ui/ui.test.ts`, `ui/bars.test.ts`, `ui/reveal.test.ts` | Primitive behavior, layer stack, motion helpers, color generation, window size classes, formatting; progress bars and meters; dropdowns clear the footer |
+| Component | `ui/ui.test.ts`, `ui/layers.test.ts`, `ui/bars.test.ts`, `ui/reveal.test.ts` | Primitive behavior, layer stack, motion helpers, color generation, window size classes, formatting; progress bars and meters; dropdowns clear the footer |
 | Feature | `VoiceParamsPanel.test.ts`, `ImportReviewDialog.test.ts`, `ResourceRow.test.ts`, `GpuIndicator.test.ts`, `devices.test.ts` | Schema-derived parameter ranges, default presets and disabled reasons; compatible voices only; download rows; GPU memory release availability; device menu ordering and resolution states |
 | State | `stores/jobs.test.ts`, `stores/preferences.test.ts`, `audio/player.test.ts`, `api/baseUrl.test.ts`, `devProxy.test.ts` | Jobs never regress, completion is notified once; preference migration; A/B player; deployment root derivation; proxy error classification |
 

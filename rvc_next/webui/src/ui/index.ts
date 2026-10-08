@@ -66,5 +66,5 @@ export * as icons from '@/ui/icons';
 export { collapseHooks, containerFrom, prefersReducedMotion, staggerStyle, TRANSITIONS, useAxisDirection } from '@/ui/motion/transitions';
 export { installViewTransitions } from '@/ui/motion/viewTransition';
 export { useElementHeight } from '@/ui/useElementHeight';
-export { layerOpen, useLayer } from '@/ui/useLayer';
+export { LAYER_Z, layerOpen, snackbarZ, useLayer, useLayerBase, type LayerKind, type LayerOptions } from '@/ui/layers';
 export { useSnackbar } from '@/ui/useSnackbar';

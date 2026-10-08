@@ -508,6 +508,16 @@ rule tests come from Hanaikada.
   which hung navigation); views then render without the out-in `<Transition>`.
   Reduced motion (the system setting or Settings › Appearance) still runs the view transition, as
   a 100 ms crossfade without the scale: never no transition at all, as in Hanaikada.
+- **Layers** (`ui/layers.ts`, `useLayer`): every dialog, sheet, menu, open `PickerMenu` and open
+  `SelectField` list registers, in the order it opened. A later layer paints above every earlier one
+  (`LAYER_Z` floors: sheet 100, dialog 200, snackbar 300, menu 400; `inline` layers keep the page's
+  `--app-z-*`), so nesting never depends on template order. Escape and a click outside (pressed and
+  released outside, `[data-layer-ignore]` excepted) close the topmost alone. A `modal` layer makes
+  the page (`useLayerBase`, the shell) and the layers under it `inert`; the Snackbar is teleported
+  beside the page so it stays live. Focus goes in (`initialFocus`) and back to the opener; a dialog
+  opened from a menu item returns it to the menu's trigger. `md-select`'s own popover counts as a
+  layer through its `opening`/`closing` events. Components never add their own outside-click or
+  Escape listeners (`ui/layers.test.ts`).
 - **Imports:** every drop zone on Models (Voices, Base models, Separation models) calls
   `useModelImport`, which commits a confident plan at once and otherwise hands it to
   `ImportReviewDialog`; index choices list only the plan's compatible candidates. Unassigned

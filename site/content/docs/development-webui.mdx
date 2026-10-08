@@ -52,7 +52,7 @@ rvc_next/webui/
     audio/          player.ts（全页唯一的播放器，可脱离浏览器测试）
     stores/         jobs live train player preferences auth handoff
     theme/          scheme.ts applyTheme.ts breakpoints.ts tokens.css
-    ui/             共享基础组件、icons.ts、motion/、useLayer reveal useSnackbar …
+    ui/             共享基础组件、icons.ts、motion/、layers reveal useSnackbar …
     components/     由 ui/ 组合出的业务组件
     views/          每个界面一个 View
     i18n/           index.ts en.ts zh-CN.ts
@@ -84,7 +84,7 @@ rvc_next/webui/
 
 几个跨组件的机制：
 
-- `useLayer`：对话框、侧边面板、菜单按打开顺序入栈，`Escape` 只关闭最上层。
+- `layers.ts`（`useLayer`、`useLayerBase`）：页面之上打开的一切（对话框、侧边面板、菜单、展开的选择器和下拉框）按打开顺序登记在这一处。后打开的层总在先打开的层之上（每类有 `LAYER_Z` 下限）；`Escape` 和外部点击只关闭最上层；模态层打开时，页面和它下面的层设为 `inert`；焦点移入层内，关闭后回到打开它的元素。
 - `reveal.ts`（`revealDropdown`、`useRevealWhileOpen`）：在原地展开的列表（音色选择器、设备菜单）若被粘性的 `PageFooter` 遮住，就把滚动容器往上滚到露出为止，但不越过列表顶端。`PageFooter` 用 `data-page-footer` 标记自己。
 - `useSnackbar`：全局队列，一次显示一条。
 
@@ -92,7 +92,7 @@ rvc_next/webui/
 
 - [`theme/scheme.ts`](https://github.com/licyk/rvc-next/blob/main/rvc_next/webui/src/theme/scheme.ts)：`DEFAULT_SOURCE_COLOR = '#3f5f90'` 是项目里唯一手选的颜色（标志的蓝色），`SOURCE_COLORS` 是设置页提供的备选；`generateScheme()` 用 `SchemeTonalSpot` 生成 `ROLES` 中的全部角色，支持亮/暗与对比度 0、0.5、1。
 - `theme/applyTheme.ts` 把角色写成 `:root` 上的 `--md-sys-color-*`，`watchSystemTheme` 在“跟随系统”时响应系统切换。`index.html` 的内联脚本在包加载前设置 `data-theme`，避免首屏闪烁。
-- `theme/tokens.css`：字体、形状、高度、动效、状态层（hover 8%、focus 12%、pressed 12%、dragged 16%）等 MD3 令牌，以及项目令牌 `--app-*`：间距 `--app-space-*`、宽度 `--app-width-*`（都是 `clamp()`，宽屏时随之变宽）、层级 `--app-z-*`、禁用透明度等。部分令牌（如 `--app-z-viewer`）是从 Hanaikada 继承而目前未用的。
+- `theme/tokens.css`：字体、形状、高度、动效、状态层（hover 8%、focus 12%、pressed 12%、dragged 16%）等 MD3 令牌，以及项目令牌 `--app-*`：间距 `--app-space-*`、宽度 `--app-width-*`（都是 `clamp()`，宽屏时随之变宽）、页面内层级 `--app-z-*`（页面之上打开的层由 `ui/layers.ts` 排列）、禁用透明度等。
 - `theme/breakpoints.ts`：MD3 窗口尺寸类（600、840、1200、1600 px）。`AppShell` 在 compact（&lt; 600 px）时用底部导航栏，否则用侧边导航栏。
 
 规则：组件和视图里没有字面颜色、圆角、字号或时长，只用令牌（颜色由 `tokens.test.ts` 强制）；颜色角色成对使用（`primary` 上用 `on-primary`）；层次先靠表面色调，再靠阴影。
@@ -189,7 +189,7 @@ rvc_next/webui/
 | 规则 | `layout.test.ts` | 名称可收缩、一列分节 + `PageFooter`、字段行居中、没有把分节并排的网格 |
 | 规则 | `i18n/i18n.test.ts` | 两种语言键与占位符一致；固定词汇 |
 | 动效 | `ui/motion/motion.test.ts` | 在零时长测试样式表（`test/motion-zero.css`）下，完整动效和降低动效两种情况的退出都能结束（时长为 0 时不会等不到 `transitionend` 而卡住）；两种降低动效来源都有规则；目的地切换包进视图过渡；降低动效下是短交叉淡化 |
-| 组件 | `ui/ui.test.ts`、`ui/bars.test.ts`、`ui/reveal.test.ts` | 基础组件行为、图层栈、动效辅助函数、配色生成、窗口尺寸类、格式化；进度条与电平表；下拉列表避开页脚 |
+| 组件 | `ui/ui.test.ts`、`ui/layers.test.ts`、`ui/bars.test.ts`、`ui/reveal.test.ts` | 基础组件行为、图层栈、动效辅助函数、配色生成、窗口尺寸类、格式化；进度条与电平表；下拉列表避开页脚 |
 | 业务 | `VoiceParamsPanel.test.ts`、`ImportReviewDialog.test.ts`、`ResourceRow.test.ts`、`GpuIndicator.test.ts`、`devices.test.ts` | 参数范围来自 schema、默认预设与禁用原因；只提供兼容音色；下载行；释放显存的可用性；设备菜单排序与解析状态 |
 | 状态 | `stores/jobs.test.ts`、`stores/preferences.test.ts`、`audio/player.test.ts`、`api/baseUrl.test.ts`、`devProxy.test.ts` | 任务不倒退、完成只通知一次；偏好迁移；A/B 播放器；部署根推导；代理错误分类 |
 

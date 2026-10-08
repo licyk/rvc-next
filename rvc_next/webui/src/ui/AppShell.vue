@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useWindowClass } from '@/theme/breakpoints';
+import { useLayerBase } from '@/ui/layers';
 import NavigationBar from '@/ui/NavigationBar.vue';
 import NavigationRail, { type NavItem } from '@/ui/NavigationRail.vue';
 import Snackbar from '@/ui/Snackbar.vue';
@@ -11,11 +12,14 @@ withDefaults(defineProps<{ items: NavItem[]; footer?: NavItem[]; title: string }
 const windowClass = useWindowClass();
 const compact = computed(() => windowClass.value === 'compact');
 const content = ref<HTMLElement | null>(null);
+const shell = ref<HTMLElement | null>(null);
+// The page under every layer: inert while a dialog or sheet is open.
+useLayerBase(shell);
 defineExpose({ content });
 </script>
 
 <template>
-  <div class="shell" :class="{ compact }">
+  <div ref="shell" class="shell" :class="{ compact }">
     <NavigationRail v-if="!compact" :items="items" :footer="footer" class="rail"><template #top><slot name="rail-top" /></template></NavigationRail>
     <div class="main-column">
       <TopAppBar :title="title"><template #actions><slot name="actions" /></template></TopAppBar>
