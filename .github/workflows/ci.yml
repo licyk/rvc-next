@@ -25,20 +25,38 @@ env:
 
 jobs:
   # A push to main that changes rvc_next/version.py starts Release, which runs this file as its
-  # checks; CI's own run of that push skips this job, and with it every job below. github.workflow
-  # is "Release" inside that call, so the call itself always runs.
+  # checks; CI's own run of that push sets `run` to false, which skips every job below.
+  # github.workflow is "Release" inside that call, so the call itself always runs. The changed
+  # files come from the compare API (the push's before...after, as Release's `paths` filter sees
+  # it), not from the payload's commits[].modified, which never matched; any failure runs CI.
   gate:
     name: Not checked by Release
-    if: >-
-      github.workflow != 'CI' || github.event_name != 'push' ||
-      !contains(toJSON(github.event.commits.*.modified), '"rvc_next/version.py"')
     runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
     steps:
-      - run: 'true'
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW: ${{ github.workflow }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          run=true
+          if [ "$WORKFLOW" = CI ] && [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/main ]; then
+            if files=$(gh api "repos/$GITHUB_REPOSITORY/compare/$BEFORE...$GITHUB_SHA" --jq '.files[].filename'); then
+              printf 'Changed files:\n%s\n' "$files"
+              if grep -qx 'rvc_next/version.py' <<< "$files"; then
+                echo "Release runs these checks for this push."
+                run=false
+              fi
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
 
   lint:
     name: Lint and format
     needs: gate
+    if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
@@ -55,6 +73,7 @@ jobs:
   types:
     name: ty / Python ${{ matrix.python }} / ${{ matrix.os }}
     needs: gate
+    if: needs.gate.outputs.run == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -81,6 +100,7 @@ jobs:
   tests:
     name: Tests / Python ${{ matrix.python }}
     needs: gate
+    if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -102,6 +122,7 @@ jobs:
   web:
     name: Web UI
     needs: gate
+    if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
@@ -130,6 +151,7 @@ jobs:
   site:
     name: Documentation site
     needs: gate
+    if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
