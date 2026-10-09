@@ -33,8 +33,9 @@ defineExpose({ content });
 </template>
 
 <style scoped>
-.shell { display: grid; grid-template-columns: auto 1fr; height: 100%; background: var(--md-sys-color-surface); }
-.shell.compact { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+/* One row the window's height: a rail taller than the window scrolls inside it rather than growing it. */
+.shell { display: grid; grid-template-columns: auto 1fr; grid-template-rows: minmax(0, 1fr); height: 100%; background: var(--md-sys-color-surface); }
+.shell.compact { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
 .main-column { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .frame {
   display: flex; flex-direction: column; flex: 1; min-height: 0; margin: 0 var(--app-space-4) var(--app-space-4) 0;

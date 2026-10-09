@@ -10,7 +10,6 @@ import ErrorNotice from '@/components/ErrorNotice.vue';
 import { useI18n } from '@/i18n';
 import { formatMiB } from '@/format';
 import { usePreferencesStore } from '@/stores/preferences';
-import { SOURCE_COLORS } from '@/theme/scheme';
 import { AppButton, Badge, DataList, PathField, SegmentedControl, SelectField, Skeleton, Surface, Switch, Tabs, TextField, TRANSITIONS, icons, useAxisDirection, useSnackbar } from '@/ui';
 
 type Section = 'general' | 'compute' | 'audio' | 'storage' | 'downloads' | 'training' | 'appearance' | 'about';
@@ -79,7 +78,6 @@ const contrastOptions = computed(() => [
   { value: '1', label: t('settings.contrastLevels.high') },
 ]);
 const contrast = computed({ get: () => String(prefs.prefs.contrast), set: (v) => (prefs.prefs.contrast = Number(v)) });
-const COLORS = SOURCE_COLORS;
 const theme = computed({ get: () => prefs.prefs.theme, set: (v) => (prefs.prefs.theme = v) });
 const motion = computed({ get: () => prefs.prefs.motion, set: (v) => (prefs.prefs.motion = v) });
 const previewShown = ref(true);
@@ -173,9 +171,8 @@ const previewShown = ref(true);
             </div>
             <div class="field-row">
               <span class="type-body-large">{{ t('settings.color') }}</span>
-              <div class="swatches">
-                <button v-for="c in COLORS" :key="c" type="button" class="swatch" :class="{ on: prefs.prefs.sourceColor === c }" :style="{ background: c }" :aria-label="c" @click="prefs.prefs.sourceColor = c" />
-              </div>
+              <!-- Any colour, as Hanaikada's: every role is generated from it. -->
+              <input v-model="prefs.prefs.sourceColor" type="color" class="color" :aria-label="t('settings.color')" />
             </div>
             <div class="field-row">
               <span class="type-body-large">{{ t('settings.contrast') }}</span>
@@ -224,8 +221,6 @@ const previewShown = ref(true);
 .area { width: 100%; padding: var(--app-space-2) var(--app-space-3); border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-sys-shape-corner-extra-small); background: transparent; color: var(--md-sys-color-on-surface); font: inherit; resize: vertical; }
 .field-row { display: flex; align-items: center; justify-content: space-between; gap: var(--app-space-4); min-height: 56px; flex-wrap: wrap; }
 .start { align-self: flex-start; }
-.swatches { display: flex; flex-wrap: wrap; gap: var(--app-space-2); }
-.swatch { width: 36px; height: 36px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
-.swatch.on { border-color: var(--md-sys-color-on-surface); }
+.color { width: 56px; height: 40px; padding: 0; border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-sys-shape-corner-small); background: transparent; cursor: pointer; }
 .preview { padding: var(--app-space-4); border-radius: var(--md-sys-shape-corner-large); background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
 </style>

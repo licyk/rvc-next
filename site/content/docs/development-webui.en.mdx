@@ -90,7 +90,7 @@ Several mechanisms span components:
 
 ### Theme and tokens
 
-- [`theme/scheme.ts`](https://github.com/licyk/rvc-next/blob/main/rvc_next/webui/src/theme/scheme.ts): `DEFAULT_SOURCE_COLOR = '#3f5f90'` is the project's only hand-picked color (the logo blue); `SOURCE_COLORS` supplies the alternatives in Settings. `generateScheme()` uses `SchemeTonalSpot` to generate every role in `ROLES`, supporting light/dark and contrast values 0, 0.5, and 1.
+- [`theme/scheme.ts`](https://github.com/licyk/rvc-next/blob/main/rvc_next/webui/src/theme/scheme.ts): `DEFAULT_SOURCE_COLOR = '#3f5f90'` is the project's only hand-picked color (the logo blue); the color picker in Settings (`<input type="color">`, as Hanaikada's) replaces it with any color. `generateScheme()` uses `SchemeTonalSpot` to generate every role in `ROLES`, supporting light/dark and contrast values 0, 0.5, and 1.
 - `theme/applyTheme.ts` writes roles to `--md-sys-color-*` on `:root`; `watchSystemTheme` reacts to system changes in “System” mode. The inline script in `index.html` sets `data-theme` before the bundle loads to avoid an initial flash.
 - `theme/tokens.css`: MD3 tokens for fonts, shapes, heights, motion, state layers (hover 8%, focus 12%, pressed 12%, dragged 16%), and project `--app-*` tokens: spacing `--app-space-*`, widths `--app-width-*` (all `clamp()`, growing with wider screens), in-page stacking `--app-z-*` (what opens over the page is stacked by `ui/layers.ts`), disabled opacity, etc.
 - `theme/breakpoints.ts`: MD3 window size classes (600, 840, 1200, 1600 px). `AppShell` uses bottom navigation in compact mode (&lt; 600 px), otherwise a navigation rail.

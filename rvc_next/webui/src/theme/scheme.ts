@@ -2,8 +2,6 @@ import { argbFromHex, hexFromArgb, Hct, SchemeTonalSpot } from '@material/materi
 
 /** The one hand-chosen colour, the blue of the mark. Everything else is generated from it. Users can change it. */
 export const DEFAULT_SOURCE_COLOR = '#3f5f90';
-/** Source colours offered in Settings › Appearance. */
-export const SOURCE_COLORS = ['#3f5f90', '#6750a4', '#386a20', '#8f4c38', '#006a6a', '#7d5260'];
 
 export const ROLES = [
   'primary', 'onPrimary', 'primaryContainer', 'onPrimaryContainer',

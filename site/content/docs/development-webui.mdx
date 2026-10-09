@@ -90,7 +90,7 @@ rvc_next/webui/
 
 ### 主题与令牌
 
-- [`theme/scheme.ts`](https://github.com/licyk/rvc-next/blob/main/rvc_next/webui/src/theme/scheme.ts)：`DEFAULT_SOURCE_COLOR = '#3f5f90'` 是项目里唯一手选的颜色（标志的蓝色），`SOURCE_COLORS` 是设置页提供的备选；`generateScheme()` 用 `SchemeTonalSpot` 生成 `ROLES` 中的全部角色，支持亮/暗与对比度 0、0.5、1。
+- [`theme/scheme.ts`](https://github.com/licyk/rvc-next/blob/main/rvc_next/webui/src/theme/scheme.ts)：`DEFAULT_SOURCE_COLOR = '#3f5f90'` 是项目里唯一手选的颜色（标志的蓝色），设置页的取色器（`<input type="color">`，同 Hanaikada）可以换成任意颜色；`generateScheme()` 用 `SchemeTonalSpot` 生成 `ROLES` 中的全部角色，支持亮/暗与对比度 0、0.5、1。
 - `theme/applyTheme.ts` 把角色写成 `:root` 上的 `--md-sys-color-*`，`watchSystemTheme` 在“跟随系统”时响应系统切换。`index.html` 的内联脚本在包加载前设置 `data-theme`，避免首屏闪烁。
 - `theme/tokens.css`：字体、形状、高度、动效、状态层（hover 8%、focus 12%、pressed 12%、dragged 16%）等 MD3 令牌，以及项目令牌 `--app-*`：间距 `--app-space-*`、宽度 `--app-width-*`（都是 `clamp()`，宽屏时随之变宽）、页面内层级 `--app-z-*`（页面之上打开的层由 `ui/layers.ts` 排列）、禁用透明度等。
 - `theme/breakpoints.ts`：MD3 窗口尺寸类（600、840、1200、1600 px）。`AppShell` 在 compact（&lt; 600 px）时用底部导航栏，否则用侧边导航栏。

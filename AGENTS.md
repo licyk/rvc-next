@@ -526,6 +526,11 @@ rule tests come from Hanaikada.
   `useModelImport`, which commits a confident plan at once and otherwise hands it to
   `ImportReviewDialog`; index choices list only the plan's compatible candidates. Unassigned
   indexes show in `IndexInbox` on the Voices tab. Train's settings list the fitting base models.
+- **Navigation:** `AppShell`'s `items` are the destinations and `footer` holds Settings: last in the
+  bottom bar (compact), at the foot of the rail otherwise. The rail is the window's height (the
+  shell's one row is `minmax(0, 1fr)`); only its destinations scroll when it is too short (a phone
+  held sideways), so Settings stays in the bottom-left corner. Hanaikada and Hanakura share it.
+  The theme colour is any colour (`<input type="color">`, as Hanaikada's).
 - **Shell and navigation:** the shell is still between destinations. Only the scroller
   `main.content` (`view-transition-name: app-content`) fades through; the root, the rail and the
   top bar do not animate, and the rounded `.frame` around the scroller stays outside the snapshot.
