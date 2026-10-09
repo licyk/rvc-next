@@ -172,6 +172,21 @@ sudo apt install libportaudio2        # Debian / Ubuntu
 上次使用的输出设备没有连接（例如拔掉了耳机或声卡）。界面会提示 **保存的输出设备不存在，将使用系统默认设备。**，点 **使用默认输出启动** 确认，或在设备面板里选择其他设备。命令行加 `--allow-fallback`。开启 **自动重新连接丢失的设备** 时，运行中丢失的设备重新接上后会自动恢复。
 
 </Accordion>
+<Accordion title="怎样在 Discord、Zoom、OBS 或游戏里使用转换后的声音？">
+
+把实时变声的输出送进一块虚拟声卡，再在其他程序里把这块声卡的录音端选为麦克风：Windows 上用 VB-CABLE（**CABLE Input** → **CABLE Output**）或 Voicemeeter（**Voicemeeter AUX Input** → **Voicemeeter Out B1**），macOS 上用 **BlackHole 2ch**，Linux 上用 PipeWire/PulseAudio 虚拟麦克风。用 **监听** 听自己。分步说明以及其他程序里需要关闭的设置见 [在其他程序中使用实时变声](/docs/guide-live-routing)。
+
+</Accordion>
+<Accordion title="其他程序听不到转换后的声音，或者还能听到我的原声？">
+
+- 其他程序要录虚拟声卡的*录音端*（**CABLE Output**、**Voicemeeter Out B1**、**BlackHole 2ch**、**RVC-Next-Microphone**），不要选 **默认**，也不要选真实的麦克风。
+- rvc-next 的 **输出** 要选*播放端*，并且实时变声处于 **运行中**。
+- 用 Voicemeeter 时，rvc-next 播放进去的那条通道要打开 **B1**，麦克风自己那条通道的 **B1** 要关闭。
+- 在 Linux 上，虚拟输出不会作为单独的设备出现在 rvc-next 的菜单里：按 [在其他程序中使用实时变声 › Linux](/docs/guide-live-routing#linux) 添加 **rvc-next-virtual** 这个 ALSA 设备。
+
+另见 [在其他程序中使用实时变声](/docs/guide-live-routing) 末尾的排查表。
+
+</Accordion>
 </Accordions>
 ## 显存与性能
 

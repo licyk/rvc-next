@@ -463,6 +463,11 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   (`webui/src/audio/browserAudio.ts`) frames the mic at 20 ms and plays from a 60 ms jitter buffer.
   `NoDevices` stands in when PortAudio cannot load, so a headless server still runs browser Live.
   Remote browsers need HTTPS for the microphone: `server.ssl_certfile`/`ssl_keyfile`, `webui --ssl-*`.
+- **Routing into other apps** (docs `guide-live-routing`): a virtual device's playback side as Output
+  (VB-CABLE, Voicemeeter AUX → Out B1, BlackHole 2ch), Monitor for listening. On Linux the distributions'
+  PortAudio (19.6 here) has ALSA and JACK only, so PipeWire/PulseAudio sinks are not devices; the docs add
+  a named ALSA PCM in `~/.asoundrc` (`type pipewire` + `playback_node`, or `type pulse` + `device`), which
+  PortAudio lists and `is_virtual` marks. `PIPEWIRE_NODE` would retarget capture too, so it is not used.
 - **Measured latency** (`engine/audio_io/loopback.py`, `POST /live/devices/latency-test`, `live
   latency`, **Measure latency**): the devices worker opens an `AudioSession` with a
   `LoopbackProbe` as its processor, plays four distinct band-limited noise bursts and finds each in

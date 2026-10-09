@@ -1,0 +1,357 @@
+---
+title: "Use Live in other apps"
+description: "Send the converted voice from Live into Discord, Zoom, OBS, a game or any other program as if it were a microphone: a virtual audio device on Windows (VB-CABLE or Voicemeeter), macOS (BlackHole) and Linux (a PipeWire or PulseAudio virtual microphone), set up step by step."
+icon: Cable
+---
+
+Live plays the converted voice on an output device. To make another program hear it as a microphone, you need a **virtual audio device**: a device with a *playback side*, which rvc-next plays into, and a *recording side*, which the other program records from. Whatever is played into one side comes out of the other.
+
+<Mermaid chart={"flowchart LR\n    mic[\"Microphone\"] --> rvc[\"rvc-next Live\"]\n    rvc -- \"Output\" --> play[\"Virtual device<br/>playback side\"]\n    play --> rec[\"Virtual device<br/>recording side\"]\n    rec -- \"Microphone setting\" --> app[\"Discord, Zoom, OBS…\"]\n    rvc -. \"Monitor (optional)\" .-> hp[\"Your headphones\"]"} />
+
+| System | Virtual device | rvc-next **Output** | The other program's microphone |
+| --- | --- | --- | --- |
+| Windows | [VB-CABLE](#windows-vb-cable) (simplest) | **CABLE Input (VB-Audio Virtual Cable)** | **CABLE Output (VB-Audio Virtual Cable)** |
+| Windows | [Voicemeeter Banana](#windows-voicemeeter) (to mix in other sound) | **Voicemeeter AUX Input** | **Voicemeeter Out B1** |
+| macOS | [BlackHole 2ch](#macos) | **BlackHole 2ch** | **BlackHole 2ch** |
+| Linux | [A PipeWire / PulseAudio virtual microphone](#linux) | **rvc-next-virtual** (an ALSA device you add) | **RVC-Next-Microphone** |
+
+## Before you start
+
+- **Run rvc-next on the computer the other program runs on.** Live opens the devices of the server's computer (**Server devices**). If rvc-next runs on another computer, see [rvc-next on another computer](#remote).
+- **Get Live working with headphones first.** Choose your microphone as **Input** and your headphones as **Output**, check that **Input level** moves, press **Test**, then **Start** and listen. Once that works, switch **Output** to the virtual device as described below.
+- **Wear headphones.** With speakers, the microphone picks up the other people's voices and converts them too.
+- **Keep your real headphones or speakers as the system's default output**, and choose the virtual device only inside rvc-next and the other program. Making the virtual device the default output sends every sound the computer plays, including the call itself, into your "microphone".
+- **Choose your microphone by name in rvc-next's Input menu, not System default**, if you ever make the virtual device the system's default input (some games have no microphone setting). Otherwise rvc-next records its own output.
+- **Hear yourself through Monitor.** rvc-next's **Monitor** is a second output: set it to your headphones with **Monitor source** set to **Converted** to hear what the other side hears. **Test** on Output plays into the virtual device, so you hear nothing from it; use **Test** on Monitor to check your headphones.
+
+## Windows: VB-CABLE [#windows-vb-cable]
+
+VB-CABLE is a free (donationware) single virtual cable from VB-Audio. Together with rvc-next's Monitor, it is all you need for voice chat.
+
+### Install
+
+1. Download the **VB-CABLE Driver Pack** from [vb-audio.com/Cable](https://vb-audio.com/Cable/) and extract the whole zip.
+2. Right-click **VBCABLE_Setup_x64.exe** (VBCABLE_Setup.exe on 32-bit Windows), choose **Run as administrator**, then click **Install Driver**.
+3. Restart Windows.
+4. Open the Sound Control Panel (**Settings › System › Sound › More sound settings**). The **Playback** tab now has **CABLE Input**, the **Recording** tab **CABLE Output**. Check that your real headphones (Playback) and microphone (Recording) are still the defaults; if the installer made the cable the default, right-click your real device and choose **Set as Default Device**.
+5. Optional, for the lowest latency: open **Properties › Advanced** of **CABLE Input** and of **CABLE Output**, and set both to the same **Default Format**, for example 2 channel, 24 bit, 48000 Hz.
+6. Optional, recommended: [turn off exclusive control](#windows-exclusive) for the microphone, the headphones and both sides of the cable.
+
+### Set up rvc-next
+
+1. Open **Live** and click **Refresh devices**.
+2. **Input**: your microphone.
+3. **Output**: **CABLE Input (VB-Audio Virtual Cable)**, marked **virtual**.
+4. **Monitor**: your headphones; **Monitor source**: **Converted**.
+5. Under **Advanced**, leave the drivers on the recommended ones (WASAPI) and **Exclusive mode (WASAPI)** off, so the other program can use the cable at the same time.
+6. Click **Start** and speak. In the Sound Control Panel's **Recording** tab, the level bar next to **CABLE Output** moves while you speak.
+
+### Set up the other program
+
+Choose **CABLE Output (VB-Audio Virtual Cable)** as its microphone, and your headphones as its speaker. See [Settings in the other program](#apps) for the processing to turn off.
+
+<Callout type="warn" title="Don't also use “Listen to this device”">
+
+Many VB-CABLE guides tell you to tick **Listen to this device** in **CABLE Output › Properties › Listen** to hear the cable. rvc-next's **Monitor** already does that; with both on, you hear yourself twice, the second time with extra delay.
+
+</Callout>
+## Windows: Voicemeeter [#windows-voicemeeter]
+
+Voicemeeter (free, donationware, from VB-Audio) is a virtual mixer. Use it instead of VB-CABLE when the call or stream should get more than your voice, for example music or game sound mixed in, or when you want its equalizer and compressor on your voice. The steps use **Voicemeeter Banana**; [notes for Standard and Potato](#voicemeeter-editions) follow.
+
+### Device names
+
+Voicemeeter adds virtual playback devices (rvc-next plays into these) and virtual recording devices (the other program records from these). Since the 2024 release, which installed a new driver, the recording devices are called **Out B1/B2/B3**; older installs show the old names:
+
+| Voicemeeter strip or bus | Playback device (rvc-next **Output**) | Recording device, current name | Recording device, before 2024 |
+| --- | --- | --- | --- |
+| Virtual input **VAIO** | **Voicemeeter Input** | — | — |
+| Virtual input **AUX** (Banana, Potato) | **Voicemeeter AUX Input** | — | — |
+| Virtual input **VAIO3** (Potato) | **Voicemeeter VAIO3 Input** | — | — |
+| Virtual bus **B1** | — | **Voicemeeter Out B1** | **Voicemeeter Output** |
+| Virtual bus **B2** (Banana, Potato) | — | **Voicemeeter Out B2** | **Voicemeeter AUX Output** |
+| Virtual bus **B3** (Potato) | — | **Voicemeeter Out B3** | **Voicemeeter VAIO3 Output** |
+
+Each name is followed by the driver's name in brackets, for example *(VB-Audio Voicemeeter VAIO)*. After an update from an older version, choose the devices again in every program that used them.
+
+### Install
+
+1. Download Voicemeeter Banana from [vb-audio.com/Voicemeeter/banana.htm](https://vb-audio.com/Voicemeeter/banana.htm), run the setup program **as administrator**, and restart Windows.
+2. Start Voicemeeter Banana. It has to be running for any of its devices to pass sound: turn on **Menu › Run on Windows Startup**.
+
+### Set up Voicemeeter
+
+Voicemeeter's window has the input strips on the left (three hardware inputs, then the two virtual inputs **VOICEMEETER VAIO** and **VOICEMEETER AUX**) and the outputs on the right. The **A1 A2 A3 B1 B2** buttons on each input strip choose which buses that input goes to: **A** buses are your real outputs, **B** buses are the virtual recording devices.
+
+1. **Choose A1 first.** Click **A1** under **HARDWARE OUT** (top right) and choose your headphones, preferably the **WDM** entry (**KS** also works; **MME** is the fallback). A1 is Voicemeeter's main output: the sample rate and buffer of the whole mixer follow it.
+2. **Leave the hardware inputs alone.** rvc-next opens your microphone itself. Don't select the microphone as **Hardware Input 1**; if it is already there, turn that strip's **B1** off. Otherwise the call hears your real voice as well as the converted one, and Voicemeeter may hold the microphone so that rvc-next reports it as **In use by another program**. [Turning off exclusive control](#windows-exclusive) for the microphone and the Voicemeeter devices helps too.
+3. **VOICEMEETER AUX** strip (rvc-next plays into it): turn **B1** on, so the converted voice goes to **Voicemeeter Out B1**. Turn **A1** on as well if you want to hear yourself through Voicemeeter, and then leave rvc-next's **Monitor** empty (with both, you hear yourself twice).
+4. **VOICEMEETER VAIO** strip: this one receives Windows sounds if you make **Voicemeeter Input** the default playback device, as VB-Audio's own guides suggest. Turn **A1** on and **B1** off, so the computer's sounds reach your headphones but not the call. To send music or game sound into the call on purpose, turn its **B1** on.
+
+Using AUX for rvc-next keeps the two apart: with rvc-next on VAIO, every Windows sound would go into the call along with your voice whenever VAIO is the default playback device.
+
+### Set up rvc-next
+
+1. Open **Live** and click **Refresh devices**.
+2. **Input**: your microphone.
+3. **Output**: **Voicemeeter AUX Input**.
+4. **Monitor**: **No monitor** if Voicemeeter's A1 lets you hear yourself; otherwise your headphones.
+5. Click **Start** and speak: the level meters of the **VOICEMEETER AUX** strip and of bus **B1** move.
+
+### Set up the other program
+
+Choose **Voicemeeter Out B1** (before 2024: **Voicemeeter Output**) as its microphone. For OBS, add **Voicemeeter Out B1** as an **Audio Input Capture** source.
+
+### Latency and troubleshooting
+
+- Voicemeeter adds its own buffering to rvc-next's latency. **Menu › System Settings / Options** sets the buffering per driver type; smaller buffers mean less delay, but crackles mean they are too small for your computer.
+- After changing devices in Windows, or if a strip stays silent, use **Menu › Restart Audio Engine**.
+- All Voicemeeter devices run at A1's sample rate. Set Voicemeeter's playback and recording devices to the same format (48000 Hz) in the Sound Control Panel; then rvc-next shows **one duplex stream** when your microphone uses 48 kHz too.
+
+### Standard and Potato [#voicemeeter-editions]
+
+- **Voicemeeter (Standard)** has one virtual input (**VAIO**) and one virtual bus (**B**). Use **Voicemeeter Input** as rvc-next's Output, turn the VAIO strip's **B** on, and record **Voicemeeter Out B1**. Don't make **Voicemeeter Input** the default playback device, or every Windows sound goes into the call.
+- **Voicemeeter Potato** has a third virtual input and bus (**VAIO3**, **B3**). The Banana steps work unchanged; VAIO3 can carry a second source.
+
+## Windows: turn off exclusive control (optional, recommended) [#windows-exclusive]
+
+Windows lets a program take a device for itself (*exclusive mode*): while it holds the device, no other program can play or record through it. By default every device allows this, and an exclusive request even takes the device away from programs already using it ("Give exclusive mode applications priority"). Some games, voice chat programs and audio players ask for exclusive mode, and then rvc-next loses the microphone or the virtual device in the middle of a session (Live goes to **Reconnecting the device…**), or cannot open it at all (**In use by another program**). The other program can lose it to rvc-next the same way.
+
+Turning exclusive control off for the devices in your chain prevents this. It is optional: do it if you see those symptoms, or before you rely on the setup for a stream or a call.
+
+1. Press **Win + R**, type `mmsys.cpl` and press Enter. (Or **Settings › System › Sound › More sound settings**.)
+2. On the **Recording** tab, double-click your **microphone**.
+3. Open the **Advanced** tab. Under **Exclusive Mode**, clear **Allow applications to take exclusive control of this device**. **Give exclusive mode applications priority** below it is greyed out with it. Click **Apply**, then **OK**.
+4. Do the same for the other devices in the chain:
+   - **Recording** tab: the recording side the other program uses (**CABLE Output**, or **Voicemeeter Out B1**);
+   - **Playback** tab: your **headphones** (rvc-next's Monitor, Voicemeeter's A1), and the playback side rvc-next plays into (**CABLE Input**, or **Voicemeeter Input** / **Voicemeeter AUX Input**).
+5. Stop and start Live, and restart the other program, so both open the devices again.
+
+Newer Windows 11 releases (from 26H2) also have this switch in the Settings app: **Settings › System › Sound**, choose the device, then **Exclusive mode** under **Advanced**. The control panel route above works on every Windows 10 and 11 release.
+
+Notes:
+
+- Leave rvc-next's own **Advanced › Exclusive mode (WASAPI)** off (its default). Windows refuses it on a device whose exclusive control you turned off; if you turned it on, the device panel reports the problem and offers **Turn off exclusive mode**.
+- Keep exclusive control on for a device you deliberately use in exclusive mode with another program (a music player that plays bit-perfect, a DAW). ASIO drivers don't go through these Windows settings at all.
+- The same **Advanced** tab sets the device's **Default Format** (step 5 of [VB-CABLE › Install](#windows-vb-cable)). Some devices also show **Enable audio enhancements** (or a separate **Enhancements** tab) there; turning it off on the microphone keeps the driver's own processing from colouring the voice rvc-next converts.
+
+## Windows: microphone access and ducking
+
+- **Settings › Privacy & security › Microphone**: **Microphone access** and **Let desktop apps access your microphone** must be on, or rvc-next (a Python program) gets silence or **Microphone permission denied**.
+- While a voice chat program records, Windows may lower every other sound. To stop that, open the Sound Control Panel's **Communications** tab and choose **Do nothing**.
+
+## macOS [#macos]
+
+macOS has no virtual audio device of its own. **BlackHole** (free, open source, from Existential Audio) adds one. **BlackHole 2ch**, a single stereo device, is the one to use for voice: it appears both as an output (rvc-next plays into it) and as an input (the other program records from it).
+
+### Install
+
+1. Quit any programs that use audio.
+2. Install BlackHole 2ch, either:
+   - with the installer from [existential.audio/blackhole](https://existential.audio/blackhole/), restarting when it asks, or
+   - with [Homebrew](https://brew.sh): `brew install blackhole-2ch`.
+3. Open **Audio MIDI Setup** (**Applications › Utilities**). **BlackHole 2ch** is in the list on the left. Select it and set **Format** to **48,000 Hz**, the rate most microphones use.
+4. Keep your headphones as the system output (**System Settings › Sound › Output**).
+
+If BlackHole does not appear, restart Core Audio with `sudo killall -9 coreaudiod`, or restart the Mac.
+
+### Allow the microphone
+
+The first time rvc-next opens the microphone, macOS asks whether the program that started rvc-next (Terminal, iTerm2, VS Code…) may use it. Allow it. If you refused, or rvc-next reports **Microphone permission denied**, turn that program on in **System Settings › Privacy & Security › Microphone**, then quit it completely and start rvc-next again.
+
+### Set up rvc-next
+
+1. Open **Live** and click **Refresh devices**.
+2. **Input**: your microphone (for example **MacBook Pro Microphone** or a USB microphone). Never choose **BlackHole 2ch** here: that records rvc-next's own output.
+3. **Output**: **BlackHole 2ch**, marked **virtual**.
+4. **Monitor**: your headphones; **Monitor source**: **Converted**.
+5. Click **Start** and speak.
+
+### Set up the other program
+
+Choose **BlackHole 2ch** as its microphone. See [Settings in the other program](#apps).
+
+### Notes
+
+- **You don't need a Multi-Output Device.** Many BlackHole guides create one in Audio MIDI Setup so that the Mac's own sound goes to BlackHole and your speakers at once. That is for recording the computer's sound; for your converted voice, rvc-next's **Monitor** does the listening part.
+- **Converting the Mac's own sound** (a video, a game) as Live's input needs a *second* loopback device, because one device can't be rvc-next's input and output at once. Install **BlackHole 16ch** as well (`brew install blackhole-16ch`), create a **Multi-Output Device** of your headphones and BlackHole 16ch, make it the system output, and choose **BlackHole 16ch** as rvc-next's Input; BlackHole 2ch stays the Output.
+- **Bluetooth headsets**: when their microphone is in use, AirPods and most Bluetooth headsets switch to a low-quality call mode, and Bluetooth adds latency. Use the Mac's built-in or a USB microphone as Input.
+- **Alternatives**: [Loopback](https://rogueamoeba.com/loopback/) by Rogue Amoeba (paid) creates named virtual devices and can mix several sources; [VB-CABLE for Mac](https://vb-audio.com/Cable/) works like VB-CABLE on Windows. Use either the same way: rvc-next plays into its output side, the other program records its input side.
+- **Uninstall**: `sudo rm -R /Library/Audio/Plug-Ins/HAL/BlackHole2ch.driver`, then `sudo killall -9 coreaudiod`.
+
+## Linux [#linux]
+
+On a Linux desktop, the sound server (PipeWire on most current distributions, PulseAudio on older ones) owns the sound cards. You create a **virtual sink** for rvc-next to play into, and a **virtual microphone** that carries the sink's sound, for the other program to record.
+
+There are two Linux-specific points:
+
+- **Browsers and Electron apps (Discord, Slack…) hide "Monitor of …" sources** from their microphone lists. That is why the steps add a real virtual microphone (a *remapped source*) rather than relying on the sink's monitor.
+- **rvc-next does not list PipeWire or PulseAudio sinks one by one.** The PortAudio library most distributions ship talks to ALSA (and JACK); the sound server appears only as the ALSA devices **pipewire**, **pulse** and **default**, which play to the *default* sink. So you add one small ALSA device, **rvc-next-virtual**, that plays to the virtual sink.
+
+### 1. Find your sound server
+
+```bash
+pactl info | grep "Server Name"
+```
+
+`PulseAudio (on PipeWire 1.x.x)` means PipeWire; `pulseaudio` means PulseAudio. If `pactl` is missing, install `pulseaudio-utils` (Debian, Ubuntu, Fedora) or `libpulse` (Arch); it works with both servers.
+
+### 2. Create the virtual sink and microphone
+
+```bash
+pactl load-module module-null-sink sink_name=rvc_next rate=48000 sink_properties=device.description=RVC-Next
+pactl load-module module-remap-source master=rvc_next.monitor source_name=rvc_next_mic source_properties=device.description=RVC-Next-Microphone
+```
+
+The first command creates the sink **RVC-Next** (`rvc_next`), the second the source **RVC-Next-Microphone** (`rvc_next_mic`), which carries whatever is played into the sink. Check them with `pactl list short sinks` and `pactl list short sources`.
+
+These two work on PipeWire and PulseAudio alike, but last only until you log out or restart the sound server. To keep them, see [Make it permanent](#linux-permanent).
+
+### 3. Add the ALSA device for rvc-next
+
+Add one of these blocks to `~/.asoundrc` (create the file if it doesn't exist; keep anything already in it). Choose by what rvc-next's **Output** menu already lists: **pipewire** means the PipeWire ALSA plugin is installed (package `pipewire-alsa`), **pulse** means the PulseAudio one (`libasound2-plugins` on Debian and Ubuntu, `alsa-plugins-pulseaudio` on Fedora, `alsa-plugins` on Arch).
+
+<Tabs items={["PipeWire (pipewire device)", "PulseAudio (pulse device)"]}>
+<Tab value="PipeWire (pipewire device)">
+
+```
+pcm.rvc-next-virtual {
+    type pipewire
+    playback_node "rvc_next"
+    hint {
+        show on
+        description "RVC Next virtual output"
+    }
+}
+```
+
+</Tab>
+<Tab value="PulseAudio (pulse device)">
+
+```
+pcm.rvc-next-virtual {
+    type pulse
+    device "rvc_next"
+    hint {
+        show on
+        description "RVC Next virtual output"
+    }
+}
+```
+
+This also works on PipeWire, through its PulseAudio server.
+
+</Tab>
+</Tabs>
+Both define an ALSA device named **rvc-next-virtual** that plays into the `rvc_next` sink. Restart rvc-next after editing the file: ALSA reads it when a program starts.
+
+### 4. Set up rvc-next
+
+1. Open **Live** and click **Refresh devices**.
+2. **Input**: **pipewire** or **pulse** (the system's default microphone), or **System default**. These go through the sound server, so other programs can use the microphone at the same time. Choose the microphone you want as the default input in your desktop's sound settings.
+3. **Output**: **rvc-next-virtual**, marked **virtual**.
+4. **Monitor**: **pipewire** or **pulse**, which play to your default output (your headphones); **Monitor source**: **Converted**.
+5. Under **Advanced**, set **Sample rate** to **48 kHz** (PipeWire's usual rate) instead of **Automatic**.
+6. Click **Start** and speak. In `pavucontrol` (PulseAudio Volume Control) the **Input Devices** tab shows **RVC-Next-Microphone**'s level moving; its **Playback** tab shows rvc-next's two streams, one on **RVC-Next** and the monitor on your headphones.
+
+### 5. Set up the other program
+
+Choose **RVC-Next-Microphone** as its microphone. Flatpak and Snap packages of Discord, Zoom or OBS see it too. Avoid **Default** in Discord: it may follow a different device.
+
+Don't make **RVC-Next-Microphone** the system's default input: rvc-next's **pipewire**, **pulse** and **System default** inputs record the default input, so rvc-next would record its own output. For a program without a microphone setting, start it, then move its stream to **RVC-Next-Microphone** in `pavucontrol`'s **Recording** tab; the sound server remembers that for the next time.
+
+### Make it permanent [#linux-permanent]
+
+`~/.asoundrc` stays. For the sink and microphone:
+
+<Tabs items={["PipeWire", "PulseAudio"]}>
+<Tab value="PipeWire">
+
+Create `~/.config/pipewire/pipewire-pulse.conf.d/rvc-next.conf`:
+
+```
+pulse.cmd = [
+    { cmd = "load-module" args = "module-null-sink sink_name=rvc_next rate=48000 sink_properties=device.description=RVC-Next" flags = [ ] }
+    { cmd = "load-module" args = "module-remap-source master=rvc_next.monitor source_name=rvc_next_mic source_properties=device.description=RVC-Next-Microphone" flags = [ ] }
+]
+```
+
+Then restart the sound server (or log out and back in):
+
+```bash
+systemctl --user restart pipewire pipewire-pulse wireplumber
+```
+
+</Tab>
+<Tab value="PulseAudio">
+
+Create `~/.config/pulse/default.pa` (if it exists, add the last two lines):
+
+```
+.include /etc/pulse/default.pa
+load-module module-null-sink sink_name=rvc_next rate=48000 sink_properties=device.description=RVC-Next
+load-module module-remap-source master=rvc_next.monitor source_name=rvc_next_mic source_properties=device.description=RVC-Next-Microphone
+```
+
+Then restart PulseAudio with `pulseaudio -k` (it starts again by itself).
+
+</Tab>
+</Tabs>
+### Remove
+
+```bash
+pactl unload-module module-remap-source
+pactl unload-module module-null-sink
+```
+
+These remove *every* remapped source and null sink, including any you made for other purposes. Then delete the `rvc-next-virtual` block from `~/.asoundrc` and the file from **Make it permanent**.
+
+## Settings in the other program [#apps]
+
+Voice chat programs process the microphone to clean up a real voice. On a converted voice that is already clean, that processing tends to eat consonants, pump the level or cut words, so turn it off.
+
+| Program | Microphone | Turn off / change |
+| --- | --- | --- |
+| **Discord** | **User Settings › Voice & Video › Input Device** | **Noise Suppression**: None (or Standard; Krisp is the harshest); **Echo Cancellation**: off when you wear headphones; **Automatic Gain Control**: off; **Automatically determine input sensitivity**: off, then set the slider so the bar turns green when you speak |
+| **Zoom** | **Settings › Audio › Microphone** | **Automatically adjust microphone volume**: off; **Suppress background noise**: Low |
+| **OBS Studio** | **Sources › + › Audio Input Capture › Device**, or **Settings › Audio › Mic/Auxiliary Audio** | Leave noise filters off on that source |
+| **Browser apps** (Google Meet, Teams on the web, Discord in a browser) | The meeting's audio settings, or the site's microphone permission | The app's own noise cancellation, where it has one |
+| **Games and programs without a microphone setting** | They use the system's default input: make the recording side the default in **Settings › System › Sound › Input** (Windows) or **System Settings › Sound › Input** (macOS). Linux: move the program's stream in `pavucontrol › Recording` instead ([Linux, step 5](#linux)) | Windows, macOS: rvc-next's **Input** must then name your real microphone, not **System default** |
+
+Use the program's own microphone test (Discord's **Let's Check**, Zoom's **Test Mic**) to hear what others will hear.
+
+## Day-to-day use
+
+- **Push to talk.** rvc-next adds about half a second of delay (the latency shown on Live). If you release the key as soon as you stop speaking, the end of the sentence is cut off: raise the program's push-to-talk release delay (Discord: **Push to Talk Release Delay**) above that latency, or hold the key a moment longer.
+- **Voice activity.** With voice activation instead, use Live's **Input gate** (under **Buffering and clean-up**) so background noise is not converted into voice-like sound that keeps the call's voice activation open.
+- **One sample rate everywhere.** With the microphone and the virtual device both at 48 kHz, the device panel shows **one duplex stream**, which saves one block of latency over **split streams**.
+- **Measure the software chain.** **Measure latency** can run through the virtual device itself: Input = the recording side (**CABLE Output**, **BlackHole 2ch**), Output = the playback side (Windows and macOS). Live must be stopped; set Input and Output back afterwards.
+- **Starting order doesn't matter.** The other program can keep the virtual microphone selected while Live is stopped; it hears silence until you click **Start**.
+
+## rvc-next on another computer [#remote]
+
+The virtual device must be on the computer whose devices Live uses:
+
+- **Server devices**: install the virtual device on the server computer, and run the other program there too.
+- **This browser**: the converted voice plays on the computer with the browser, through the browser's output. To send it into a program on that computer, play the *browser* into the virtual device:
+  - Windows: **Settings › System › Sound › Volume mixer**, choose the browser, set its **Output device** to **CABLE Input**.
+  - Linux: in `pavucontrol`'s **Playback** tab, move the browser's stream to **RVC-Next**.
+  - macOS has no per-program output; use Rogue Amoeba's Loopback, or make BlackHole 2ch the system output while you talk and set the call program's speaker to your headphones (every other sound the Mac plays then goes into the call too).
+
+  The browser's microphone must then be your real microphone, and every other sound the browser plays goes into the virtual device too.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| The other side hears nothing | The other program must use the *recording* side (**CABLE Output**, **Voicemeeter Out B1**, **BlackHole 2ch**, **RVC-Next-Microphone**), rvc-next's Output the *playback* side. Live must be **Running**. Voicemeeter: the AUX strip's **B1** is on, and Voicemeeter is running |
+| They hear my real voice too, or only my real voice | The other program records the real microphone (or **Default**); in Voicemeeter, the microphone's strip sends to **B1** |
+| They hear the call, music or system sounds | The virtual device is the system's default output, or (Voicemeeter) the VAIO strip's **B1** is on |
+| I hear myself twice | rvc-next's Monitor and Voicemeeter's **A1** (or Windows' **Listen to this device**) are both on; keep one |
+| Robotic, choppy or crackling | Check **Load** and **underruns** on Live first ([Live › Tips](/docs/guide-live)); then the sample rates (48 kHz everywhere) and, with Voicemeeter, a larger buffer |
+| The virtual device is missing from rvc-next's menus | Restart the computer after installing the driver (Windows, macOS), then click **Refresh devices**. Linux: restart rvc-next after editing `~/.asoundrc` |
+| Linux: **rvc-next-virtual** fails to open | The block's `type` must match a plugin you have: `type pipewire` needs the **pipewire** device, `type pulse` the **pulse** device. `pactl list short sinks` must list `rvc_next` |
+| Windows: Live loses a device (**Reconnecting the device…**) or reports **In use by another program** when a game or another program starts | That program takes the device in exclusive mode: [turn off exclusive control](#windows-exclusive) for it |
+| **Microphone permission denied** | Windows: **Let desktop apps access your microphone**. macOS: allow the terminal in **Privacy & Security › Microphone** and restart it |
+
+See also [Live](/docs/guide-live) for devices, buffering and latency, and [Hardware and performance](/docs/advanced-hardware#live-latency) for latency figures.

@@ -26,7 +26,7 @@
   </a>
 </p>
 
-[Website](https://rvc-next.netlify.app/en) · [Documentation](https://rvc-next.netlify.app/en/docs)
+[Website](https://rvc-next.netlify.app) · [Documentation](https://rvc-next.netlify.app/docs)
 
 English | [简体中文](https://github.com/licyk/rvc-next/blob/main/README.zh-CN.md)
 

@@ -11,6 +11,7 @@
     "guide-interface",
     "guide-convert",
     "guide-live",
+    "guide-live-routing",
     "guide-separate",
     "guide-train",
     "guide-models",

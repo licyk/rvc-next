@@ -14,7 +14,7 @@ This means `sounddevice` (the Python wrapper for PortAudio) is not installed in 
 ## Quick start
 
 1. Open **Live** in the left navigation.
-2. In **Audio devices**, select **Input** (microphone) and **Output** (headphones or a virtual audio device). Speak into the microphone: the **Input level** meter should move. Click **Test** beside **Output**; you should hear a tone.
+2. In **Audio devices**, select **Input** (microphone) and **Output** (headphones, or a virtual audio device to use the voice in Discord, OBS and other programs: see [Use Live in other apps](/docs/guide-live-routing)). Speak into the microphone: the **Input level** meter should move. Click **Test** beside **Output**; you should hear a tone.
 3. Choose a voice in the **Voice** picker and adjust **Voice parameters** as needed (for example, set **Pitch** to about +12 for a male-to-female voice conversion).
 4. On first use, the start button may be replaced by **Needs …** and a **Download (size)** button. Live voice conversion always needs HuBERT. If the voice has pitch guidance and the pitch method is RMVPE, FCPE or CREPE, it also needs that model (pm and SwiftF0 need no extra download). Click download; the button returns when it finishes.
 5. Click **Start** at the bottom. The button shows each step as it happens (checking the audio devices, loading PyTorch, the voice and the models, then **Warming up…**). Once it shows **Running**, you can start speaking.
@@ -43,7 +43,7 @@ The same device panel appears in **Settings › Audio**. Both edit the same sett
 | Item | Purpose |
 | --- | --- |
 | **Input** | The microphone. The **Input level** meter below it shows its volume in real time whenever the device panel is shown, before the first **Start**, during a session and after it stops (an error included). It opens in the background, so the page never waits for it, and it comes back by itself once an unplugged or busy microphone is available again. You can turn it off in **Settings › Audio › Show the input meter while stopped**. |
-| **Output** | The converted audio goes here. **Output level** below it shows what rvc-next sends to this device (the converted voice, or the input with **Hear yourself**); it reads **—** while nothing plays. The **Test** button beside it plays a tone on this device. To send the audio to another program, choose a virtual cable's playback side; to convert what an output device plays, see [Record an output device](#loopback). |
+| **Output** | The converted audio goes here. **Output level** below it shows what rvc-next sends to this device (the converted voice, or the input with **Hear yourself**); it reads **—** while nothing plays. The **Test** button beside it plays a tone on this device. To send the audio to another program, choose a virtual cable's playback side ([Use Live in other apps](/docs/guide-live-routing)); to convert what an output device plays, see [Record an output device](#loopback). |
 | **Monitor** | An optional second output, set to **No monitor** by default. Useful for sending output to a virtual audio device while listening through headphones. Selecting a monitor device reveals its **Monitor level** meter, a **Test** button and the following controls: |
 | 　Monitor source | **Converted** / **Input** / **Both** (the original and converted audio mixed together) |
 | 　**Monitor level** | −60 to +12 dB, default 0 dB |
@@ -55,7 +55,7 @@ Device menus are arranged as follows:
 - A long list (nine items or more, usual on Windows) has a search field at the top.
 - The first item is always **System default**, following the operating system's current default device.
 - Next comes the system's default device (marked **default**), followed by devices sorted by name. Virtual audio devices are marked **virtual**.
-- Each menu item represents one **physical device**, showing its full name. On Windows, the same microphone can appear under several drivers, such as MME, DirectSound and WASAPI. rvc-next combines these into one item and automatically selects the recommended driver (in order of preference: ASIO, WASAPI, WDM-KS, DirectSound, MME on Windows; JACK, ALSA, PulseAudio on Linux).
+- Each menu item represents one **physical device**, showing its full name. On Windows, the same microphone can appear under several drivers, such as MME, DirectSound and WASAPI. rvc-next combines these into one item and automatically selects the recommended driver (in order of preference: ASIO, WASAPI, WDM-KS, DirectSound, MME on Windows; JACK, ALSA, PulseAudio on Linux; the PortAudio most Linux distributions ship has no PulseAudio driver, so PulseAudio and PipeWire appear as the ALSA devices **pulse**, **pipewire** and **default**).
 - Previously saved devices that are now disconnected remain visible in gray, marked **not connected**.
 
 ### Record an output device (loopback) [#loopback]
@@ -70,7 +70,7 @@ To convert what the computer plays rather than a microphone (a video, a game, a 
 
 When recording is not possible, the device panel says why. Send the converted voice to a **different** device than the one being recorded (headphones, or a virtual cable for another program): recording the output that plays the voice would feed it back into itself, so rvc-next refuses it (**Records its own output**). Turning the setting off hides these inputs again.
 
-Nothing can play *into* an input device, so the output menu lists only outputs. To send the converted voice to another program, choose the playback side of a virtual cable (for example **CABLE Input**) as the output; the other program records its recording side (**CABLE Output**).
+Nothing can play *into* an input device, so the output menu lists only outputs. To send the converted voice to another program, choose the playback side of a virtual cable (for example **CABLE Input**) as the output; the other program records its recording side (**CABLE Output**). [Use Live in other apps](/docs/guide-live-routing) sets this up step by step on Windows, macOS and Linux.
 
 ### Hear yourself
 

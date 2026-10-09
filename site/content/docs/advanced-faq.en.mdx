@@ -172,6 +172,21 @@ Continually increasing **underruns** and **overruns** counts also indicate a nee
 The output device used last time is disconnected (for example, headphones or a sound card were unplugged). The UI reports **The saved output device is missing; the system default would be used.** Click **Start with the default output** to confirm, or choose another device in the device panel. On the command line, add `--allow-fallback`. With **Reconnect a lost device automatically** enabled, a device lost during a session resumes automatically when reconnected.
 
 </Accordion>
+<Accordion title="How do I use the converted voice in Discord, Zoom, OBS or a game?">
+
+Send Live's output into a virtual audio device and choose that device's recording side as the microphone in the other program: **CABLE Input** → **CABLE Output** with VB-CABLE or **Voicemeeter AUX Input** → **Voicemeeter Out B1** with Voicemeeter (Windows), **BlackHole 2ch** (macOS), or a PipeWire/PulseAudio virtual microphone (Linux). Use **Monitor** to hear yourself. Step by step, with the settings to turn off in the other program, in [Use Live in other apps](/docs/guide-live-routing).
+
+</Accordion>
+<Accordion title="The other program can't hear my converted voice, or hears my real voice too?">
+
+- The other program must record the virtual device's *recording* side (**CABLE Output**, **Voicemeeter Out B1**, **BlackHole 2ch**, **RVC-Next-Microphone**), not **Default** and not your real microphone.
+- rvc-next's **Output** must be the *playback* side, and Live must be **Running**.
+- With Voicemeeter, the strip rvc-next plays into needs **B1** on, and the microphone's own strip **B1** off.
+- On Linux, the virtual sink is not a device of its own in rvc-next's menus: add the **rvc-next-virtual** ALSA device described in [Use Live in other apps › Linux](/docs/guide-live-routing#linux).
+
+See the troubleshooting table at the end of [Use Live in other apps](/docs/guide-live-routing).
+
+</Accordion>
 </Accordions>
 ## GPU memory and performance
 
