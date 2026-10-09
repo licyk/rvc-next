@@ -74,11 +74,25 @@ server = RvcNextServer(
 | `host` | 绑定地址，默认取设置 `server.host`（`127.0.0.1`） |
 | `port` | `0` 由系统任选空闲端口；一个数字表示从这个端口开始尝试（被占用时往后找，最多 20 个）；`None` 使用设置 `server.port` |
 | `strict_port` | 为 `True` 时端口被占用就直接失败 |
-| `access_token` | 访问令牌；绑定到非本机地址时必须提供，否则 `start()` 抛出异常 |
+| `access_token` | 访问令牌；绑定到非本机地址或设置了 `extra_hosts` 时必须提供，否则 `start()` 抛出异常 |
+| `extra_hosts` | 除绑定地址外还接受的公网主机名，如内网穿透或反向代理的地址；见下方 [内网穿透与反向代理](#tunnels) |
 | `open_browser` | 启动后是否打开浏览器，默认 `False` |
 | `log_level` | uvicorn 的日志级别，默认 `"warning"` |
 
 `host`、`access_token` 和 `open_browser` 同样作为固定设置生效。远程访问的注意事项见 [远程访问与安全](/docs/advanced-remote)。
+
+### 内网穿透与反向代理 [#tunnels]
+
+只监听本机时，服务器只接受 `Host` 为本机名称或绑定地址的请求。内网穿透（如 Gradio 共享链接）和反向代理会转发它们自己的公网主机名，需要先允许这个名称。穿透地址往往在服务器启动、端口确定之后才知道，所以 `allow_host()` 在启动后同样可以调用，立即生效：
+
+```python
+server = RvcNextServer(data_dir="./rvc-next-data", port=0, access_token="...")
+server.start()
+share_url = start_tunnel(server.port)   # 例如 https://abc.gradio.live
+server.allow_host(share_url)            # 接受主机名、host:port 或完整地址
+```
+
+任何拿到公网地址的人都能访问服务器，因此和绑定到非本机地址一样必须设置访问令牌，否则 `allow_host()` 和 `start()` 抛出异常。通过这些名称到达的请求即使来自本机的穿透程序，也不会被当作本机请求，不能使用 **在文件夹中显示**。
 
 ## 路径前缀
 

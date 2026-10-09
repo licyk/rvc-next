@@ -142,10 +142,10 @@ A self-signed certificate works after the browser's warning is accepted (`openss
 
 The code has no specific support for running behind a reverse proxy and no configurable path prefix. If you do use one, account for the checks above:
 
-- When the server listens only locally, the forwarded `Host` must be `localhost` or `127.0.0.1` (otherwise 400 `bad_host`);
+- When the server listens only locally, the forwarded `Host` must be `localhost` or `127.0.0.1` (otherwise 400 `bad_host`); a program embedding rvc-next can allow a proxy's or a tunnel's public host name with `extra_hosts` / `allow_host()` ([Embedding](/docs/advanced-embed#tunnels));
 - The browser sends the proxy's address as its `Origin`, which differs from the forwarded `Host`; add it to `server.allowed_origins`;
 - Forward WebSocket connections under `/ws/`, and `/api/v1/live/browser-audio` (browser audio);
-- The server identifies "local" by the connection source. If the proxy and server are on the same computer and the proxy does not pass on client addresses, all visitors are treated as local and can browse server files. Always set an access token.
+- The server treats a request as local only when it comes from a loopback address and its `Host` is a local name (`localhost`, `127.0.0.1`, `::1`). If the proxy and server are on the same computer and the proxy rewrites `Host` to `localhost`, all visitors are treated as local; a proxy or tunnel that keeps its public host name is not. Always set an access token.
 
 ## Related pages
 

@@ -142,10 +142,10 @@ rvc-next webui --host 0.0.0.0 --ssl-certfile cert.pem --ssl-keyfile key.pem
 
 代码没有专门支持在反向代理后运行，也没有可配置的路径前缀。如果确实要这样做，需要注意上面的检查：
 
-- 服务器只监听本机时，代理转发的 `Host` 必须是 `localhost` 或 `127.0.0.1`（否则 400 `bad_host`）；
+- 服务器只监听本机时，代理转发的 `Host` 必须是 `localhost` 或 `127.0.0.1`（否则 400 `bad_host`）；嵌入 rvc-next 的程序可以用 `extra_hosts` / `allow_host()` 允许代理或内网穿透的公网主机名（[嵌入](/docs/advanced-embed#tunnels)）；
 - 浏览器发出的 `Origin` 是代理的地址，与转发后的 `Host` 不一致，需要把它加入 `server.allowed_origins`；
 - 需要转发 `/ws/` 的 WebSocket 连接，以及 `/api/v1/live/browser-audio`（浏览器音频）；
-- 服务器以连接来源判断"本机"。代理和服务器在同一台电脑上、且代理不传递客户端地址时，所有访问者都会被当作本机，可以浏览服务器文件。无论如何都应设置访问令牌。
+- 服务器只把来自回环地址、且 `Host` 是本机名称（`localhost`、`127.0.0.1`、`::1`）的请求当作本机。代理和服务器在同一台电脑上、又把 `Host` 改写为 `localhost` 时，所有访问者都会被当作本机；保留公网主机名的代理和内网穿透则不会。无论如何都应设置访问令牌。
 
 ## 相关页面
 

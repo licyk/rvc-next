@@ -43,6 +43,10 @@ def create_app(
     path, so a host application can mount it beside its own routes. The web UI needs no change:
     it derives its base URL from the URL its own script was loaded from. A host that mounts the
     app enters its ``router.lifespan_context`` on the serving event loop and closes the services.
+
+    ``extra_hosts`` are ``Host`` names accepted besides the loopback names and ``bound_host``, such
+    as a tunnel's public name. The set is kept, not copied: names added to it later are accepted
+    from then on.
     """
     prefix = normalize_prefix(api_prefix)
     socket_bridge = SocketBridge(services.events, lambda: services.settings.settings.server.access_token)

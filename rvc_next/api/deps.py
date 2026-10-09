@@ -23,8 +23,15 @@ class NotLocalError(RvcNextError):
 
 
 def is_local(request: Request) -> bool:
+    """A browser on the server's own machine: a loopback client that addressed a loopback name.
+
+    A tunnel or a proxy on the same machine connects from loopback too, but forwards its public
+    ``Host``; its visitors are elsewhere.
+    """
     client = request.client.host if request.client else ""
-    return bool(client) and (is_loopback(client) or client == "testclient")
+    if client == "testclient":
+        return True
+    return bool(client) and is_loopback(client) and is_loopback(request.url.hostname or "")
 
 
 def require_local(request: Request) -> None:

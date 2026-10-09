@@ -94,7 +94,7 @@ icon: Plug
 
 | 检查 | 规则 | 防的是什么 |
 | --- | --- | --- |
-| Host | 绑定在回环地址时，`Host` 头必须是 `localhost`、`127.0.0.1`、`::1`、绑定的主机名或 `extra_hosts`；否则 400 `bad_host` | DNS 重绑定：恶意网页把自己的域名解析到 127.0.0.1 后调用本机 API |
+| Host | 绑定在回环地址时，`Host` 头必须是 `localhost`、`127.0.0.1`、`::1`、绑定的主机名或 `extra_hosts`（按引用保存，之后加入的名称立即生效，`RvcNextServer.allow_host()` 即靠这一点）；否则 400 `bad_host` | DNS 重绑定：恶意网页把自己的域名解析到 127.0.0.1 后调用本机 API |
 | Origin | 非安全方法（`GET`/`HEAD`/`OPTIONS` 以外）和所有 WebSocket 握手：有 `Origin` 时必须等于页面自己的源、在 `server.allowed_origins` 中，或与 `Host` 同主机端口；没有 `Origin` 时 `Sec-Fetch-Site` 只能是 `same-origin`、`none` 或缺省。否则 403 `bad_origin` | 跨站请求伪造：别的网页在用户浏览器里对本机服务发 `POST`/`DELETE` |
 | 访问令牌 | 设置了 `server.access_token` 时，`/api/`、`/ws/`、`/openapi.json`、`/docs` 下的请求必须带令牌；`/api/v1/app/health` 例外。否则 401 `auth_required` | 局域网或公网上的其他人 |
 
@@ -108,7 +108,7 @@ WebSocket 被拒绝时以关闭码 1008 断开。中间件读取的设置都是�
 
 | 判定 | 定义（`api/deps.py`） | 用在哪里 |
 | --- | --- | --- |
-| `is_local` | 客户端地址是回环地址（测试中的 `testclient` 也算） | `AppMeta.local`；`LocalDep` 保护的 `reveal`（在服务器的文件管理器里显示文件） |
+| `is_local` | 客户端地址是回环地址，且 `Host` 是回环名称（内网穿透和同机反向代理转发的公网主机名不算；测试中的 `testclient` 也算） | `AppMeta.local`；`LocalDep` 保护的 `reveal`（在服务器的文件管理器里显示文件） |
 | `require_trusted` | 本机客户端，或已设置令牌（中间件已验证过令牌） | 一切以服务器路径为参数的操作：浏览、解析音频路径、按路径导入模型或索引、按路径检查模型、新建实验或修改数据集、说话人表、导入旧实验、添加旧版 RVC 安装、按绝对路径提取 |
 
 “受信任”回答的是“这个客户端可以指名服务器上的路径吗”。没有令牌的远程客户端只能上传文件、使用已有的上传和输出。`reveal` 更严：即使有令牌，远程浏览器也没有意义去打开服务器桌面上的文件管理器，所以只认本机。

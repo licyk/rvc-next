@@ -94,7 +94,7 @@ Access control has two layers: `SecurityMiddleware` handles who can connect, whi
 
 | Check | Rule | Protects against |
 | --- | --- | --- |
-| Host | When bound to loopback, the `Host` header must be `localhost`, `127.0.0.1`, `::1`, the bound hostname, or `extra_hosts`; otherwise 400 `bad_host` | DNS rebinding: a malicious page resolves its own domain to 127.0.0.1 and calls the local API |
+| Host | When bound to loopback, the `Host` header must be `localhost`, `127.0.0.1`, `::1`, the bound hostname, or `extra_hosts` (kept by reference, so names added later count at once, which `RvcNextServer.allow_host()` relies on); otherwise 400 `bad_host` | DNS rebinding: a malicious page resolves its own domain to 127.0.0.1 and calls the local API |
 | Origin | Unsafe methods (anything except `GET`/`HEAD`/`OPTIONS`) and all WebSocket handshakes: if `Origin` is present, it must equal the page's own origin, be in `server.allowed_origins`, or share the host and port with `Host`; without `Origin`, `Sec-Fetch-Site` must be `same-origin`, `none`, or absent. Otherwise 403 `bad_origin` | Cross-site request forgery: another page sends `POST`/`DELETE` to the local service through the user's browser |
 | Access token | When `server.access_token` is set, requests under `/api/`, `/ws/`, `/openapi.json`, and `/docs` must carry a token; `/api/v1/app/health` is exempt. Otherwise 401 `auth_required` | Other people on the LAN or public internet |
 
@@ -108,7 +108,7 @@ When binding to a non-loopback address, `rvc-next webui` requires a token first,
 
 | Check | Definition (`api/deps.py`) | Used for |
 | --- | --- | --- |
-| `is_local` | The client address is loopback (`testclient` in tests also counts) | `AppMeta.local`; `reveal`, protected by `LocalDep` (show a file in the server's file manager) |
+| `is_local` | The client address is loopback and the `Host` is a loopback name (a public host name forwarded by a tunnel or a same-machine reverse proxy is not; `testclient` in tests also counts) | `AppMeta.local`; `reveal`, protected by `LocalDep` (show a file in the server's file manager) |
 | `require_trusted` | A local client, or a token is set (already verified by the middleware) | Any operation taking a server path: browsing, resolving audio paths, importing models or indexes by path, inspecting models by path, creating experiments or updating datasets, speaker tables, importing legacy experiments, adding legacy RVC installations, extracting by absolute path |
 
 “Trusted” answers whether a client may name paths on the server. Remote clients without a token can only upload files and use existing uploads and outputs. `reveal` is stricter: even with a token, a remote browser has no reason to open the file manager on the server's desktop, so only local clients qualify.

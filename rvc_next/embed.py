@@ -15,18 +15,30 @@
 
 ``server.run()`` serves in the foreground instead. The object is also a context manager, and
 ``server.services`` exposes the voice library, the jobs and the settings for direct use.
+
+Behind a tunnel or a proxy, ``server.allow_host("abc.example.com")`` accepts its public name, even
+once started; it needs an access token, since anyone with the address can reach the server.
 """
 
 import logging
 import threading
+from collections.abc import Iterable
 from pathlib import Path
 from types import TracebackType
 from typing import Any
+from urllib.parse import urlsplit
 
 from rvc_next.core.context import Services, build_services
 from rvc_next.core.net.ports import PortUnavailableError, bind_first_free_port, is_loopback
 
 logger = logging.getLogger(__name__)
+
+
+def _host_name(host: str) -> str:
+    """``abc.example.com`` from itself, ``abc.example.com:443`` or ``https://abc.example.com/path``."""
+    host = host.strip()
+    return (urlsplit(host if "//" in host else f"//{host}").hostname or "").lower()
+
 
 START_TIMEOUT = 30.0
 
@@ -46,6 +58,7 @@ class RvcNextServer:
         api_prefix: str | None = None,
         open_browser: bool = False,
         access_token: str | None = None,
+        extra_hosts: Iterable[str] | None = None,
         settings: dict[str, Any] | None = None,
         log_level: str = "warning",
     ) -> None:
@@ -61,6 +74,10 @@ class RvcNextServer:
         ``api_prefix`` moves the API, the socket and the web UI under one path, so they cannot
         collide with the host application's own routes.
 
+        ``extra_hosts`` are public names the server answers to besides its own address: a tunnel's
+        or a reverse proxy's. Like a non-loopback ``host``, they need an access token. Requests
+        through them are never treated as coming from the server's own machine.
+
         ``settings`` pins any setting, in the same shape as the settings file, for example
         ``{"compute": {"device": "cuda:0"}, "paths": {"models_dir": "/srv/voices"}}``. Pinned
         values are never written to the file and cannot be changed through the UI or the API.
@@ -73,6 +90,8 @@ class RvcNextServer:
         self.strict_port = strict_port
         self._requested_port = port
         self._log_level = log_level
+        # Shared with the security middleware, so allow_host() works while serving.
+        self._extra_hosts: set[str] = {_host_name(h) for h in extra_hosts or ()}
 
         overrides: dict[str, Any] = {k: dict(v) if isinstance(v, dict) else v for k, v in (settings or {}).items()}
         server_overrides: dict[str, Any] = dict(overrides.get("server") or {})
@@ -107,6 +126,8 @@ class RvcNextServer:
         port = server_settings.port if self._requested_port is None else self._requested_port
         if not is_loopback(host) and not server_settings.access_token:
             raise PortUnavailableError(f"Refusing to listen on {host} without an access token. Pass access_token=... to RvcNextServer.")
+        if self._extra_hosts and not server_settings.access_token:
+            raise PortUnavailableError(f"Refusing to answer to {', '.join(sorted(self._extra_hosts))} without an access token. Pass access_token=... to RvcNextServer.")
         return bind_first_free_port(host, port, strict=self.strict_port or port == 0)
 
     def start(self, timeout: float = START_TIMEOUT) -> str:
@@ -125,7 +146,7 @@ class RvcNextServer:
             host = services.settings.settings.server.host
             port = self._socket.getsockname()[1]
             self._url = self._public_url(host, port)
-            app = create_app(services, bound_host=host, bound_port=port, api_prefix=self.api_prefix)
+            app = create_app(services, bound_host=host, bound_port=port, extra_hosts=self._extra_hosts, api_prefix=self.api_prefix)
             tls = services.settings.settings.server.ssl()
             self._server = uvicorn.Server(
                 uvicorn.Config(app=app, log_level=self._log_level, lifespan="on", ssl_certfile=tls.get("ssl_certfile"), ssl_keyfile=tls.get("ssl_keyfile"))
@@ -187,6 +208,16 @@ class RvcNextServer:
             self.services.close()
             self.services = None
         self._url = None
+
+    def allow_host(self, host: str) -> None:
+        """Answer to ``host`` too: a tunnel's or a proxy's public name (a URL is accepted). Works before
+        and after ``start()``; a running server needs an access token for it."""
+        name = _host_name(host)
+        if not name:
+            raise ValueError(f"Not a host name: {host!r}")
+        if self.services is not None and not self.services.settings.settings.server.access_token:
+            raise PortUnavailableError(f"Refusing to answer to {name} without an access token. Pass access_token=... to RvcNextServer.")
+        self._extra_hosts.add(name)
 
     # -- information --------------------------------------------------------
 

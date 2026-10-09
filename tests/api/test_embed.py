@@ -76,6 +76,44 @@ def test_a_remote_host_needs_a_token(tmp_path):
         RvcNextServer(data_dir=tmp_path / "data", host="0.0.0.0", port=0).start()
 
 
+def test_extra_hosts_need_a_token(tmp_path):
+    with pytest.raises(Exception, match="access token"):
+        RvcNextServer(data_dir=tmp_path / "a", port=0, extra_hosts=["abc.example.com"]).start()
+    server = RvcNextServer(data_dir=tmp_path / "b", port=0)
+    server.start()
+    try:
+        with pytest.raises(Exception, match="access token"):
+            server.allow_host("abc.example.com")
+    finally:
+        server.stop()
+
+
+def test_allow_host_while_serving(tmp_path):
+    # A tunnel connects from loopback and forwards its public Host, as Gradio's share links do.
+    server = RvcNextServer(data_dir=tmp_path / "data", port=0, access_token="secret")
+    url = server.start()
+    try:
+
+        def meta(host: str) -> tuple[int, str]:
+            request = urllib.request.Request(f"{url}/api/v1/app/meta", headers={"Host": host, "Authorization": "Bearer secret"})
+            try:
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    return response.status, response.read().decode()
+            except urllib.error.HTTPError as e:
+                return e.code, e.read().decode()
+
+        status, body = meta("abc.gradio.live")
+        assert status == 400 and "bad_host" in body
+        server.allow_host("https://ABC.gradio.live/voice")
+        status, body = meta("abc.gradio.live")
+        # Its visitors are elsewhere: they get no local-only operations.
+        assert status == 200 and '"local":false' in body.replace(" ", "")
+        status, body = meta("localhost")
+        assert status == 200 and '"local":true' in body.replace(" ", "")
+    finally:
+        server.stop()
+
+
 def test_config_dir_holds_the_settings_file(tmp_path):
     config = tmp_path / "host" / "config"
     with RvcNextServer(data_dir=tmp_path / "data", config_dir=config, port=0) as server:

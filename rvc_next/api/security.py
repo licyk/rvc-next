@@ -1,6 +1,7 @@
 """Access control for an API that can delete and move files.
 
-- The ``Host`` header must name the bound host or a loopback name, which blocks DNS rebinding.
+- The ``Host`` header must name the bound host, a loopback name or one of ``extra_hosts`` (a
+  tunnel's or a proxy's public name), which blocks DNS rebinding.
 - A state-changing request from a browser must come from the page's own origin, or from an
   origin listed in ``server.allowed_origins``.
 - When ``server.access_token`` is set, every API and socket request must carry it, as a bearer
@@ -68,7 +69,8 @@ class SecurityMiddleware:
         self.bound_host = bound_host
         self.allowed_origins = allowed_origins
         self.access_token = access_token
-        self.extra_hosts = extra_hosts or set()
+        # Kept by reference: a host added to the caller's set later (a tunnel's name) is allowed at once.
+        self.extra_hosts = extra_hosts if extra_hosts is not None else set()
         # Everything this package serves may sit under a prefix chosen by a host application.
         self.prefix = prefix
         self.public_paths = tuple(f"{prefix}{p}" for p in PUBLIC_PATHS)
@@ -95,7 +97,7 @@ class SecurityMiddleware:
         bound = self.bound_host()
         remote_mode = not is_loopback(bound)
         host = _hostname(headers.get("host", ""))
-        if not remote_mode and host not in LOOPBACK_NAMES | {bound} | self.extra_hosts:
+        if not remote_mode and host not in LOOPBACK_NAMES and host != bound and host not in self.extra_hosts:
             return 400, "bad_host", "Host not allowed"
 
         method = scope.get("method", "GET")
