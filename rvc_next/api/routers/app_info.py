@@ -34,8 +34,6 @@ class AppMeta(Record):
     """Whether HuBERT and RMVPE are installed."""
     features: list[str]
     data_dir: str
-    trusted: bool
-    """Whether this client may browse server folders."""
 
 
 @router.get("/version", operation_id="get_app_version")
@@ -59,5 +57,4 @@ def get_meta(request: Request, services: ServicesDep) -> AppMeta:
         assets_ready=services.assets.is_installed("hubert") and services.assets.is_installed("rmvpe"),
         features=["convert", "live", "separate", "train", "models"],
         data_dir=str(services.settings.data_dir),
-        trusted=local or bool(services.settings.settings.server.access_token),
     )

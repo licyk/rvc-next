@@ -74,7 +74,7 @@ Pinned folders are marked **Set by the application rvc-next runs in** under **Se
 | `host` | Address to bind; defaults to the `server.host` setting (`127.0.0.1`) |
 | `port` | `0` lets the system pick a free port; a number is the first port to try (moving up when taken, at most 20); `None` uses the `server.port` setting |
 | `strict_port` | When `True`, a taken port is an error |
-| `access_token` | The access token; required when binding to a non-local address or when `extra_hosts` is set, otherwise `start()` raises |
+| `access_token` | An optional access token; once set, every API and socket request must carry it (the web UI asks for it once). Not required for a non-local address or `extra_hosts` either |
 | `extra_hosts` | Public host names accepted besides the bound address, such as a tunnel's or a reverse proxy's; see [Tunnels and reverse proxies](#tunnels) below |
 | `open_browser` | Whether to open a browser after starting; `False` by default |
 | `log_level` | uvicorn's log level; `"warning"` by default |
@@ -86,13 +86,13 @@ Pinned folders are marked **Set by the application rvc-next runs in** under **Se
 When listening only locally, the server accepts only requests whose `Host` is a local name or the bound address. A tunnel (such as a Gradio share link) or a reverse proxy forwards its own public host name, which has to be allowed first. A tunnel's address is often known only once the server has started and its port is fixed, so `allow_host()` can be called after `start()` too and takes effect at once:
 
 ```python
-server = RvcNextServer(data_dir="./rvc-next-data", port=0, access_token="...")
+server = RvcNextServer(data_dir="./rvc-next-data", port=0)
 server.start()
 share_url = start_tunnel(server.port)   # e.g. https://abc.gradio.live
 server.allow_host(share_url)            # a host name, host:port or a full URL
 ```
 
-Anyone with the public address can reach the server, so, as when binding to a non-local address, an access token is required; otherwise `allow_host()` and `start()` raise. Requests arriving through these names are not treated as local, even though the tunnel connects from the same computer, so they cannot use **Show in folder**.
+Anyone with the public address can reach the server and use every feature; pass `access_token` if you want one, or add authentication on the host application's or the proxy's side. Requests arriving through these names are not treated as local, even though the tunnel connects from the same computer, so they cannot use **Show in folder**.
 
 ## Path prefix
 

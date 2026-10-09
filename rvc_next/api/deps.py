@@ -40,10 +40,4 @@ def require_local(request: Request) -> None:
         raise NotLocalError("This works only in a browser on the server's own machine")
 
 
-def require_trusted(request: Request, services: Services) -> None:
-    """Server paths: a loopback client, or any client once an access token is set (the middleware checked it)."""
-    if not is_local(request) and not services.settings.settings.server.access_token:
-        raise NotLocalError("Server files can be browsed off this machine only when an access token is set")
-
-
 LocalDep = Depends(require_local)

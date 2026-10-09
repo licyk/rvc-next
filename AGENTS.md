@@ -60,9 +60,10 @@ site/         the website: home page and docs (Fumadocs on TanStack Start, from 
   in `SettingsView.pinned` (the UI labels them "set by the application"). `api_prefix`
   (`create_app`, `webui --api-prefix`) moves API, socket, docs and UI under one path; the UI derives
   its base from its script URL. `extra_hosts` / `allow_host()` (also after `start()`: the set is
-  shared with `SecurityMiddleware` by reference) accept a tunnel's or a proxy's public `Host`, and
-  need an access token like a non-loopback bind. `is_local` needs a loopback client *and* a
-  loopback `Host`, so such visitors are never local. `tests/api/test_embed.py`; docs `advanced-embed`.
+  shared with `SecurityMiddleware` by reference) accept a tunnel's or a proxy's public `Host`. The
+  access token is optional everywhere (a non-loopback bind, `extra_hosts`, server paths): remote
+  access needs none, its protection is the user's (firewall, VPN, an authenticating proxy).
+  `is_local` needs a loopback client *and* a loopback `Host`, so such visitors are never local. `tests/api/test_embed.py`; docs `advanced-embed`.
 - **Layer rule** (`tests/test_architecture.py`): `engine` imports no `rvc_next.core/api/cli/workers`
   and no web/CLI framework or pydantic; `sounddevice` and `soundcard` only under `engine/audio_io/`, `pymss` only
   under `engine/separate/`, `pedalboard` only in `engine/audio/effects.py`, `edge_tts` only under `core/tts/`; `protocol` is standard library only; `workers` import `engine` and

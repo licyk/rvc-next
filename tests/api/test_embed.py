@@ -71,47 +71,55 @@ def test_a_taken_port_moves_up_unless_strict(tmp_path):
         strict.stop()
 
 
-def test_a_remote_host_needs_a_token(tmp_path):
-    with pytest.raises(Exception, match="access token"):
-        RvcNextServer(data_dir=tmp_path / "data", host="0.0.0.0", port=0).start()
-
-
-def test_extra_hosts_need_a_token(tmp_path):
-    with pytest.raises(Exception, match="access token"):
-        RvcNextServer(data_dir=tmp_path / "a", port=0, extra_hosts=["abc.example.com"]).start()
-    server = RvcNextServer(data_dir=tmp_path / "b", port=0)
+def test_a_remote_host_needs_no_token(tmp_path):
+    server = RvcNextServer(data_dir=tmp_path / "data", host="0.0.0.0", port=0)
     server.start()
     try:
-        with pytest.raises(Exception, match="access token"):
-            server.allow_host("abc.example.com")
+        status, body = get(f"http://127.0.0.1:{server.port}/api/v1/app/health")
+        assert status == 200 and '"auth_required":false' in body.replace(" ", "")
     finally:
         server.stop()
 
 
 def test_allow_host_while_serving(tmp_path):
     # A tunnel connects from loopback and forwards its public Host, as Gradio's share links do.
-    server = RvcNextServer(data_dir=tmp_path / "data", port=0, access_token="secret")
+    server = RvcNextServer(data_dir=tmp_path / "data", port=0)
     url = server.start()
     try:
 
-        def meta(host: str) -> tuple[int, str]:
-            request = urllib.request.Request(f"{url}/api/v1/app/meta", headers={"Host": host, "Authorization": "Bearer secret"})
+        def request(host: str, path: str = "/api/v1/app/meta") -> tuple[int, str]:
             try:
-                with urllib.request.urlopen(request, timeout=10) as response:
+                with urllib.request.urlopen(urllib.request.Request(f"{url}{path}", headers={"Host": host}), timeout=10) as response:
                     return response.status, response.read().decode()
             except urllib.error.HTTPError as e:
                 return e.code, e.read().decode()
 
-        status, body = meta("abc.gradio.live")
+        status, body = request("abc.gradio.live")
         assert status == 400 and "bad_host" in body
         server.allow_host("https://ABC.gradio.live/voice")
-        status, body = meta("abc.gradio.live")
-        # Its visitors are elsewhere: they get no local-only operations.
+        status, body = request("abc.gradio.live")
+        # Its visitors are elsewhere: they get no local-only operations, but need no token.
         assert status == 200 and '"local":false' in body.replace(" ", "")
-        status, body = meta("localhost")
+        status, _ = request("abc.gradio.live", "/api/v1/audio/browse")
+        assert status == 200
+        status, body = request("localhost")
         assert status == 200 and '"local":true' in body.replace(" ", "")
     finally:
         server.stop()
+
+
+def test_extra_hosts_take_an_optional_token(tmp_path):
+    with RvcNextServer(data_dir=tmp_path / "data", port=0, extra_hosts=["abc.example.com"], access_token="secret") as server:
+
+        def status(headers: dict[str, str]) -> int:
+            try:
+                with urllib.request.urlopen(urllib.request.Request(f"{server.url}/api/v1/app/meta", headers={"Host": "abc.example.com", **headers}), timeout=10) as response:
+                    return response.status
+            except urllib.error.HTTPError as e:
+                return e.code
+
+        assert status({}) == 401
+        assert status({"Authorization": "Bearer secret"}) == 200
 
 
 def test_config_dir_holds_the_settings_file(tmp_path):

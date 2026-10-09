@@ -71,7 +71,7 @@ Domain errors ([`core/errors.py`](https://github.com/licyk/rvc-next/blob/main/rv
 
 Foreground job failures are recorded in `Job.error` rather than raised as exceptions. `finish(job)` in `cli/progress.py` handles completion: return for `completed`; exit 130 for `cancelled`; on failure, print the message and find the error class's exit code by `job.error.code` (3 for `busy`, 4 for `invalid_model`). Thus `rvc-next convert` exits 7 when RMVPE is missing, whether detected during pre-submission validation or job execution.
 
-A few commands choose exit codes themselves, consistently with domain errors: `webui` exits 4 without an access token on a non-loopback address and 3 when no port is available; `model import` prints an ambiguous import plan and exits 3; `live check` / `live run` exit 8 for device problems. CLI-only argument validation uses `typer.BadParameter` (exit code 2).
+A few commands choose exit codes themselves, consistently with domain errors: `webui` exits 4 when a certificate file is missing and 3 when no port is available; `model import` prints an ambiguous import plan and exits 3; `live check` / `live run` exit 8 for device problems. CLI-only argument validation uses `typer.BadParameter` (exit code 2).
 
 ## Output: `--json` equals API JSON
 
@@ -104,7 +104,7 @@ A voice can be specified by ID, name, or `.pth` path. With a path, `convert` use
 `cli/commands/webui.py` is the only CLI file that imports the API layer (inside the function):
 
 1. `--data-dir` sets `RVC_NEXT_DATA_DIR` so subsequently started workers use the same data directory; then call `build_services(start_background=True)`.
-2. Warn when the host is not loopback; refuse to start without `server.access_token`, exiting 4.
+2. Warn when the host is not loopback (no access token is required).
 3. `bind_first_free_port(host, port, strict=...)` **binds the socket first**, trying higher ports when occupied (`--strict-port` fails immediately with exit code 3); warn if the actual port differs from the requested one. Binding rather than attempting a connection removes the gap between checking and actually binding, and detects Windows system-reserved ports.
 4. Build the app with `create_app(services, bound_host=..., bound_port=...)`, write `server.json`, print `SERVER_READY url=http://…` to stdout (for launchers and other programs), and open the browser after 0.8 seconds if requested.
 5. `uvicorn.Server(...).run(sockets=[sock])` serves on the socket just bound; on exit, delete `server.json` and close services.

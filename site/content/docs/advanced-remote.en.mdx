@@ -4,7 +4,7 @@ description: "The RVC Next server listens only on the local machine by default (
 icon: Globe
 ---
 
-The server can delete and move files, read audio on the server, and open audio devices, so always set an access token before opening it to other computers.
+The server can delete and move files, read audio on the server, and open audio devices. Opening it to other computers needs no access token, but everyone who can connect has these powers: make sure the network is trusted, or add protection of your own such as a firewall, a VPN or a reverse proxy with authentication. The access token is an optional extra layer.
 
 ## Address and port
 
@@ -19,7 +19,25 @@ If a port is in use (or reserved by the system), the server tries subsequent por
 
 ## Allow other computers to connect
 
-1. Set an access token (any sufficiently long random string):
+1. Bind to all interfaces and start:
+
+    ```bash
+    rvc-next webui --host 0.0.0.0 --no-open
+    ```
+
+    The server notes in its log that other computers can reach it:
+
+    ```text
+    Binding to 0.0.0.0 makes the server reachable from other machines.
+    ```
+
+2. Open `http://<server IP>:7868` in a browser on another device and use it.
+
+No access token is needed: anyone who can reach the address can use every feature. If the network is not fully trusted, add protection of your own (a firewall that lets in only trusted devices, a VPN, or a reverse proxy with authentication), or set the access token below.
+
+### Access token (optional)
+
+An access token is any sufficiently long random string; once set, every browser has to enter it first:
 
 <Tabs items={["Command line", "Web UI"]}>
 <Tab value="Command line">
@@ -35,28 +53,14 @@ Under **Settings** › **General**, enter an **Access token** and click **Set to
 
 </Tab>
 </Tabs>
-2. Bind to all interfaces and start:
 
-    ```bash
-    rvc-next webui --host 0.0.0.0 --no-open
-    ```
-
-    Without an access token, the server refuses to start on a non-local address:
-
-    ```text
-    Binding to 0.0.0.0 makes the server reachable from other machines.
-    Set server.access_token first (rvc-next config set server.access_token <secret>).
-    ```
-
-3. Open `http://<server IP>:7868` in a browser on another device. After the page loads, an **Access token** dialog appears ("This server asks for its access token."). Enter the token and click **Save**.
-
-The browser saves the token in local storage and writes a Cookie named `rvc_next_token` (for audio playback and WebSocket connections), so you do not need to enter it again next time. If the token is incorrect or changes, the dialog reappears.
+Once it is set, an **Access token** dialog appears when the page loads ("This server asks for its access token."). Enter the token and click **Save**. The browser saves the token in local storage and writes a Cookie named `rvc_next_token` (for audio playback and WebSocket connections), so you do not need to enter it again next time. If the token is incorrect or changes, the dialog reappears.
 
 The token applies to all browsers, **including browsers on the server machine**: after setting a token, opening the Web UI locally also asks for it once. The command line does not use the API and needs no token.
 
 <Callout type="warn" title="Firewall and unencrypted traffic">
 
-The server provides only HTTP. Tokens and audio travel over the network in plaintext, so it is suitable only for a trusted local network. You may need to allow the port through the operating system's firewall.
+By default the server provides only HTTP. Tokens and audio travel over the network in plaintext, so it is suitable only for a trusted local network; for encryption, give it a certificate (see below) or let a reverse proxy provide HTTPS. You may need to allow the port through the operating system's firewall.
 
 </Callout>
 ### How to send the token
@@ -77,20 +81,18 @@ Token changes take effect immediately, without restarting the server.
 
 ## What remote browsers can do
 
-When a token is set, all requests must pass the token check first. The server then determines which operations to allow based on whether the request comes from the local machine:
+When a token is set, all requests must pass the token check first. The server then (or right away, without a token) determines which operations to allow based on whether the request comes from the local machine:
 
-| Operation | Local browser | Other computer (token set and supplied) |
+| Operation | Local browser | Other computer |
 | --- | --- | --- |
 | Upload audio, convert, separate, train, live voice conversion, manage models, change settings | Allowed | Allowed |
 | Upload a training dataset (**Add audio from this computer**), download a voice (**Download**) or results | Allowed | Allowed: nothing needs a folder on the server |
 | Browse server files (**Server files**), import models by server path, or specify a dataset | Allowed | Allowed, but only within the browsing scope |
 | **Show in folder** (open in the server's file manager) | Allowed | Not allowed ("This works only in a browser on the server machine") |
 
-The "other computer, no token set" case does not normally occur: binding to a non-local address requires a token. If the server sees a non-local request without a token, browsing server files is refused, and the interface reports **Server files can be browsed only from the server machine, or with an access token set.**
+<Callout type="warn" title="Access grants full control">
 
-<Callout type="warn" title="A token grants full control">
-
-Anyone holding the token can change all settings (including browsing scope and folder locations) and delete voices and experiments. Share it only with people you trust.
+Anyone who can open the Web UI (with a token set, anyone holding it) can change all settings (including browsing scope and folder locations) and delete voices and experiments. Let only people you trust reach the server.
 
 </Callout>
 ### Browsing scope
@@ -116,7 +118,7 @@ The command line is not restricted by the browsing scope: someone running comman
 
 To prevent other websites from using your browser to operate the server, the server applies two checks to each request:
 
-- **Host check**: when listening only locally, the request's `Host` must be `localhost`, `127.0.0.1`, `::1`, or the bound address; otherwise the server returns 400 (`bad_host`). This prevents DNS rebinding attacks. The check is skipped when bound to a non-local address (where the token provides protection).
+- **Host check**: when listening only locally, the request's `Host` must be `localhost`, `127.0.0.1`, `::1`, or the bound address; otherwise the server returns 400 (`bad_host`). This prevents DNS rebinding attacks. The check is skipped when bound to a non-local address.
 - **Origin check**: for requests that modify data (non-GET/HEAD/OPTIONS) and WebSocket connections, an `Origin`, if present, must match the page's own address or appear in `server.allowed_origins`; otherwise the server returns 403 (`bad_origin`). Cross-site requests without an `Origin` are also rejected.
 
 If you call the API from another page or tool (such as your own frontend), add its origin to `server.allowed_origins`. The server also enables CORS for these origins (CORS is configured at startup, so changes require a restart):
@@ -145,7 +147,7 @@ The code has no specific support for running behind a reverse proxy and no confi
 - When the server listens only locally, the forwarded `Host` must be `localhost` or `127.0.0.1` (otherwise 400 `bad_host`); a program embedding rvc-next can allow a proxy's or a tunnel's public host name with `extra_hosts` / `allow_host()` ([Embedding](/docs/advanced-embed#tunnels));
 - The browser sends the proxy's address as its `Origin`, which differs from the forwarded `Host`; add it to `server.allowed_origins`;
 - Forward WebSocket connections under `/ws/`, and `/api/v1/live/browser-audio` (browser audio);
-- The server treats a request as local only when it comes from a loopback address and its `Host` is a local name (`localhost`, `127.0.0.1`, `::1`). If the proxy and server are on the same computer and the proxy rewrites `Host` to `localhost`, all visitors are treated as local; a proxy or tunnel that keeps its public host name is not. Always set an access token.
+- The server treats a request as local only when it comes from a loopback address and its `Host` is a local name (`localhost`, `127.0.0.1`, `::1`). If the proxy and server are on the same computer and the proxy rewrites `Host` to `localhost`, all visitors are treated as local; a proxy or tunnel that keeps its public host name is not. When exposing the server to the internet, add authentication at the proxy or set an access token.
 
 ## Related pages
 

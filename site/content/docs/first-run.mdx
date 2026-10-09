@@ -33,7 +33,7 @@ SERVER_READY url=http://127.0.0.1:7868
 
 <Callout type="warn" title="让其他电脑访问">
 
-如果把 `--host` 设为 `0.0.0.0` 等非本机地址，服务器会被局域网中的其他设备访问到。为安全起见，此时必须先设置访问令牌，否则 `rvc-next webui` 会拒绝启动并提示 `rvc-next config set server.access_token <secret>`。详见[远程访问与安全](/docs/advanced-remote)。
+如果把 `--host` 设为 `0.0.0.0` 等非本机地址，服务器会被局域网中的其他设备访问到，不需要访问令牌。能连上的人都能使用全部功能，所以只在可信的网络中这样做，或自己加上防火墙、VPN 等保护；也可以用 `rvc-next config set server.access_token <secret>` 设置一个可选的访问令牌。详见[远程访问与安全](/docs/advanced-remote)。
 
 </Callout>
 网页打开后，你会看到左侧的导航栏（窄窗口下在底部）：**转换**、**实时**、**分离**、**训练**、**模型**，以及最下方的 **设置**。第一次打开时显示 **转换** 页面；之后会回到你上次所在的页面。界面各部分的说明见[界面总览](/docs/guide-interface)。

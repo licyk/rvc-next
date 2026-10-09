@@ -38,7 +38,7 @@ There is one dependency: `ServicesDep = Annotated[Services, Depends(get_services
 
 Errors are defined in `core/errors.py`; `api/errors.py` only maps them. HTTP status codes and CLI exit codes come from the same exception class (see [Architecture](/docs/development-architecture) for the full table). `ERROR_RESPONSES` declares the `ErrorResponse` model for 400/403/404/409, so the generated client knows the error body shape. A few API-specific conventions:
 
-- `NotLocalError` (`not_local`, 403, defined in `api/deps.py`) exists only in the API: revealing files, or browsing server paths from a remote client without a token.
+- `NotLocalError` (`not_local`, 403, defined in `api/deps.py`) exists only in the API: revealing files (meaningful only for a browser on the server machine).
 - Errors written directly by `SecurityMiddleware` (`bad_host` 400, `bad_origin` 403, `auth_required` 401) bypass exception handlers but have the same shape.
 - FastAPI request validation errors remain 422 + a `detail` array; the frontend's `toError()` maps them to `invalid_input`.
 - `POST /convert` and `POST /separate` reject `output_dir`/`overwrite`: writing to arbitrary directories and overwriting files are CLI-only capabilities for trusted local users.
@@ -47,7 +47,7 @@ Errors are defined in `core/errors.py`; `api/errors.py` only maps them. HTTP sta
 
 | Module | Prefix | Main endpoints |
 | --- | --- | --- |
-| `app_info` | `/v1/app` | `GET version`, `GET health` (`status`, `auth_required`), `GET meta` (`local`, `host`, `compute`, `live_available`, `assets_ready`, `features`, `data_dir`, `trusted`) |
+| `app_info` | `/v1/app` | `GET version`, `GET health` (`status`, `auth_required`), `GET meta` (`local`, `host`, `compute`, `live_available`, `assets_ready`, `features`, `data_dir`) |
 | `settings` | `/v1` | `GET/PATCH /settings` (deep merge; `server.access_token`: `null` clears it, an empty string is an error; the core publishes `settings_changed`, and changes to `paths` rescan the voice library), `GET/PUT /client-state/{key}` (regex-constrained keys, values up to 256 KiB) |
 | `compute` | `/v1/compute` | `GET devices`, `GET usage`, `POST release` (free GPU memory; 409 when busy, `detail.busy`) |
 | `assets` | `/v1/assets` | `GET ""`, `GET repositories`, `POST download`, `POST verify` (the same download job with `verify_only=True`), `DELETE {asset_id}` |
@@ -86,7 +86,7 @@ Reasons for this approach:
 
 ## Access control
 
-Access control has two layers: `SecurityMiddleware` handles who can connect, while `require_local`/`require_trusted` in routes handle which server paths a connected client can access.
+Access control has two layers: `SecurityMiddleware` handles who can connect, while `require_local` in routes guards operations that only make sense for a browser on the server machine.
 
 ### `SecurityMiddleware`
 
@@ -102,18 +102,17 @@ The token can be supplied in three places (`request_token()` checks in order): `
 
 Rejected WebSockets close with code 1008. Settings read by the middleware are functions (`lambda: services.settings.settings.server.access_token`), so changing the token or allowed origins in Settings takes effect immediately without a restart.
 
-When binding to a non-loopback address, `rvc-next webui` requires a token first, or refuses to start with exit code 4 (see “Startup, ports, and `SERVER_READY`” below).
+The token is optional: neither a non-loopback bind nor public host names accepted through `extra_hosts` require it; `rvc-next webui` and `RvcNextServer` only log a warning. Protecting a public deployment (firewall, VPN, a reverse proxy with authentication) is left to the user.
 
-### Trusted clients and server paths
+### Local clients and server paths
 
 | Check | Definition (`api/deps.py`) | Used for |
 | --- | --- | --- |
 | `is_local` | The client address is loopback and the `Host` is a loopback name (a public host name forwarded by a tunnel or a same-machine reverse proxy is not; `testclient` in tests also counts) | `AppMeta.local`; `reveal`, protected by `LocalDep` (show a file in the server's file manager) |
-| `require_trusted` | A local client, or a token is set (already verified by the middleware) | Any operation taking a server path: browsing, resolving audio paths, importing models or indexes by path, inspecting models by path, creating experiments or updating datasets, speaker tables, importing legacy experiments, adding legacy RVC installations, extracting by absolute path |
 
-“Trusted” answers whether a client may name paths on the server. Remote clients without a token can only upload files and use existing uploads and outputs. `reveal` is stricter: even with a token, a remote browser has no reason to open the file manager on the server's desktop, so only local clients qualify.
+Every client that passes the middleware may name paths on the server (browsing, resolving audio paths, importing models or indexes by path, creating experiments or updating datasets, importing legacy experiments, adding legacy RVC installations, and so on). Only `reveal` requires a local client: a remote browser has no reason to open the file manager on the server's desktop.
 
-Even for trusted clients, **audio inputs** must be within `paths.browse_roots`: `GET /audio/browse`, `POST /audio/resolve-path`, and inputs with `kind == "path"` in `POST /convert` and `POST /separate` (routes call `services.audio.check_refs`). Paths outside these roots produce 400 `invalid_path`, with allowed roots in `detail.roots`. This check exists only in the API—the CLI is run directly by a trusted local user and can read any path. Model imports, dataset folders, and similar paths are not constrained by `browse_roots`; they only require trust.
+**Audio inputs** must be within `paths.browse_roots`: `GET /audio/browse`, `POST /audio/resolve-path`, and inputs with `kind == "path"` in `POST /convert` and `POST /separate` (routes call `services.audio.check_refs`). Paths outside these roots produce 400 `invalid_path`, with allowed roots in `detail.roots`. This check exists only in the API—the CLI is run directly by a trusted local user and can read any path. Model imports, dataset folders, and similar paths are not constrained by `browse_roots`.
 
 ## socket.io and events
 
@@ -195,7 +194,7 @@ Three settings affect type shapes:
 `rvc-next webui` ([`cli/commands/webui.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/cli/commands/webui.py)) runs in this order:
 
 1. `build_services(start_background=True)`; take host, port, strict mode, and browser-opening behavior from CLI arguments, falling back to `server.*` settings (default `127.0.0.1:7868`).
-2. Warn before binding to a non-loopback address; exit (code 4) without `server.access_token`.
+2. Warn before binding to a non-loopback address (`server.access_token` is not required).
 3. `bind_first_free_port(host, port, strict=…)` **binds the listening socket itself**: start at the configured port and try the next on `EADDRINUSE`/`EACCES` (and Windows equivalents), up to 20 ports, never beyond 65535; `strict` tries just one; port 0 lets the OS choose. On Windows set `SO_EXCLUSIVEADDRUSE` (prevent another process binding the same address and port); elsewhere set `SO_REUSEADDR` (allow quick restarts during `TIME_WAIT`). Exit (code 3) if all attempts fail.
 4. `create_app(…, bound_host=host, bound_port=actual_port)`, `uvicorn.Server(config).run(sockets=[sock])`—pass **the same** socket to uvicorn.
 5. Before running, write `server.json` (`host`, `port`, `url`, `pid`, atomically replaced via a temporary file), print `SERVER_READY url=http://…` to stdout, and open the browser after 0.8 s if configured; on exit, delete only the `server.json` written by this process (compare `pid`).
@@ -210,7 +209,7 @@ InvokeAI probes a port with `connect`, then lets uvicorn bind after services loa
 ## Adding an endpoint
 
 1. Write a core method with `Record` parameters and return values; use existing error classes in `core/errors.py`.
-2. Add a route in the appropriate `api/routers/<resource>.py`: set `operation_id`, use `ServicesDep` in the signature, call `require_trusted(request, services)` for server paths, and add `dependencies=[LocalDep]` for revealing files; use `spool` + `read_chunks` for uploads and declare `openapi_extra=RAW_BODY`. Put fixed paths before wildcard routes.
+2. Add a route in the appropriate `api/routers/<resource>.py`: set `operation_id`, use `ServicesDep` in the signature, and add `dependencies=[LocalDep]` for revealing files; use `spool` + `read_chunks` for uploads and declare `openapi_extra=RAW_BODY`. Put fixed paths before wildcard routes.
 3. Return `Job` for long operations, with progress via events; if new push events are needed, add an `EventBase` subclass to `core/events/models.py` (automatically included in OpenAPI and `ServerEvents`) and handle it in frontend `api/socket.ts`.
 4. If the CLI needs the same operation, call the same core method (see [CLI implementation](/docs/development-cli)).
 5. Run `python scripts/dev.py typegen` and commit `schema.d.ts` (plus `paramSpecs.ts` if parameter models changed); cover error mapping and permissions with `TestClient` in `tests/api/test_api.py`.

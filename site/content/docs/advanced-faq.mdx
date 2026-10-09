@@ -216,14 +216,13 @@ rvc-next config set paths.browse_roots '[]'
 </Accordion>
 <Accordion title="从另一台电脑访问 Web UI 需要做什么？">
 
-先设置访问令牌，再绑定到所有网卡：
+绑定到所有网卡：
 
 ```bash
-rvc-next config set server.access_token "一个足够长的随机字符串"
 rvc-next webui --host 0.0.0.0
 ```
 
-在另一台电脑打开 `http://<服务器 IP>:7868`，在 **访问令牌** 对话框中输入令牌。没有令牌时服务器拒绝绑定到非本机地址。详见 [远程访问与安全](/docs/advanced-remote)。
+在另一台电脑打开 `http://<服务器 IP>:7868` 即可，不需要访问令牌。网络不完全可信时，请自己加上防火墙、VPN 或带身份验证的反向代理，或设置可选的访问令牌（`rvc-next config set server.access_token "一个足够长的随机字符串"`），之后浏览器会弹出 **访问令牌** 对话框。详见 [远程访问与安全](/docs/advanced-remote)。
 
 </Accordion>
 <Accordion title="忘记了访问令牌？">
@@ -232,7 +231,7 @@ rvc-next webui --host 0.0.0.0
 
 ```bash
 rvc-next config set server.access_token "新的令牌"
-rvc-next config set server.access_token null    # 清除（之后只能从本机访问）
+rvc-next config set server.access_token null    # 清除（之后不再要求令牌）
 ```
 
 设置令牌后，所有浏览器（包括服务器本机的浏览器）都需要输入令牌，所以忘记令牌时只能用命令行重设。浏览器会弹出 **访问令牌** 对话框，输入新令牌即可。

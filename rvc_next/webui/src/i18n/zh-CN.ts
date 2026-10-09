@@ -188,7 +188,6 @@ export default {
     empty: '这里没有音频文件',
     add: '添加 {n} 个',
     addFolder: '添加此文件夹',
-    notTrusted: '只有在服务器本机，或设置了访问令牌时，才能浏览服务器文件。',
   },
   outputsPicker: { title: '之前的结果', empty: '还没有结果', add: '添加 {n} 个' },
   analysis: {

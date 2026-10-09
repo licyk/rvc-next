@@ -38,7 +38,7 @@ icon: Plug
 
 错误由 `core/errors.py` 定义，`api/errors.py` 只做映射，HTTP 状态码与 CLI 退出码来自同一个异常类（完整表见[整体架构](/docs/development-architecture)）。`ERROR_RESPONSES` 为 400/403/404/409 声明 `ErrorResponse` 模型，生成的客户端因此知道错误体的形状。几点 API 特有的约定：
 
-- `NotLocalError`（`not_local`，403，定义在 `api/deps.py`）只在 API 里存在：揭示文件、在非本机且未设令牌时浏览服务器路径。
+- `NotLocalError`（`not_local`，403，定义在 `api/deps.py`）只在 API 里存在：揭示文件（只对服务器本机的浏览器有意义）。
 - `SecurityMiddleware` 直接写出的错误（`bad_host` 400、`bad_origin` 403、`auth_required` 401）不经过异常处理器，但形状相同。
 - FastAPI 自己的请求校验错误仍是 422 + `detail` 数组；前端 `toError()` 把它折算成 `invalid_input`。
 - `POST /convert` 与 `POST /separate` 拒绝 `output_dir`/`overwrite`：写到任意目录、覆盖文件是命令行（受信任的本机用户）专属的能力。
@@ -47,7 +47,7 @@ icon: Plug
 
 | 模块 | 前缀 | 主要端点 |
 | --- | --- | --- |
-| `app_info` | `/v1/app` | `GET version`、`GET health`（`status`、`auth_required`）、`GET meta`（`local`、`host`、`compute`、`live_available`、`assets_ready`、`features`、`data_dir`、`trusted`） |
+| `app_info` | `/v1/app` | `GET version`、`GET health`（`status`、`auth_required`）、`GET meta`（`local`、`host`、`compute`、`live_available`、`assets_ready`、`features`、`data_dir`） |
 | `settings` | `/v1` | `GET/PATCH /settings`（深度合并；`server.access_token` 传 `null` 清除、传空串报错；改动由核心层发布 `settings_changed`，改了 `paths` 时重新扫描音色库）、`GET/PUT /client-state/{key}`（键名受正则约束，值上限 256 KiB） |
 | `compute` | `/v1/compute` | `GET devices`、`GET usage`、`POST release`（释放显存；忙时 409，`detail.busy`） |
 | `assets` | `/v1/assets` | `GET ""`、`GET repositories`、`POST download`、`POST verify`（同一个下载任务，`verify_only=True`）、`DELETE {asset_id}` |
@@ -86,7 +86,7 @@ icon: Plug
 
 ## 访问控制
 
-访问控制分两层：`SecurityMiddleware` 处理“谁能连进来”，路由里的 `require_local`/`require_trusted` 处理“连进来的人能碰服务器上的哪些路径”。
+访问控制分两层：`SecurityMiddleware` 处理“谁能连进来”，路由里的 `require_local` 处理只对本机浏览器有意义的操作。
 
 ### `SecurityMiddleware`
 
@@ -102,18 +102,17 @@ icon: Plug
 
 WebSocket 被拒绝时以关闭码 1008 断开。中间件读取的设置都是函数（`lambda: services.settings.settings.server.access_token`），所以在设置页修改令牌或允许的源立即生效，不必重启。
 
-绑定到非回环地址时，`rvc-next webui` 要求先设置令牌，否则以退出码 4 拒绝启动（见下文“启动、端口与 `SERVER_READY`”）。
+令牌是可选的：绑定到非回环地址、或用 `extra_hosts` 接受公网主机名时都不要求它，`rvc-next webui` 和 `RvcNextServer` 只在日志中警告。公开部署的保护（防火墙、VPN、带身份验证的反向代理）由用户自己负责。
 
-### 受信任的客户端与服务器路径
+### 本机客户端与服务器路径
 
 | 判定 | 定义（`api/deps.py`） | 用在哪里 |
 | --- | --- | --- |
 | `is_local` | 客户端地址是回环地址，且 `Host` 是回环名称（内网穿透和同机反向代理转发的公网主机名不算；测试中的 `testclient` 也算） | `AppMeta.local`；`LocalDep` 保护的 `reveal`（在服务器的文件管理器里显示文件） |
-| `require_trusted` | 本机客户端，或已设置令牌（中间件已验证过令牌） | 一切以服务器路径为参数的操作：浏览、解析音频路径、按路径导入模型或索引、按路径检查模型、新建实验或修改数据集、说话人表、导入旧实验、添加旧版 RVC 安装、按绝对路径提取 |
 
-“受信任”回答的是“这个客户端可以指名服务器上的路径吗”。没有令牌的远程客户端只能上传文件、使用已有的上传和输出。`reveal` 更严：即使有令牌，远程浏览器也没有意义去打开服务器桌面上的文件管理器，所以只认本机。
+通过中间件的客户端都可以指名服务器上的路径（浏览、解析音频路径、按路径导入模型或索引、新建实验或修改数据集、导入旧实验、添加旧版 RVC 安装等）。只有 `reveal` 只认本机：远程浏览器没有意义去打开服务器桌面上的文件管理器。
 
-在受信任的前提下，**音频输入**还要落在 `paths.browse_roots` 之内：`GET /audio/browse`、`POST /audio/resolve-path`，以及 `POST /convert`、`POST /separate` 中 `kind == "path"` 的输入（路由调用 `services.audio.check_refs`），越界时 400 `invalid_path`，`detail.roots` 列出允许的根。这一检查只在 API 里做——命令行由本机用户直接运行，视为可信，可以读任何路径。模型导入、数据集文件夹等路径不受 `browse_roots` 约束，只要求受信任。
+**音频输入**要落在 `paths.browse_roots` 之内：`GET /audio/browse`、`POST /audio/resolve-path`，以及 `POST /convert`、`POST /separate` 中 `kind == "path"` 的输入（路由调用 `services.audio.check_refs`），越界时 400 `invalid_path`，`detail.roots` 列出允许的根。这一检查只在 API 里做——命令行由本机用户直接运行，视为可信，可以读任何路径。模型导入、数据集文件夹等路径不受 `browse_roots` 约束。
 
 ## socket.io 与事件
 
@@ -195,7 +194,7 @@ WebSocket 被拒绝时以关闭码 1008 断开。中间件读取的设置都是�
 `rvc-next webui`（[`cli/commands/webui.py`](https://github.com/licyk/rvc-next/blob/main/rvc_next/cli/commands/webui.py)）的顺序：
 
 1. `build_services(start_background=True)`；主机、端口、严格模式、是否打开浏览器取命令行参数，缺省时取 `server.*` 设置（默认 `127.0.0.1:7868`）。
-2. 绑定非回环地址时先警告；没有 `server.access_token` 就退出（码 4）。
+2. 绑定非回环地址时先警告（不要求 `server.access_token`）。
 3. `bind_first_free_port(host, port, strict=…)` **自己绑定**监听套接字：从配置端口开始，遇到 `EADDRINUSE`/`EACCES`（以及 Windows 的对应码）就试下一个，最多 20 个、不超过 65535；`strict` 时只试一个；端口 0 交给操作系统挑。Windows 上设 `SO_EXCLUSIVEADDRUSE`（防止别的进程绑定同一地址端口），其他平台设 `SO_REUSEADDR`（`TIME_WAIT` 期间也能快速重启）。全部失败时退出（码 3）。
 4. `create_app(…, bound_host=host, bound_port=实际端口)`，`uvicorn.Server(config).run(sockets=[sock])`——把**同一个**套接字交给 uvicorn。
 5. 运行前写 `server.json`（`host`、`port`、`url`、`pid`，经临时文件原子替换），向 stdout 打印 `SERVER_READY url=http://…`，按设置延时 0.8 s 打开浏览器；退出时只删除自己写的 `server.json`（比较 `pid`）。
@@ -210,7 +209,7 @@ InvokeAI 先 `connect` 探测端口，再在服务加载完后让 uvicorn 绑定
 ## 新增一个接口
 
 1. 在核心层写方法，参数与返回值是 `Record`；需要的错误用 `core/errors.py` 中已有的类。
-2. 在对应的 `api/routers/<资源>.py` 加路由：写 `operation_id`，签名用 `ServicesDep`，需要服务器路径时调用 `require_trusted(request, services)`，涉及揭示文件时加 `dependencies=[LocalDep]`；上传用 `spool` + `read_chunks` 并声明 `openapi_extra=RAW_BODY`。固定路径放在通配路由之前。
+2. 在对应的 `api/routers/<资源>.py` 加路由：写 `operation_id`，签名用 `ServicesDep`，涉及揭示文件时加 `dependencies=[LocalDep]`；上传用 `spool` + `read_chunks` 并声明 `openapi_extra=RAW_BODY`。固定路径放在通配路由之前。
 3. 长操作返回 `Job`，进度靠事件；新的推送需要时在 `core/events/models.py` 加 `EventBase` 子类（它会自动进入 OpenAPI 和 `ServerEvents`），并在前端 `api/socket.ts` 处理。
 4. 若 CLI 也要提供同样的操作，调用同一个核心方法（见[命令行实现](/docs/development-cli)）。
 5. 运行 `python scripts/dev.py typegen` 并提交 `schema.d.ts`（参数模型变了还有 `paramSpecs.ts`）；在 `tests/api/test_api.py` 用 `TestClient` 覆盖错误映射与权限。

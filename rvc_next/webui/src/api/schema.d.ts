@@ -1897,8 +1897,6 @@ export interface components {
             features: string[];
             /** Data Dir */
             data_dir: string;
-            /** Trusted */
-            trusted: boolean;
         };
         /** AppVersion */
         AppVersion: {

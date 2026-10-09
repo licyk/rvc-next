@@ -132,7 +132,7 @@ rvc_next/webui/
 | `VoicePicker` | 选择音色的唯一入口：按名搜索，显示采样率、版本、说话人，标出没有索引的音色；多说话人音色附带说话人菜单（`v-model:speaker`） | 转换、实时变声 |
 | `VoiceParamsPanel` | 唯一的参数面板：标签、范围、默认值、帮助和顺序处处相同。范围来自 `paramSpecs.ts`（服务器 schema），顺序来自 `paramFields.ts` 的 `VOICE_FIELDS`；选中音色时加载它的默认预设（保留说话人）；控件不可用时说明原因（无索引时的索引强度、无音高引导时的辅音保护）；`live` 模式拖动即生效 | 转换、实时变声 |
 | `StreamParamsPanel` | 实时变声的缓冲与降噪参数，每项显示它在估计延迟中所占的份额（`latencyShare`） | 实时变声 |
-| `AudioSourceInput` | 提供音频的唯一方式：拖入文件、选服务器文件（`ServerPathDialog`，仅受信任客户端）、选之前的结果（`OutputsPickerDialog`）；`folders` 允许整个服务器文件夹作为一个输入 | 转换、人声分离、模型详情的试听 |
+| `AudioSourceInput` | 提供音频的唯一方式：拖入文件、选服务器文件（`ServerPathDialog`，限 `paths.browse_roots`）、选之前的结果（`OutputsPickerDialog`）；`folders` 允许整个服务器文件夹作为一个输入 | 转换、人声分离、模型详情的试听 |
 | `JobCard` + `JobsSheet` | 每个长操作一张卡：标题、步骤、进度、取消、重试、“仍然运行”、日志（`JobLogView`）；下载显示“88 MB / 210 MB · 8.4 MB/s · 剩余 14 秒”。卡片出现在启动它的界面的 `PageFooter` 里，也出现在任务面板中；面板先列本会话的任务，再合并 REST 的近期历史 | 所有界面 |
 | `ResultsList` + `ABCompare` | 统一的结果列表：波形（服务器峰值）、播放、与源音频 A/B、下载、在文件管理器中显示（仅本机）、“作为输入”“用这些设置重跑”“转换这个”；`groupBySource` 把分离出的分轨归到各自输入下。全页只有一个播放器（`stores/player.ts` 包装 `audio/player.ts`），A/B 在同一位置切换源 | 转换、人声分离、模型详情的试听 |
 | `AssetGate` | 缺资源时不报错，而是在动作的位置显示“需要 RMVPE — 下载（大小）”；装好后恢复原动作并发出 `ready` | 转换、实时变声、人声分离、训练、模型详情 |

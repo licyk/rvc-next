@@ -59,10 +59,6 @@ def webui(
 
     if not is_loopback(host):
         logger.warning("Binding to %s makes the server reachable from other machines.", host)
-        if not server_settings.access_token:
-            services.close()
-            logger.error("Set server.access_token first (rvc-next config set server.access_token <secret>).")
-            raise typer.Exit(4)
 
     try:
         sock = bind_first_free_port(host, port, strict=strict)

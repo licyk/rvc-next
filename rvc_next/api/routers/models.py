@@ -7,7 +7,7 @@ from fastapi import APIRouter, Query, Request, status
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
-from rvc_next.api.deps import LocalDep, ServicesDep, require_trusted
+from rvc_next.api.deps import LocalDep, ServicesDep
 from rvc_next.api.errors import ERROR_RESPONSES
 from rvc_next.api.files import content_disposition
 from rvc_next.api.uploads import RAW_BODY, read_chunks, spool
@@ -96,8 +96,7 @@ async def add_import_file(request: Request, services: ServicesDep, session_id: s
 
 
 @router.post("/imports/{session_id}/paths", operation_id="add_import_paths")
-def add_import_paths(request: Request, services: ServicesDep, session_id: str, body: StagePathsRequest) -> list[StagedFile]:
-    require_trusted(request, services)
+def add_import_paths(services: ServicesDep, session_id: str, body: StagePathsRequest) -> list[StagedFile]:
     return services.imports.add_paths(session_id, [Path(p) for p in body.paths])
 
 
@@ -192,14 +191,12 @@ async def import_upload(request: Request, services: ServicesDep, filename: Annot
 
 
 @router.post("/import-path", operation_id="import_model_paths")
-def import_paths(request: Request, services: ServicesDep, body: ImportPathRequest) -> ImportResult:
-    require_trusted(request, services)
+def import_paths(services: ServicesDep, body: ImportPathRequest) -> ImportResult:
     return services.models.import_paths([Path(p) for p in body.paths], name=body.name, index=Path(body.index) if body.index else None)
 
 
 @router.post("/inspect", operation_id="inspect_model")
-def inspect(request: Request, services: ServicesDep, body: InspectRequest) -> CheckpointInfo:
-    require_trusted(request, services)
+def inspect(services: ServicesDep, body: InspectRequest) -> CheckpointInfo:
     return services.models.inspect(body.path)
 
 
@@ -209,15 +206,12 @@ def merge(services: ServicesDep, body: MergeRequest) -> Job:
 
 
 @router.post("/extract", operation_id="extract_model")
-def extract(request: Request, services: ServicesDep, body: ExtractRequest) -> Job:
-    if Path(body.checkpoint).is_absolute():
-        require_trusted(request, services)
+def extract(services: ServicesDep, body: ExtractRequest) -> Job:
     return services.models.extract(body)
 
 
 @router.post("/legacy-roots", operation_id="add_legacy_root")
-def add_legacy_root(request: Request, services: ServicesDep, body: LegacyRootCreate) -> LegacyRootCreated:
-    require_trusted(request, services)
+def add_legacy_root(services: ServicesDep, body: LegacyRootCreate) -> LegacyRootCreated:
     root_id = services.models.add_legacy_root(body.path, body.name)
     return LegacyRootCreated(id=root_id, scan=services.models.scan_legacy_root(root_id))
 
@@ -271,10 +265,8 @@ async def upload_index(request: Request, services: ServicesDep, voice_id: str, k
 
 
 @router.post("/{voice_id}/index", operation_id="set_model_index")
-def set_index(request: Request, services: ServicesDep, voice_id: str, body: IndexPairing) -> VoiceModel:
+def set_index(services: ServicesDep, voice_id: str, body: IndexPairing) -> VoiceModel:
     """Pair a server-side index file, or detach one (``path: null``)."""
-    if body.path is not None:
-        require_trusted(request, services)
     return services.models.set_index(voice_id, body.key, Path(body.path) if body.path else None)
 
 

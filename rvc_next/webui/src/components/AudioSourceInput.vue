@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { ref } from 'vue';
 import { ApiError } from '@/api/client';
-import { useMeta } from '@/api/queries/app';
 import { resolveServerPath, synthesizeSpeech, uploadAudio } from '@/api/queries/audio';
 import { urls } from '@/api/client';
 import type { Output, S } from '@/api/types';
@@ -15,8 +14,8 @@ import { usePlayerStore } from '@/stores/player';
 import { AppButton, AppIcon, DropZone, IconButton, ProgressBar, TRANSITIONS, icons, staggerStyle } from '@/ui';
 
 /**
- * The one way to give audio: drop files, pick server files (on the server's own
- * machine, or with an access token), choose earlier results, or, with ``tts``, speak text. ``folders``
+ * The one way to give audio: drop files, pick server files (inside ``paths.browse_roots``),
+ * choose earlier results, or, with ``tts``, speak text. ``folders``
  * also allows a server folder as one input (Convert expands it; a dataset is a folder).
  */
 const props = withDefaults(defineProps<{ multiple?: boolean; folders?: boolean; uploads?: boolean; outputs?: boolean; tts?: boolean; label?: string }>(), {
@@ -29,12 +28,10 @@ const props = withDefaults(defineProps<{ multiple?: boolean; folders?: boolean; 
 });
 const items = defineModel<InputItem[]>({ default: () => [] });
 const { t } = useI18n();
-const meta = useMeta();
 const player = usePlayerStore();
 const serverOpen = ref(false);
 const outputsOpen = ref(false);
 const ttsOpen = ref(false);
-const canBrowse = computed(() => meta.data.value?.trusted ?? false);
 
 function add(item: InputItem) {
   items.value = props.multiple ? [...items.value, item] : [item];
@@ -101,7 +98,7 @@ function play(i: InputItem) {
   <section class="source" :aria-label="label || t('source.title')">
     <DropZone v-if="uploads" :label="t('source.drop')" :hint="t('source.dropHint')" accept="audio/*,video/*,.wav,.flac,.mp3,.m4a,.ogg,.opus,.aac,.wma" :multiple="multiple" @files="onFiles" />
     <div class="buttons">
-      <AppButton v-if="canBrowse" variant="tonal" :icon="icons.HardDrive" @click="serverOpen = true">{{ t('source.serverFiles') }}</AppButton>
+      <AppButton variant="tonal" :icon="icons.HardDrive" @click="serverOpen = true">{{ t('source.serverFiles') }}</AppButton>
       <AppButton v-if="outputs" variant="tonal" :icon="icons.History" @click="outputsOpen = true">{{ t('source.outputs') }}</AppButton>
       <AppButton v-if="tts" variant="tonal" :icon="icons.Speech" @click="ttsOpen = true">{{ t('source.tts') }}</AppButton>
       <AppButton v-if="items.length > 1" variant="text" @click="items = []">{{ t('source.clear') }}</AppButton>

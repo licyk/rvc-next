@@ -71,7 +71,7 @@ rvc-next
 
 前台任务失败时，错误不是以异常形式出现的，而是记录在 `Job.error` 里。`cli/progress.py` 的 `finish(job)` 负责收尾：`completed` 直接返回；`cancelled` 以 130 退出；失败时打印消息，按 `job.error.code` 找到对应错误类的退出码退出（`busy` 为 3，`invalid_model` 为 4）。所以 `rvc-next convert` 缺少 RMVPE 时，无论错误出在提交前的校验还是任务执行中，退出码都是 7。
 
-少数命令自行决定退出码，都与领域错误的约定一致：`webui` 在非回环地址上没有访问令牌时退出 4、端口不可用时退出 3；`model import` 的导入计划有歧义时打印计划并退出 3；`live check` / `live run` 遇到设备问题时退出 8。只属于命令行的参数校验用 `typer.BadParameter`（退出码 2）。
+少数命令自行决定退出码，都与领域错误的约定一致：`webui` 的证书文件不存在时退出 4、端口不可用时退出 3；`model import` 的导入计划有歧义时打印计划并退出 3；`live check` / `live run` 遇到设备问题时退出 8。只属于命令行的参数校验用 `typer.BadParameter`（退出码 2）。
 
 ## 输出：`--json` 等于 API 的 JSON
 
@@ -104,7 +104,7 @@ rvc-next
 `cli/commands/webui.py` 是命令行唯一导入 API 层的地方（在函数内导入）：
 
 1. `--data-dir` 设置 `RVC_NEXT_DATA_DIR`，以便之后启动的 worker 子进程使用同一个数据目录；然后 `build_services(start_background=True)`。
-2. 主机不是回环地址时发出警告；没有 `server.access_token` 则拒绝启动，退出码 4。
+2. 主机不是回环地址时发出警告（不要求访问令牌）。
 3. `bind_first_free_port(host, port, strict=...)` **先绑定套接字**，端口被占用时向上尝试（`--strict-port` 时直接失败，退出码 3）；实际端口与请求的不同时给出警告。绑定而不是试连接，是为了消除"检查"与"真正绑定"之间的空隙，也能识别 Windows 上被系统保留的端口。
 4. 用 `create_app(services, bound_host=..., bound_port=...)` 建应用，写 `server.json`，在 stdout 打印一行 `SERVER_READY url=http://…`（供启动器等程序读取），需要时 0.8 秒后打开浏览器。
 5. `uvicorn.Server(...).run(sockets=[sock])` 在刚才绑定的套接字上服务；退出时删除 `server.json` 并关闭服务。

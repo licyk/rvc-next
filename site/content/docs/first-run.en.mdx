@@ -33,7 +33,7 @@ Common options for `rvc-next webui`:
 
 <Callout type="warn" title="Access from other computers">
 
-If you set `--host` to a non-local address such as `0.0.0.0`, other devices on the local network can access the server. For security, you must first set an access token; otherwise, `rvc-next webui` refuses to start and prompts you with `rvc-next config set server.access_token <secret>`. See [Remote access and security](/docs/advanced-remote).
+If you set `--host` to a non-local address such as `0.0.0.0`, other devices on the local network can access the server without an access token. Anyone who can connect can use every feature, so do this only on a trusted network or add protection of your own, such as a firewall or a VPN; you can also set an optional access token with `rvc-next config set server.access_token <secret>`. See [Remote access and security](/docs/advanced-remote).
 
 </Callout>
 Once the page opens, you will see the navigation bar on the left (at the bottom in narrow windows): **Convert**, **Live**, **Separate**, **Train**, **Models**, and **Settings** at the bottom. The first visit opens **Convert**; subsequent visits return to the page you last used. See [Interface overview](/docs/guide-interface) for explanations of each part of the interface.

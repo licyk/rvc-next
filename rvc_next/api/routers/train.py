@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query, Request, status
 from starlette.concurrency import run_in_threadpool
 
-from rvc_next.api.deps import ServicesDep, require_trusted
+from rvc_next.api.deps import ServicesDep
 from rvc_next.api.errors import ERROR_RESPONSES
 from rvc_next.api.uploads import RAW_BODY, read_chunks, spool
 from rvc_next.core.audio.models import Output
@@ -35,15 +35,12 @@ def list_experiments(services: ServicesDep) -> list[ExperimentSummary]:
 
 
 @router.post("/experiments", operation_id="create_experiment")
-def create_experiment(request: Request, services: ServicesDep, body: ExperimentCreate) -> Experiment:
-    if body.dataset.folder or body.dataset.speakers:
-        require_trusted(request, services)
+def create_experiment(services: ServicesDep, body: ExperimentCreate) -> Experiment:
     return services.training.create(body)
 
 
 @router.post("/import", operation_id="import_experiment")
-def import_experiment(request: Request, services: ServicesDep, body: ImportExperimentRequest) -> Experiment:
-    require_trusted(request, services)
+def import_experiment(services: ServicesDep, body: ImportExperimentRequest) -> Experiment:
     return services.training.import_legacy(body)
 
 
@@ -53,9 +50,7 @@ def get_experiment(services: ServicesDep, name: str) -> Experiment:
 
 
 @router.patch("/experiments/{name}", operation_id="update_experiment")
-def update_experiment(request: Request, services: ServicesDep, name: str, body: ExperimentUpdate) -> Experiment:
-    if body.dataset is not None:
-        require_trusted(request, services)
+def update_experiment(services: ServicesDep, name: str, body: ExperimentUpdate) -> Experiment:
     return services.training.update(name, body)
 
 
@@ -70,8 +65,7 @@ def scan_dataset(services: ServicesDep, name: str) -> DatasetReport:
 
 
 @router.put("/experiments/{name}/speakers", operation_id="set_speakers")
-def set_speakers(request: Request, services: ServicesDep, name: str, body: list[SpeakerEntry]) -> Experiment:
-    require_trusted(request, services)
+def set_speakers(services: ServicesDep, name: str, body: list[SpeakerEntry]) -> Experiment:
     return services.training.set_speakers(name, body)
 
 
@@ -92,9 +86,8 @@ def clear_dataset_uploads(services: ServicesDep, name: str) -> Experiment:
 
 
 @router.post("/experiments/{name}/speakers/from-folders", operation_id="speakers_from_folders")
-def speakers_from_folders(request: Request, services: ServicesDep, name: str, body: FolderSpeakersRequest) -> Experiment:
+def speakers_from_folders(services: ServicesDep, name: str, body: FolderSpeakersRequest) -> Experiment:
     """Fill the speaker table from ``Name_ID_Repeat`` subfolders."""
-    require_trusted(request, services)
     return services.training.speakers_from_folders(name, body.folder)
 
 

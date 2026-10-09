@@ -188,7 +188,6 @@ export default {
     empty: 'No audio files here',
     add: 'Add {n}',
     addFolder: 'Add this folder',
-    notTrusted: 'Server files can be browsed only from the server machine, or with an access token set.',
   },
   outputsPicker: { title: 'Earlier results', empty: 'No results yet', add: 'Add {n}' },
   analysis: {

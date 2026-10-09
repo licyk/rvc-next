@@ -48,7 +48,7 @@ rvc-next webui [OPTIONS]
 | `--ssl-certfile <file>` | PEM 证书：以 HTTPS 提供服务（从其他电脑在实时变声中使用 **本浏览器** 时需要） | `server.ssl_certfile` |
 | `--ssl-keyfile <file>` | 证书的私钥 | `server.ssl_keyfile` |
 
-端口被占用时依次尝试后面的端口（最多 20 个），并在日志里提示实际使用的端口；全部失败时以退出码 3 结束。绑定到非本机地址时必须先设置访问令牌，否则以退出码 4 结束（见 [远程访问与安全](/docs/advanced-remote)）。启动成功后标准输出打印一行 `SERVER_READY url=http://...`。
+端口被占用时依次尝试后面的端口（最多 20 个），并在日志里提示实际使用的端口；全部失败时以退出码 3 结束。绑定到非本机地址时会在日志中警告，不需要访问令牌（见 [远程访问与安全](/docs/advanced-remote)）。启动成功后标准输出打印一行 `SERVER_READY url=http://...`。
 
 ```bash
 rvc-next webui

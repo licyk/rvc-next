@@ -22,7 +22,7 @@ def client(app):
 def test_health_meta_version(client):
     assert client.get("/api/v1/app/health").json() == {"status": "ok", "auth_required": False}
     meta = client.get("/api/v1/app/meta").json()
-    assert meta["local"] is True and meta["trusted"] is True and "convert" in meta["features"]
+    assert meta["local"] is True and "convert" in meta["features"]
     assert client.get("/api/v1/app/version").json()["version"]
 
 

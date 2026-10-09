@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 
-from rvc_next.api.deps import ServicesDep, require_trusted
+from rvc_next.api.deps import ServicesDep
 from rvc_next.api.errors import ERROR_RESPONSES
 from rvc_next.api.files import audio_response
 from rvc_next.api.uploads import RAW_BODY, read_chunks, spool
@@ -47,18 +47,15 @@ def get_peaks(services: ServicesDep, file_id: str, points: int = 1024) -> Peaks:
 
 
 @router.get("/browse", operation_id="browse_server")
-def browse(request: Request, services: ServicesDep, path: str = "") -> BrowseListing:
-    require_trusted(request, services)
+def browse(services: ServicesDep, path: str = "") -> BrowseListing:
     return services.audio.browse(path or None)
 
 
 @router.post("/resolve-path", operation_id="resolve_audio_path")
-def resolve_path(request: Request, services: ServicesDep, body: ResolvePathRequest) -> AudioFile:
-    require_trusted(request, services)
+def resolve_path(services: ServicesDep, body: ResolvePathRequest) -> AudioFile:
     return services.audio.resolve_path(body.path)
 
 
 @router.get("/path-peaks", operation_id="get_path_peaks")
-def path_peaks(request: Request, services: ServicesDep, path: str, points: int = 1024) -> Peaks:
-    require_trusted(request, services)
+def path_peaks(services: ServicesDep, path: str, points: int = 1024) -> Peaks:
     return services.audio.peaks(services.audio.file_path(services.audio.resolve_path(path).id), points)

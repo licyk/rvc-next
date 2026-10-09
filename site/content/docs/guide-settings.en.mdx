@@ -33,7 +33,7 @@ Every setting can be overridden by an environment variable in the form `RVC_NEXT
 
 ### Access token
 
-An access token protects the server. Once set, every request to the server API (including those made by the web UI itself) must include it.
+An access token is an optional layer of protection. Once set, every request to the server API (including those made by the web UI itself) must include it.
 
 1. Enter a sufficiently long random string in **Access token**.
 2. Click **Set token**. The label on the left becomes **An access token is set**.
@@ -41,9 +41,9 @@ An access token protects the server. Once set, every request to the server API (
 
 To remove it, click **Clear token**. The token is not displayed again after saving.
 
-<Callout type="warn" title="Set a token before allowing access from other computers">
+<Callout type="warn" title="Access from other computers">
 
-The default address `127.0.0.1` allows only local access. If you change **Server address** to `0.0.0.0` or a LAN IP without setting an access token, the server refuses to start. Remote browsers can browse server files only after a token is set. See [Remote access and security](/docs/advanced-remote).
+The default address `127.0.0.1` allows only local access. After you change **Server address** to `0.0.0.0` or a LAN IP, no access token is needed: anyone who can connect can use every feature (browsing the server folders allowed below included). Do this only on a trusted network, add protection of your own such as a firewall or a VPN, or set an access token. See [Remote access and security](/docs/advanced-remote).
 
 </Callout>
 ## Compute
@@ -96,7 +96,7 @@ When empty (default), this includes your home folder, added original RVC install
 
 <Callout type="info">
 
-Regardless of these settings, server files can be browsed only when you open the page on the server machine or the server has an access token set.
+These folders apply to every browser, those on other computers included; the command line is not limited by them.
 
 </Callout>
 ### Result retention

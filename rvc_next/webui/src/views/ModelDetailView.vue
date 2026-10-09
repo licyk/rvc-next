@@ -193,7 +193,7 @@ function doDelete() {
           </ul>
           <SelectField v-if="keyOptions.length > 1" v-model="indexKey" :label="t('models.detail.index')" :options="keyOptions" />
           <DropZone :label="t('models.detail.attach')" hint=".index" accept=".index" :multiple="false" compact @files="onIndexFiles" />
-          <div v-if="meta.data.value?.trusted" class="row">
+          <div class="row">
             <PathField v-model="indexPath" :label="t('models.detail.attachPath')" />
             <AppButton variant="text" :disabled="!indexPath.trim()" @click="setIndexPath.mutate({ id, key: indexKey ?? 'default', path: indexPath.trim() }, { onError: onErr })">{{ t('common.add') }}</AppButton>
           </div>

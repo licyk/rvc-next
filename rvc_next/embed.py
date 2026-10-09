@@ -17,7 +17,8 @@
 ``server.services`` exposes the voice library, the jobs and the settings for direct use.
 
 Behind a tunnel or a proxy, ``server.allow_host("abc.example.com")`` accepts its public name, even
-once started; it needs an access token, since anyone with the address can reach the server.
+once started. Anyone with the address can then reach the server; ``access_token`` asks them for a
+token, or put the server behind protection of your own.
 """
 
 import logging
@@ -29,7 +30,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from rvc_next.core.context import Services, build_services
-from rvc_next.core.net.ports import PortUnavailableError, bind_first_free_port, is_loopback
+from rvc_next.core.net.ports import bind_first_free_port, is_loopback
 
 logger = logging.getLogger(__name__)
 
@@ -75,8 +76,11 @@ class RvcNextServer:
         collide with the host application's own routes.
 
         ``extra_hosts`` are public names the server answers to besides its own address: a tunnel's
-        or a reverse proxy's. Like a non-loopback ``host``, they need an access token. Requests
-        through them are never treated as coming from the server's own machine.
+        or a reverse proxy's. Requests through them are never treated as coming from the server's
+        own machine.
+
+        ``access_token``, when given, must accompany every API and socket request (the web UI asks
+        for it once). It is optional, a non-loopback ``host`` and ``extra_hosts`` included.
 
         ``settings`` pins any setting, in the same shape as the settings file, for example
         ``{"compute": {"device": "cuda:0"}, "paths": {"models_dir": "/srv/voices"}}``. Pinned
@@ -124,10 +128,8 @@ class RvcNextServer:
         server_settings = services.settings.settings.server
         host = server_settings.host
         port = server_settings.port if self._requested_port is None else self._requested_port
-        if not is_loopback(host) and not server_settings.access_token:
-            raise PortUnavailableError(f"Refusing to listen on {host} without an access token. Pass access_token=... to RvcNextServer.")
-        if self._extra_hosts and not server_settings.access_token:
-            raise PortUnavailableError(f"Refusing to answer to {', '.join(sorted(self._extra_hosts))} without an access token. Pass access_token=... to RvcNextServer.")
+        if not is_loopback(host):
+            logger.warning("Binding to %s makes the server reachable from other machines.", host)
         return bind_first_free_port(host, port, strict=self.strict_port or port == 0)
 
     def start(self, timeout: float = START_TIMEOUT) -> str:
@@ -211,12 +213,10 @@ class RvcNextServer:
 
     def allow_host(self, host: str) -> None:
         """Answer to ``host`` too: a tunnel's or a proxy's public name (a URL is accepted). Works before
-        and after ``start()``; a running server needs an access token for it."""
+        and after ``start()``."""
         name = _host_name(host)
         if not name:
             raise ValueError(f"Not a host name: {host!r}")
-        if self.services is not None and not self.services.settings.settings.server.access_token:
-            raise PortUnavailableError(f"Refusing to answer to {name} without an access token. Pass access_token=... to RvcNextServer.")
         self._extra_hosts.add(name)
 
     # -- information --------------------------------------------------------

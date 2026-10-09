@@ -216,14 +216,13 @@ The command line is not subject to this restriction.
 </Accordion>
 <Accordion title="How do I access the Web UI from another computer?">
 
-Set an access token first, then bind to all interfaces:
+Bind to all interfaces:
 
 ```bash
-rvc-next config set server.access_token "a long random string"
 rvc-next webui --host 0.0.0.0
 ```
 
-On the other computer, open `http://<server IP>:7868` and enter the token in the **Access token** dialog. Without a token, the server refuses to bind to a non-local address. See [Remote access and security](/docs/advanced-remote).
+On the other computer, open `http://<server IP>:7868`; no access token is needed. If the network is not fully trusted, add a firewall, a VPN or a reverse proxy with authentication, or set the optional access token (`rvc-next config set server.access_token "a long random string"`), after which the browser asks for it in the **Access token** dialog. See [Remote access and security](/docs/advanced-remote).
 
 </Accordion>
 <Accordion title="Forgot the access token?">
@@ -232,7 +231,7 @@ The token is not displayed in plaintext (`config show` only reports whether it i
 
 ```bash
 rvc-next config set server.access_token "a new token"
-rvc-next config set server.access_token null    # Clear it (only local access afterward)
+rvc-next config set server.access_token null    # Clear it (no token asked afterward)
 ```
 
 Once a token is set, all browsers (including those on the server machine) require it, so a forgotten token can only be reset from the command line. The browser shows the **Access token** dialog; enter the new token.

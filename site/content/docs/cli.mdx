@@ -61,7 +61,7 @@ rvc-next convert song.wav -v "我的音色" --json > job.json   # 打印完成�
 | 1 | 一般错误 | 未分类的内部错误；`model remove` 时回答了"否" |
 | 2 | 未找到（`not_found`） | 音色、任务、实验或文件不存在。注意：命令行参数写错（未知选项、取值超出范围）时 Click 也用 2 退出 |
 | 3 | 冲突或忙碌（`conflict`、`busy`） | 名称已存在、同一实验的阶段正在运行；`webui` 找不到可用端口；`model import` 有无法确定配对的索引 |
-| 4 | 输入无效（`invalid_input`、`invalid_path`、`invalid_model`） | 参数超出范围、路径不允许、`.pth` 不是 RVC 模型；`webui` 绑定到非本机地址却没有设置访问令牌 |
+| 4 | 输入无效（`invalid_input`、`invalid_path`、`invalid_model`） | 参数超出范围、路径不允许、`.pth` 不是 RVC 模型；`webui` 的证书文件不存在 |
 | 7 | 缺少资源（`asset_missing`） | HuBERT、音高模型（RMVPE、FCPE、CREPE）或底模没有安装，会同时提示 `rvc-next assets download <id>` |
 | 8 | 音频设备不可用（`device_unavailable`） | `live check` 检查不通过，`live run` 因设备错误停止 |
 | 9 | 计算设备不可用（`compute_unavailable`） | 选定的 GPU 不可用，或显存不足 |
