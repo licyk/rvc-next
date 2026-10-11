@@ -67,8 +67,8 @@ jobs:
         with:
           enable-cache: false
       - run: uv pip install ruff
-      - run: python -m ruff check rvc_next tests scripts
-      - run: python -m ruff format --check rvc_next tests scripts
+      - run: python -m ruff check
+      - run: python -m ruff format --check
 
   types:
     name: ty / Python ${{ matrix.python }} / ${{ matrix.os }}

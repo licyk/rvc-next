@@ -103,6 +103,7 @@ include = ["rvc_next*"]
 version = { attr = "rvc_next.version.VERSION" }
 
 [tool.ruff]
+include = ["rvc_next/**/*.{py,pyi,ipynb}", "tests/**/*.{py,pyi,ipynb}", "scripts/**/*.{py,pyi,ipynb}"]
 line-length = 180
 indent-width = 4
 extend-exclude = ["rvc_next/webui/dist", "rvc_next/webui/node_modules"]

@@ -24,7 +24,6 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / "rvc_next" / "webui"
 SITE = ROOT / "site"
-PYTHON_PATHS = ["rvc_next", "tests", "scripts"]
 SCHEMA = WEB / "src" / "api" / "schema.d.ts"
 PARAM_SPECS = WEB / "src" / "api" / "paramSpecs.ts"
 # The voice and stream parameters whose ranges the web UI reads from the schema (paramSpecs.ts).
@@ -175,16 +174,16 @@ def _stop_all(started: list[tuple[str, subprocess.Popen[bytes]]]) -> None:
 @task("lint", "Check formatting and lint rules (ruff), changing nothing")
 def lint() -> int:
     return first_failure(
-        python("-m", "ruff", "check", *PYTHON_PATHS),
-        python("-m", "ruff", "format", "--check", *PYTHON_PATHS),
+        python("-m", "ruff", "check"),
+        python("-m", "ruff", "format", "--check"),
     )
 
 
 @task("format", "Apply ruff's safe fixes and format the Python code")
 def format_code() -> int:
     return first_failure(
-        python("-m", "ruff", "check", "--fix", *PYTHON_PATHS),
-        python("-m", "ruff", "format", *PYTHON_PATHS),
+        python("-m", "ruff", "check", "--fix"),
+        python("-m", "ruff", "format"),
     )
 
 
