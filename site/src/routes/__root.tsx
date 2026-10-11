@@ -29,7 +29,7 @@ export const Route = createRootRoute({
       {
         src: "https://licyk-umami.netlify.app/script.js",
         async: true,
-        "data-website-id": "308fc79d-d064-456b-9e02-5d45b944e030",
+        "data-website-id": "9144e656-db97-431b-96c6-09de414969f6",
       },
     ],
   }),
