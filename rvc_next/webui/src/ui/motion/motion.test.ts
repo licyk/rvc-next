@@ -87,6 +87,39 @@ describe('motion (MD3 adoption §5.5.4)', () => {
     delete (document as unknown as { startViewTransition?: unknown }).startViewTransition;
   });
 
+  it('morphs the pair it names both ways, and drops the names when the transition ends', async () => {
+    const { createRouter, createMemoryHistory } = await import('vue-router');
+    const { installViewTransitions, morphStyle } = await import('@/ui/motion/viewTransition');
+    const seen: Record<string, string>[] = [];
+    (document as unknown as { startViewTransition: unknown }).startViewTransition = (cb: () => Promise<void>) => {
+      seen.push(morphStyle('card:1'));
+      const updateCallbackDone = new Promise<void>((r) => setTimeout(r, 0)).then(cb);
+      return { finished: updateCallbackDone, ready: updateCallbackDone, updateCallbackDone };
+    };
+    const C = defineComponent(() => () => h('div'));
+    const routes = [{ path: '/list', name: 'list', component: C }, { path: '/item/:id', name: 'item', component: C }, { path: '/other', name: 'other', component: C }];
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    installViewTransitions(router, {
+      morph: (to, from) => (to.name === 'item' && from.name === 'list' ? `card:${String(to.params.id)}` : from.name === 'item' && to.name === 'list' ? `card:${String(from.params.id)}` : null),
+    });
+    await router.push('/list');
+    for (const path of ['/item/1', '/list', '/other']) {
+      await router.push(path);
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    const morph = { viewTransitionName: 'morph', viewTransitionGroup: 'nearest' };
+    expect(seen).toEqual([morph, morph, {}]);
+    expect(morphStyle('card:1')).toEqual({});
+    // Reduced motion names no pair: the page's crossfade alone.
+    document.documentElement.dataset.motion = 'reduced';
+    await router.push('/list');
+    await router.push('/item/1');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(seen.at(-1)).toEqual({});
+    delete document.documentElement.dataset.motion;
+    delete (document as unknown as { startViewTransition?: unknown }).startViewTransition;
+  });
+
   it('gives reduced motion a short crossfade between destinations', () => {
     const css = readFileSync(join(SRC, 'ui/motion/motion.css'), 'utf8');
     expect(css).toContain(":root[data-motion='reduced']::view-transition-new(app-content)");

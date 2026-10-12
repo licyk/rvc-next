@@ -62,11 +62,17 @@ const FIELD_ROWS: [file: string, selector: string][] = [
   ['views/ModelsView.vue', '.row'],
   ['views/ExperimentView.vue', '.folder'],
   ['views/TrainView.vue', '.folder'],
+  ['components/LinkImport.vue', '.row'],
 ];
 
 describe('field rows', () => {
   it.each(FIELD_ROWS)('%s %s centres its button on the field', (file, selector) => {
     expect(rule(file, selector)).toContain('align-items: center');
+  });
+  // Supporting text makes the field taller than its box, so the button would sit below its middle.
+  it.each(FIELD_ROWS)('%s %s gives its field no supporting text', (file) => {
+    const source = readFileSync(join(SRC, file), 'utf8');
+    for (const row of source.matchAll(/<div class="(?:row|folder)">([\s\S]*?)<\/div>/g)) if (/<AppButton/.test(row[1])) expect(row[1]).not.toContain('supporting-text');
   });
 });
 

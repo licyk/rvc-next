@@ -43,7 +43,10 @@ function restoreOffset() {
 router.afterEach((to, from) => {
   if (viewTransitions.value && viewKey(to.fullPath, to.name) !== viewKey(from.fullPath, from.name)) nextTick(restoreOffset);
 });
-const viewTransitions = installViewTransitions(router);
+// A voice's card and its page morph into each other, opening and going back alike.
+const viewTransitions = installViewTransitions(router, {
+  morph: (to, from) => (from.name === 'models' && to.name === 'model' ? `voice:${String(to.params.id)}` : from.name === 'model' && to.name === 'models' ? `voice:${String(from.params.id)}` : null),
+});
 
 const themeOptions = () => ({ mode: prefs.prefs.theme, sourceColor: prefs.prefs.sourceColor, contrast: prefs.prefs.contrast });
 watch(() => [prefs.prefs.theme, prefs.prefs.sourceColor, prefs.prefs.contrast], () => applyTheme(themeOptions()), { immediate: true });

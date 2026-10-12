@@ -499,7 +499,8 @@ rule tests come from Hanaikada.
   request fields stay optional) and writes `paramSpecs.ts`; `typegen-check` diffs both. The API uses
   `separate_input_output_schemas=False` and event schemas in serialization mode; FastAPI still
   splits `Dataset`, `FitSettings`, `SliceSettings` and `SpeakerEntry` into `-Input`/`-Output` (see `api/types.ts`).
-- A field with a button beside it (Add, Browse, Build) centres the button on the field.
+- A field with a button beside it (Add, Browse, Build) centres the button on the field; such a field
+  has no supporting text (it makes the field taller), a hint goes below the row (`LinkImport`).
 - **Status bars glide.** `LevelMeter` moves by transform with audio-meter ballistics (rise in
   100 ms, fall in 300 ms, the peak tick in 500 ms; `useFalling`). `ProgressBar` draws determinate
   bars itself with an ease-out transition (Material's eases in and out and restarts slow on every
@@ -517,6 +518,10 @@ rule tests come from Hanaikada.
   which hung navigation); views then render without the out-in `<Transition>`.
   Reduced motion (the system setting or Settings › Appearance) still runs the view transition, as
   a 100 ms crossfade without the scale: never no transition at all, as in Hanaikada.
+  A voice's card and its page morph into each other both ways (`installViewTransitions`'s `morph`
+  in `App.vue`, `morphStyle` on the pair): the pair is named before the old state is captured and
+  until the transition ends, nested in `app-content` so it is clipped to the frame; not under
+  reduced motion. (The old `<Transition appear>` from a stored rect ran once per kept-alive view, opening only.)
 - **Layers** (`ui/layers.ts`, `useLayer`): every dialog, sheet, menu, open `PickerMenu` and open
   `SelectField` list registers, in the order it opened. A later layer paints above every earlier one
   (`LAYER_Z` floors: sheet 100, dialog 200, snackbar 300, menu 400; `inline` layers keep the page's

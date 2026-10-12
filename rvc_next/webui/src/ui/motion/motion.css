@@ -140,6 +140,22 @@
 @keyframes vt-fade-in { from { opacity: 0; transform: scale(0.92); } }
 /* Reduced motion: a short crossfade without the scale, for the system setting and the in-app choice. */
 @keyframes vt-fade-in-flat { from { opacity: 0; } }
+/* The container transform (``morphStyle``): a card and the page it opens are one surface whose box
+   moves between their rectangles, both ways, while its contents fade through, unscaled and pinned
+   to the top left. In time with the page's fade through. Never under reduced motion (no pair). */
+/* Nested in the page's group (``view-transition-group: nearest``, where the browser has it), which
+   clips it to the content area: a long page's box never spills over the frame. */
+::view-transition-group(app-content) { overflow: clip; }
+::view-transition-group(morph) {
+  animation-duration: var(--md-sys-motion-duration-medium2);
+  animation-timing-function: var(--md-sys-motion-easing-emphasized);
+  overflow: clip;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-surface-container-low);
+}
+::view-transition-old(morph), ::view-transition-new(morph) { height: 100%; object-fit: none; object-position: top left; mix-blend-mode: normal; }
+::view-transition-old(morph) { animation: 90ms var(--md-sys-motion-easing-emphasized-accelerate) both vt-fade-out; }
+::view-transition-new(morph) { animation: 210ms var(--md-sys-motion-easing-emphasized-decelerate) 90ms both vt-fade-in-flat; }
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-old(app-content) { animation: 100ms linear both vt-fade-out; }
   ::view-transition-new(app-content) { animation: 100ms linear both vt-fade-in-flat; }

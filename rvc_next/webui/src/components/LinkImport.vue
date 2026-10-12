@@ -26,9 +26,11 @@ function add() {
 <template>
   <div class="links">
     <div class="row">
-      <TextField v-model="text" :label="t('models.links')" :supporting-text="t('models.linksHint')" :disabled="disabled || !!fetching" @enter="add" />
+      <TextField v-model="text" :label="t('models.links')" :disabled="disabled || !!fetching" @enter="add" />
       <AppButton variant="tonal" :icon="icons.Download" :disabled="disabled || !!fetching || !text.trim()" @click="add">{{ t('common.add') }}</AppButton>
     </div>
+    <!-- Below the row, not the field's supporting text, which would make the field taller than its box. -->
+    <p class="type-body-small hint">{{ t('models.linksHint') }}</p>
     <JobCard v-if="job" :job="job" />
   </div>
 </template>
@@ -38,4 +40,6 @@ function add() {
 /* The field and its button: the button centred on the field. */
 .row { display: flex; align-items: center; gap: var(--app-space-2); }
 .row > :first-child { flex: 1; min-width: 0; }
+/* Where the field's supporting text would be: under the field, inset as its label. */
+.hint { margin: calc(var(--app-space-1) - var(--app-space-2)) 0 0; padding-inline: var(--app-space-4); color: var(--md-sys-color-on-surface-variant); }
 </style>

@@ -16,7 +16,7 @@ import { useModelImport } from '@/components/useModelImport';
 import ServerPathDialog from '@/components/ServerPathDialog.vue';
 import { useI18n } from '@/i18n';
 import { formatBytes, formatRate } from '@/format';
-import { AppButton, AppCard, AppDialog, Badge, ConfirmDialog, DropZone, EmptyState, IconButton, ParamSlider, PathField, ProgressBar, SearchField, SelectField, Surface, Switch, Tabs, TextField, TRANSITIONS, icons, staggerStyle, useAxisDirection, useSnackbar } from '@/ui';
+import { AppButton, AppCard, AppDialog, Badge, ConfirmDialog, DropZone, EmptyState, IconButton, ParamSlider, PathField, ProgressBar, SearchField, SelectField, Surface, Switch, Tabs, TextField, TRANSITIONS, icons, morphStyle, staggerStyle, useAxisDirection, useSnackbar } from '@/ui';
 
 type Tab = 'voices' | 'base' | 'separation' | 'assets' | 'tools';
 const { t, tOr } = useI18n();
@@ -77,9 +77,7 @@ function reportImport(r: ImportResult) {
   if (r.skipped.length) snackbar.show(t('models.skipped', { names: r.skipped.map(name).join(', ') }));
 }
 const describe = (v: VoiceModel) => [formatRate(v.sample_rate), v.version, v.pitch_guidance ? t('voice.pitchGuidance') : t('voice.noPitchGuidance')].join(' · ');
-function open(v: VoiceModel, e: MouseEvent | KeyboardEvent) {
-  const rect = (e.currentTarget as HTMLElement | null)?.getBoundingClientRect?.();
-  if (rect) sessionStorage.setItem('rvc-next:fromRect', JSON.stringify({ left: rect.left, top: rect.top, width: rect.width, height: rect.height }));
+function open(v: VoiceModel) {
   router.push(`/models/${encodeURIComponent(v.id)}`);
 }
 
@@ -200,7 +198,7 @@ function extract() {
             <AppButton v-if="missingDemo.length && !query && !onlyNoIndex" variant="tonal" :icon="icons.Download" @click="tab = 'assets'">{{ t('models.demo.get') }}</AppButton>
           </EmptyState>
           <TransitionGroup v-else :name="TRANSITIONS.list" tag="div" class="grid">
-            <AppCard v-for="(v, i) in voices" :key="v.id" interactive variant="outlined" class="voice" :style="staggerStyle(i)" @activate="open(v, $event)">
+            <AppCard v-for="(v, i) in voices" :key="v.id" interactive variant="outlined" class="voice" :style="[staggerStyle(i), morphStyle(`voice:${v.id}`)]" @activate="open(v)">
               <span class="type-title-medium name">{{ v.name }}</span>
               <span class="type-body-small muted">{{ describe(v) }}</span>
               <div class="badges">

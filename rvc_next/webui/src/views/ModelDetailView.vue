@@ -20,7 +20,7 @@ import { useSessionOutputs } from '@/components/sessionOutputs';
 import { useI18n } from '@/i18n';
 import { useJobsStore } from '@/stores/jobs';
 import { formatBytes, formatRate } from '@/format';
-import { AppButton, ConfirmDialog, DataList, DropZone, IconButton, PathField, SelectField, Surface, TextField, containerFrom, icons, useSnackbar } from '@/ui';
+import { AppButton, ConfirmDialog, DataList, DropZone, IconButton, PathField, SelectField, Surface, TextField, icons, morphStyle, useSnackbar } from '@/ui';
 
 const props = defineProps<{ id: string }>();
 const { t } = useI18n();
@@ -40,20 +40,6 @@ const presetMut = usePresetMutations();
 const convert = useConvert();
 const error = ref<unknown>(null);
 const onErr = (e: unknown) => (error.value = e);
-
-// Container transform from the voice card: the detail grows from the card's rectangle
-// into the content area; without one it fades and scales.
-function fromCard(): Record<string, string> {
-  try {
-    const from = JSON.parse(sessionStorage.getItem('rvc-next:fromRect') ?? 'null');
-    sessionStorage.removeItem('rvc-next:fromRect');
-    const to = document.querySelector('main.content')?.getBoundingClientRect();
-    return from && to ? containerFrom(from as DOMRect, to) : {};
-  } catch {
-    return {};
-  }
-}
-const motion = fromCard();
 
 const name = ref('');
 const description = ref('');
@@ -155,8 +141,8 @@ function doDelete() {
 </script>
 
 <template>
-  <Transition name="container" appear>
-  <div class="detail" :style="motion">
+  <!-- The voice's card on Models grows into this page, and the page shrinks back into it (App.vue). -->
+  <div class="detail" :style="morphStyle(`voice:${id}`)">
     <ErrorNotice v-if="voiceQ.error.value" :error="voiceQ.error.value" />
     <template v-else-if="voice">
       <header class="head">
@@ -229,11 +215,10 @@ function doDelete() {
       />
     </template>
   </div>
-  </Transition>
 </template>
 
 <style scoped>
-.detail { display: flex; flex-direction: column; gap: var(--app-space-4); padding: var(--app-space-4); min-width: 0; transform-origin: var(--from-origin, center); }
+.detail { display: flex; flex-direction: column; gap: var(--app-space-4); padding: var(--app-space-4); min-width: 0; }
 .head { display: flex; align-items: center; gap: var(--app-space-2); min-width: 0; }
 .title { flex: 1; margin: 0; min-width: 0; overflow-wrap: anywhere; }
 /* One column of sections (as Convert, Separate, Live); the fields inside wrap in a grid. */
