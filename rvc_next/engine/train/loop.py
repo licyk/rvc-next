@@ -28,7 +28,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from random import randint, shuffle
-from typing import Any
+from typing import Any, cast
 
 from rvc_next.engine.cancel import CancelToken
 from rvc_next.engine.errors import Cancelled, EngineError
@@ -603,7 +603,8 @@ def _train(rank: int, n_procs: int, hps_dict: dict[str, Any], sink: Sink, cancel
                 with torch.autocast(amp, enabled=False):
                     loss_disc, losses_disc_r, losses_disc_g = discriminator_loss(y_d_hat_r, y_d_hat_g)
             optim_d.zero_grad()
-            scaler.scale(loss_disc).backward()
+            # The discriminator always returns at least one output, so its accumulated loss is a tensor.
+            scaler.scale(cast(torch.Tensor, loss_disc)).backward()
             scaler.unscale_(optim_d)
             grad_d = commons.clip_grad_value_(net_d.parameters(), None)
             scaler.step(optim_d)

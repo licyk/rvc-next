@@ -1,15 +1,18 @@
 """Silence-based slicer, ported unchanged from the original ``train/dataset/slicer2.py``."""
 
+from typing import Any, Literal
+
 import numpy as np
+from numpy.typing import NDArray
 
 
 # This function is obtained from librosa.
 def get_rms(
-    y,
-    frame_length=2048,
-    hop_length=512,
-    pad_mode="constant",
-):
+    y: NDArray[np.floating[Any]],
+    frame_length: int = 2048,
+    hop_length: int = 512,
+    pad_mode: Literal["constant", "edge", "linear_ramp", "maximum", "mean", "median", "minimum", "reflect", "symmetric", "wrap", "empty"] = "constant",
+) -> NDArray[np.floating[Any]]:
     padding = (int(frame_length // 2), int(frame_length // 2))
     y = np.pad(y, padding, mode=pad_mode)
 
@@ -40,13 +43,13 @@ def get_rms(
 class Slicer:
     def __init__(
         self,
-        sr,
-        threshold=-40.0,
-        min_length=5000,
-        min_interval=300,
-        hop_size=20,
-        max_sil_kept=5000,
-    ):
+        sr: int,
+        threshold: float = -40.0,
+        min_length: float = 5000,
+        min_interval: float = 300,
+        hop_size: int = 20,
+        max_sil_kept: float = 5000,
+    ) -> None:
         if not min_length >= min_interval >= hop_size:
             raise ValueError("The following condition must be satisfied: min_length >= min_interval >= hop_size")
         if not max_sil_kept >= hop_size:
@@ -59,14 +62,14 @@ class Slicer:
         self.min_interval = round(min_interval / self.hop_size)
         self.max_sil_kept = round(sr * max_sil_kept / 1000 / self.hop_size)
 
-    def _apply_slice(self, waveform, begin, end):
+    def _apply_slice(self, waveform: NDArray[np.floating[Any]], begin: int | np.integer[Any], end: int | np.integer[Any]) -> NDArray[np.floating[Any]]:
         if len(waveform.shape) > 1:
             return waveform[:, begin * self.hop_size : min(waveform.shape[1], end * self.hop_size)]
         else:
             return waveform[begin * self.hop_size : min(waveform.shape[0], end * self.hop_size)]
 
     # @timeit
-    def slice(self, waveform):
+    def slice(self, waveform: NDArray[np.floating[Any]]) -> list[NDArray[np.floating[Any]]]:
         if len(waveform.shape) > 1:
             samples = waveform.mean(axis=0)
         else:

@@ -201,7 +201,7 @@ def measure(backend: Backend, config: SessionConfig, block: int, pings: int = 4,
     finally:
         session.stop()
     result = probe.result()
-    if session.trimmed or session.skipped:
-        # The session dropped audio to catch up after a stall: the bursts no longer line up with what was played.
+    if result.ok and (session.trimmed or session.skipped):
+        # Dropped audio invalidates a detected round trip; without returned bursts the result stays no_signal.
         result = replace(result, ok=False, reason="inconsistent")
     return LoopbackRun(result, session.topology, session.sample_rate, session.block, reported, session.underruns, session.overruns, lost)

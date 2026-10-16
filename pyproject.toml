@@ -134,10 +134,10 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 # Ported numerical code keeps the original's shape, so it can be read side by side with it.
-"rvc_next/engine/models/{attentions,commons,modules,transforms,synthesizer}.py" = ["ANN", "B", "SIM", "UP", "E402", "E712", "E741", "F841"]
-"rvc_next/engine/f0/rmvpe.py" = ["ANN", "B", "SIM", "UP", "E402", "E712", "E741", "F841"]
-"rvc_next/engine/audio/denoise.py" = ["ANN", "B", "SIM", "UP", "E402", "E712", "E741", "F841"]
-"rvc_next/engine/train/{dataset,losses,mel,slicer}.py" = ["ANN", "B", "SIM", "UP", "E402", "E712", "E722", "E741", "F841"]
+"rvc_next/engine/models/{attentions,commons,modules,transforms,synthesizer}.py" = ["B", "SIM", "UP", "E402", "E712", "E741", "F841"]
+"rvc_next/engine/f0/rmvpe.py" = ["B", "SIM", "UP", "E402", "E712", "E741", "F841"]
+"rvc_next/engine/audio/denoise.py" = ["B", "SIM", "UP", "E402", "E712", "E741", "F841"]
+"rvc_next/engine/train/{dataset,losses,mel,slicer}.py" = ["B", "SIM", "UP", "E402", "E712", "E722", "E741", "F841"]
 "tests/*" = ["ANN", "B011", "B017"]
 "scripts/*" = ["ANN"]
 

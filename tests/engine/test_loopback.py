@@ -5,7 +5,7 @@ import pytest
 
 from rvc_next.engine.audio_io.fake import FakeBackend
 from rvc_next.engine.audio_io.loopback import LoopbackProbe, analyse, measure
-from rvc_next.engine.audio_io.streams import Endpoint, SessionConfig
+from rvc_next.engine.audio_io.streams import AudioSession, Endpoint, SessionConfig
 
 RATE = 48000
 
@@ -68,6 +68,24 @@ def test_measures_split_streams() -> None:
 def test_no_loopback_is_no_signal() -> None:
     run = measure(FakeBackend(time_scale=4.0), SessionConfig(input=Endpoint(), output=Endpoint()), block=2400, timeout_scale=0.25)
     assert not run.result.ok and run.result.reason == "no_signal"
+
+
+@pytest.mark.parametrize("counter", ["trimmed", "skipped"])
+@pytest.mark.parametrize("connected", [False, True])
+def test_dropped_audio_keeps_no_signal_and_invalidates_a_detected_round_trip(monkeypatch, counter, connected) -> None:
+    stop = AudioSession.stop
+
+    def stop_with_drop(session):
+        stop(session)
+        # Inject a scheduler stall after capture so both outcomes are deterministic on a fast machine.
+        setattr(session, counter, getattr(session, counter) + session.block)
+
+    monkeypatch.setattr(AudioSession, "stop", stop_with_drop)
+    backend = FakeBackend(time_scale=4.0, loopback={"delay_ms": 60.0, "gain": 0.5} if connected else None)
+    run = measure(backend, SessionConfig(input=Endpoint(), output=Endpoint()), block=2400, timeout_scale=0.25)
+    assert not run.result.ok
+    assert run.result.reason == ("inconsistent" if connected else "no_signal")
+    assert bool(run.result.delays) == connected
 
 
 def test_a_refused_device_raises() -> None:

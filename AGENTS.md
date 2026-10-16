@@ -132,12 +132,11 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   CI runs ty with `--error-on-warning` per Python 3.10–3.14 and platform, without the optional
   comparison packages (torchaudio, torchcrepe, onnxruntime…): load those with `importlib`/`importorskip`,
   never a static import with a `ty: ignore` (its codes go unused in one environment or the other).
-  Every function in `rvc_next/` is annotated (ruff `ANN`, `Any` allowed); the ported files, tests
-  and scripts are exempt.
-  The ported files (`engine/models/{attentions,commons,modules,transforms,synthesizer}.py`,
-  `engine/f0/rmvpe.py`, `engine/audio/denoise.py`, some `engine/train/*`) keep the original's
-  shape: excluded from `ruff format` and ty, with per-file lint ignores, so they diff cleanly
-  against the original. Suppressions always name a rule.
+  Every function in `rvc_next/` is annotated (ruff `ANN`, `Any` allowed), including ported files;
+  tests and scripts are exempt.
+  Ported numerical files keep the original's computations and layout, with annotated signatures.
+  Their remaining format, ty and per-file lint exclusions are listed in `pyproject.toml`, so they
+  can still be read side by side with the original. Suppressions always name a rule.
 - **Pydantic v2 only.** `Record` sets `json_schema_serialization_defaults_required` (the generated
   TypeScript types match what the server sends); the v1 shim of SD Model Hub was dropped
   (FastAPI ≥ 0.100 needs v2 anyway).

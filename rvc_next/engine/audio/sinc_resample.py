@@ -174,7 +174,8 @@ class Resample(torch.nn.Module):
             kernel, self.width = sinc_resample_kernel(orig_freq, new_freq, self.gcd, lowpass_filter_width, rolloff, resampling_method, beta, dtype=dtype)
             self.register_buffer("kernel", kernel)
 
-    def forward(self, waveform: Tensor) -> Tensor:
+    # torch declares Module.forward as a writable Callable attribute; this implements the method.
+    def forward(self, waveform: Tensor) -> Tensor:  # ty: ignore[invalid-mutable-override]
         if self.orig_freq == self.new_freq:
             return waveform
         return apply_sinc_resample_kernel(waveform, self.orig_freq, self.new_freq, self.gcd, self.kernel, self.width)

@@ -1,5 +1,7 @@
 import logging
 import math
+from collections.abc import Sequence
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -17,16 +19,16 @@ from rvc_next.engine.models.commons import get_padding, init_weights
 class TextEncoder(nn.Module):
     def __init__(
         self,
-        in_channels,
-        out_channels,
-        hidden_channels,
-        filter_channels,
-        n_heads,
-        n_layers,
-        kernel_size,
-        p_dropout,
-        f0=True,
-    ):
+        in_channels: int,
+        out_channels: int,
+        hidden_channels: int,
+        filter_channels: int,
+        n_heads: int,
+        n_layers: int,
+        kernel_size: int,
+        p_dropout: float,
+        f0: bool = True,
+    ) -> None:
         super(TextEncoder, self).__init__()
         self.out_channels = out_channels
         self.hidden_channels = hidden_channels
@@ -51,11 +53,11 @@ class TextEncoder(nn.Module):
 
     def forward(
         self,
-        phone,
-        pitch,
-        lengths,
-        skip_head = None,
-    ):
+        phone: torch.Tensor,
+        pitch: torch.Tensor | None,
+        lengths: torch.Tensor,
+        skip_head: int | torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if pitch is None:
             x = self.emb_phone(phone)
         else:
@@ -83,14 +85,14 @@ class TextEncoder(nn.Module):
 class ResidualCouplingBlock(nn.Module):
     def __init__(
         self,
-        channels,
-        hidden_channels,
-        kernel_size,
-        dilation_rate,
-        n_layers,
-        n_flows=4,
-        gin_channels=0,
-    ):
+        channels: int,
+        hidden_channels: int,
+        kernel_size: int,
+        dilation_rate: int,
+        n_layers: int,
+        n_flows: int = 4,
+        gin_channels: int = 0,
+    ) -> None:
         super(ResidualCouplingBlock, self).__init__()
         self.channels = channels
         self.hidden_channels = hidden_channels
@@ -117,11 +119,11 @@ class ResidualCouplingBlock(nn.Module):
 
     def forward(
         self,
-        x,
-        x_mask,
-        g = None,
-        reverse = False,
-    ):
+        x: torch.Tensor,
+        x_mask: torch.Tensor,
+        g: torch.Tensor | None = None,
+        reverse: bool = False,
+    ) -> torch.Tensor:
         if not reverse:
             for flow in self.flows:
                 x, _ = flow(x, x_mask, g=g, reverse=reverse)
@@ -130,21 +132,21 @@ class ResidualCouplingBlock(nn.Module):
                 x, _ = flow.forward(x, x_mask, g=g, reverse=reverse)
         return x
 
-    def remove_weight_norm(self):
+    def remove_weight_norm(self) -> None:
         for i in range(self.n_flows):
             self.flows[i * 2].remove_weight_norm()
 
 class PosteriorEncoder(nn.Module):
     def __init__(
         self,
-        in_channels,
-        out_channels,
-        hidden_channels,
-        kernel_size,
-        dilation_rate,
-        n_layers,
-        gin_channels=0,
-    ):
+        in_channels: int,
+        out_channels: int,
+        hidden_channels: int,
+        kernel_size: int,
+        dilation_rate: int,
+        n_layers: int,
+        gin_channels: int = 0,
+    ) -> None:
         super(PosteriorEncoder, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -165,8 +167,8 @@ class PosteriorEncoder(nn.Module):
         self.proj = nn.Conv1d(hidden_channels, out_channels * 2, 1)
 
     def forward(
-        self, x, x_lengths, g = None
-    ):
+        self, x: torch.Tensor, x_lengths: torch.Tensor, g: torch.Tensor | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x.size(2)), 1).to(
             x.dtype
         )
@@ -177,21 +179,21 @@ class PosteriorEncoder(nn.Module):
         z = (m + torch.randn_like(m) * torch.exp(logs)) * x_mask
         return z, m, logs, x_mask
 
-    def remove_weight_norm(self):
+    def remove_weight_norm(self) -> None:
         self.enc.remove_weight_norm()
 
 class Generator(torch.nn.Module):
     def __init__(
         self,
-        initial_channel,
-        resblock,
-        resblock_kernel_sizes,
-        resblock_dilation_sizes,
-        upsample_rates,
-        upsample_initial_channel,
-        upsample_kernel_sizes,
-        gin_channels=0,
-    ):
+        initial_channel: int,
+        resblock: str,
+        resblock_kernel_sizes: list[int] | tuple[int, ...],
+        resblock_dilation_sizes: Sequence[Sequence[int]],
+        upsample_rates: list[int] | tuple[int, ...],
+        upsample_initial_channel: int,
+        upsample_kernel_sizes: list[int] | tuple[int, ...],
+        gin_channels: int = 0,
+    ) -> None:
         super(Generator, self).__init__()
         self.num_kernels = len(resblock_kernel_sizes)
         self.num_upsamples = len(upsample_rates)
@@ -230,10 +232,10 @@ class Generator(torch.nn.Module):
 
     def forward(
         self,
-        x,
-        g = None,
-        n_res = None,
-    ):
+        x: torch.Tensor,
+        g: torch.Tensor | None = None,
+        n_res: int | torch.Tensor | None = None,
+    ) -> torch.Tensor:
         if n_res is not None:
             n = int(n_res.item()) if isinstance(n_res, torch.Tensor) else int(n_res)
             if n != x.shape[-1]:
@@ -258,7 +260,7 @@ class Generator(torch.nn.Module):
 
         return x
 
-    def remove_weight_norm(self):
+    def remove_weight_norm(self) -> None:
         for l in self.ups:
             remove_weight_norm(l)
         for l in self.resblocks:
@@ -283,13 +285,13 @@ class SineGen(torch.nn.Module):
 
     def __init__(
         self,
-        samp_rate,
-        harmonic_num=0,
-        sine_amp=0.1,
-        noise_std=0.003,
-        voiced_threshold=0,
-        flag_for_pulse=False,
-    ):
+        samp_rate: int,
+        harmonic_num: int = 0,
+        sine_amp: float = 0.1,
+        noise_std: float = 0.003,
+        voiced_threshold: float = 0,
+        flag_for_pulse: bool = False,
+    ) -> None:
         super(SineGen, self).__init__()
         self.sine_amp = sine_amp
         self.noise_std = noise_std
@@ -298,7 +300,7 @@ class SineGen(torch.nn.Module):
         self.sampling_rate = samp_rate
         self.voiced_threshold = voiced_threshold
 
-    def _f02uv(self, f0):
+    def _f02uv(self, f0: torch.Tensor) -> torch.Tensor:
         # generate uv signal
         uv = torch.ones_like(f0)
         uv = uv * (f0 > self.voiced_threshold)
@@ -307,7 +309,7 @@ class SineGen(torch.nn.Module):
         return uv
 
     ### @yxlllc
-    def _f02sine(self, f0, upp):
+    def _f02sine(self, f0: torch.Tensor, upp: int) -> torch.Tensor:
         rad = f0 / self.sampling_rate * torch.arange(
             1, upp + 1, device=f0.device
         )
@@ -324,7 +326,7 @@ class SineGen(torch.nn.Module):
         rad += rand_ini
         return torch.sin(2 * np.pi * rad)
 
-    def forward(self, f0, upp):
+    def forward(self, f0: torch.Tensor, upp: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """sine_tensor, uv = forward(f0)
         input F0: tensor(batchsize=1, length, dim=1)
                   f0 for unvoiced steps should be 0
@@ -364,13 +366,13 @@ class SourceModuleHnNSF(torch.nn.Module):
 
     def __init__(
         self,
-        sampling_rate,
-        harmonic_num=0,
-        sine_amp=0.1,
-        add_noise_std=0.003,
-        voiced_threshod=0,
-        is_half=True,
-    ):
+        sampling_rate: int,
+        harmonic_num: int = 0,
+        sine_amp: float = 0.1,
+        add_noise_std: float = 0.003,
+        voiced_threshod: float = 0,
+        is_half: bool = True,
+    ) -> None:
         super(SourceModuleHnNSF, self).__init__()
 
         self.sine_amp = sine_amp
@@ -386,7 +388,7 @@ class SourceModuleHnNSF(torch.nn.Module):
         self.l_tanh = torch.nn.Tanh()
         # self.ddtype:int = -1
 
-    def forward(self, x, upp = 1):
+    def forward(self, x: torch.Tensor, upp: int = 1) -> tuple[torch.Tensor, None, None]:
         # if self.ddtype ==-1:
         #     self.ddtype = self.l_linear.weight.dtype
         sine_wavs, uv, _ = self.l_sin_gen(x, upp)
@@ -404,17 +406,17 @@ class SourceModuleHnNSF(torch.nn.Module):
 class GeneratorNSF(torch.nn.Module):
     def __init__(
         self,
-        initial_channel,
-        resblock,
-        resblock_kernel_sizes,
-        resblock_dilation_sizes,
-        upsample_rates,
-        upsample_initial_channel,
-        upsample_kernel_sizes,
-        gin_channels,
-        sr,
-        is_half=False,
-    ):
+        initial_channel: int,
+        resblock: str,
+        resblock_kernel_sizes: list[int] | tuple[int, ...],
+        resblock_dilation_sizes: Sequence[Sequence[int]],
+        upsample_rates: list[int] | tuple[int, ...],
+        upsample_initial_channel: int,
+        upsample_kernel_sizes: list[int] | tuple[int, ...],
+        gin_channels: int,
+        sr: int,
+        is_half: bool = False,
+    ) -> None:
         super(GeneratorNSF, self).__init__()
         self.num_kernels = len(resblock_kernel_sizes)
         self.num_upsamples = len(upsample_rates)
@@ -477,11 +479,11 @@ class GeneratorNSF(torch.nn.Module):
 
     def forward(
         self,
-        x,
-        f0,
-        g = None,
-        n_res = None,
-    ):
+        x: torch.Tensor,
+        f0: torch.Tensor,
+        g: torch.Tensor | None = None,
+        n_res: int | torch.Tensor | None = None,
+    ) -> torch.Tensor:
         har_source, noi_source, uv = self.m_source(f0, self.upp)
         har_source = har_source.transpose(1, 2)
         if n_res is not None:
@@ -515,7 +517,7 @@ class GeneratorNSF(torch.nn.Module):
 
         return x
 
-    def remove_weight_norm(self):
+    def remove_weight_norm(self) -> None:
         for l in self.ups:
             remove_weight_norm(l)
         for l in self.resblocks:
@@ -531,26 +533,26 @@ sr2sr = {
 class SynthesizerTrnMs256NSFsid(nn.Module):
     def __init__(
         self,
-        spec_channels,
-        segment_size,
-        inter_channels,
-        hidden_channels,
-        filter_channels,
-        n_heads,
-        n_layers,
-        kernel_size,
-        p_dropout,
-        resblock,
-        resblock_kernel_sizes,
-        resblock_dilation_sizes,
-        upsample_rates,
-        upsample_initial_channel,
-        upsample_kernel_sizes,
-        spk_embed_dim,
-        gin_channels,
-        sr,
-        **kwargs
-    ):
+        spec_channels: int,
+        segment_size: int,
+        inter_channels: int,
+        hidden_channels: int,
+        filter_channels: int,
+        n_heads: int,
+        n_layers: int,
+        kernel_size: int,
+        p_dropout: float,
+        resblock: str,
+        resblock_kernel_sizes: list[int] | tuple[int, ...],
+        resblock_dilation_sizes: Sequence[Sequence[int]],
+        upsample_rates: list[int] | tuple[int, ...],
+        upsample_initial_channel: int,
+        upsample_kernel_sizes: list[int] | tuple[int, ...],
+        spk_embed_dim: int,
+        gin_channels: int,
+        sr: int | str,
+        **kwargs: Any
+    ) -> None:
         super(SynthesizerTrnMs256NSFsid, self).__init__()
         if isinstance(sr, str):
             sr = sr2sr[sr]
@@ -614,7 +616,7 @@ class SynthesizerTrnMs256NSFsid(nn.Module):
             + str(self.spk_embed_dim)
         )
 
-    def remove_weight_norm(self):
+    def remove_weight_norm(self) -> None:
         self.dec.remove_weight_norm()
         self.flow.remove_weight_norm()
         if hasattr(self, "enc_q"):
@@ -622,14 +624,14 @@ class SynthesizerTrnMs256NSFsid(nn.Module):
 
     def forward(
         self,
-        phone,
-        phone_lengths,
-        pitch,
-        pitchf,
-        y,
-        y_lengths,
-        ds = None,
-    ):  # 这里ds是id，[bs,1]
+        phone: torch.Tensor,
+        phone_lengths: torch.Tensor,
+        pitch: torch.Tensor,
+        pitchf: torch.Tensor,
+        y: torch.Tensor,
+        y_lengths: torch.Tensor,
+        ds: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:  # 这里ds是id，[bs,1]
         # print(1,pitch.shape)#[bs,t]
         g = self.emb_g(ds).unsqueeze(-1)  # [b, 256, 1]##1是t，广播的
         m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
@@ -646,15 +648,15 @@ class SynthesizerTrnMs256NSFsid(nn.Module):
 
     def infer(
         self,
-        phone,
-        phone_lengths,
-        pitch,
-        nsff0,
-        sid,
-        skip_head = None,
-        return_length = None,
-        return_length2 = None,
-    ):
+        phone: torch.Tensor,
+        phone_lengths: torch.Tensor,
+        pitch: torch.Tensor,
+        nsff0: torch.Tensor,
+        sid: torch.Tensor,
+        skip_head: int | torch.Tensor | None = None,
+        return_length: int | torch.Tensor | None = None,
+        return_length2: int | torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
         g = self.emb_g(sid).unsqueeze(-1)
         if skip_head is not None and return_length is not None:
             head = int(skip_head.item()) if isinstance(skip_head, torch.Tensor) else int(skip_head)
@@ -682,26 +684,26 @@ class SynthesizerTrnMs256NSFsid(nn.Module):
 class SynthesizerTrnMs768NSFsid(SynthesizerTrnMs256NSFsid):
     def __init__(
         self,
-        spec_channels,
-        segment_size,
-        inter_channels,
-        hidden_channels,
-        filter_channels,
-        n_heads,
-        n_layers,
-        kernel_size,
-        p_dropout,
-        resblock,
-        resblock_kernel_sizes,
-        resblock_dilation_sizes,
-        upsample_rates,
-        upsample_initial_channel,
-        upsample_kernel_sizes,
-        spk_embed_dim,
-        gin_channels,
-        sr,
-        **kwargs
-    ):
+        spec_channels: int,
+        segment_size: int,
+        inter_channels: int,
+        hidden_channels: int,
+        filter_channels: int,
+        n_heads: int,
+        n_layers: int,
+        kernel_size: int,
+        p_dropout: float,
+        resblock: str,
+        resblock_kernel_sizes: list[int] | tuple[int, ...],
+        resblock_dilation_sizes: Sequence[Sequence[int]],
+        upsample_rates: list[int] | tuple[int, ...],
+        upsample_initial_channel: int,
+        upsample_kernel_sizes: list[int] | tuple[int, ...],
+        spk_embed_dim: int,
+        gin_channels: int,
+        sr: int | str,
+        **kwargs: Any
+    ) -> None:
         super(SynthesizerTrnMs768NSFsid, self).__init__(
             spec_channels,
             segment_size,
@@ -739,26 +741,26 @@ class SynthesizerTrnMs768NSFsid(SynthesizerTrnMs256NSFsid):
 class SynthesizerTrnMs256NSFsid_nono(nn.Module):
     def __init__(
         self,
-        spec_channels,
-        segment_size,
-        inter_channels,
-        hidden_channels,
-        filter_channels,
-        n_heads,
-        n_layers,
-        kernel_size,
-        p_dropout,
-        resblock,
-        resblock_kernel_sizes,
-        resblock_dilation_sizes,
-        upsample_rates,
-        upsample_initial_channel,
-        upsample_kernel_sizes,
-        spk_embed_dim,
-        gin_channels,
-        sr=None,
-        **kwargs
-    ):
+        spec_channels: int,
+        segment_size: int,
+        inter_channels: int,
+        hidden_channels: int,
+        filter_channels: int,
+        n_heads: int,
+        n_layers: int,
+        kernel_size: int,
+        p_dropout: float,
+        resblock: str,
+        resblock_kernel_sizes: list[int] | tuple[int, ...],
+        resblock_dilation_sizes: Sequence[Sequence[int]],
+        upsample_rates: list[int] | tuple[int, ...],
+        upsample_initial_channel: int,
+        upsample_kernel_sizes: list[int] | tuple[int, ...],
+        spk_embed_dim: int,
+        gin_channels: int,
+        sr: int | str | None = None,
+        **kwargs: Any
+    ) -> None:
         super(SynthesizerTrnMs256NSFsid_nono, self).__init__()
         self.spec_channels = spec_channels
         self.inter_channels = inter_channels
@@ -819,13 +821,13 @@ class SynthesizerTrnMs256NSFsid_nono(nn.Module):
             + str(self.spk_embed_dim)
         )
 
-    def remove_weight_norm(self):
+    def remove_weight_norm(self) -> None:
         self.dec.remove_weight_norm()
         self.flow.remove_weight_norm()
         if hasattr(self, "enc_q"):
             self.enc_q.remove_weight_norm()
 
-    def forward(self, phone, phone_lengths, y, y_lengths, ds):  # 这里ds是id，[bs,1]
+    def forward(self, phone: torch.Tensor, phone_lengths: torch.Tensor, y: torch.Tensor, y_lengths: torch.Tensor, ds: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:  # 这里ds是id，[bs,1]
         g = self.emb_g(ds).unsqueeze(-1)  # [b, 256, 1]##1是t，广播的
         m_p, logs_p, x_mask = self.enc_p(phone, None, phone_lengths)
         z, m_q, logs_q, y_mask = self.enc_q(y, y_lengths, g=g)
@@ -838,13 +840,13 @@ class SynthesizerTrnMs256NSFsid_nono(nn.Module):
 
     def infer(
         self,
-        phone,
-        phone_lengths,
-        sid,
-        skip_head = None,
-        return_length = None,
-        return_length2 = None,
-    ):
+        phone: torch.Tensor,
+        phone_lengths: torch.Tensor,
+        sid: torch.Tensor,
+        skip_head: int | torch.Tensor | None = None,
+        return_length: int | torch.Tensor | None = None,
+        return_length2: int | torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
         g = self.emb_g(sid).unsqueeze(-1)
         if skip_head is not None and return_length is not None:
             head = int(skip_head.item()) if isinstance(skip_head, torch.Tensor) else int(skip_head)
@@ -871,26 +873,26 @@ class SynthesizerTrnMs256NSFsid_nono(nn.Module):
 class SynthesizerTrnMs768NSFsid_nono(SynthesizerTrnMs256NSFsid_nono):
     def __init__(
         self,
-        spec_channels,
-        segment_size,
-        inter_channels,
-        hidden_channels,
-        filter_channels,
-        n_heads,
-        n_layers,
-        kernel_size,
-        p_dropout,
-        resblock,
-        resblock_kernel_sizes,
-        resblock_dilation_sizes,
-        upsample_rates,
-        upsample_initial_channel,
-        upsample_kernel_sizes,
-        spk_embed_dim,
-        gin_channels,
-        sr=None,
-        **kwargs
-    ):
+        spec_channels: int,
+        segment_size: int,
+        inter_channels: int,
+        hidden_channels: int,
+        filter_channels: int,
+        n_heads: int,
+        n_layers: int,
+        kernel_size: int,
+        p_dropout: float,
+        resblock: str,
+        resblock_kernel_sizes: list[int] | tuple[int, ...],
+        resblock_dilation_sizes: Sequence[Sequence[int]],
+        upsample_rates: list[int] | tuple[int, ...],
+        upsample_initial_channel: int,
+        upsample_kernel_sizes: list[int] | tuple[int, ...],
+        spk_embed_dim: int,
+        gin_channels: int,
+        sr: int | str | None = None,
+        **kwargs: Any
+    ) -> None:
         super(SynthesizerTrnMs768NSFsid_nono, self).__init__(
             spec_channels,
             segment_size,
@@ -927,7 +929,7 @@ class SynthesizerTrnMs768NSFsid_nono(SynthesizerTrnMs256NSFsid_nono):
 
 
 class MultiPeriodDiscriminator(torch.nn.Module):
-    def __init__(self, use_spectral_norm=False):
+    def __init__(self, use_spectral_norm: bool = False) -> None:
         super(MultiPeriodDiscriminator, self).__init__()
         periods = [2, 3, 5, 7, 11, 17]
         # periods = [3, 5, 7, 11, 17, 23, 37]
@@ -938,7 +940,7 @@ class MultiPeriodDiscriminator(torch.nn.Module):
         ]
         self.discriminators = nn.ModuleList(discs)
 
-    def forward(self, y, y_hat):
+    def forward(self, y: torch.Tensor, y_hat: torch.Tensor) -> tuple[list[torch.Tensor], list[torch.Tensor], list[list[torch.Tensor]], list[list[torch.Tensor]]]:
         y_d_rs = []  #
         y_d_gs = []
         fmap_rs = []
@@ -957,7 +959,7 @@ class MultiPeriodDiscriminator(torch.nn.Module):
 
 
 class MultiPeriodDiscriminatorV2(torch.nn.Module):
-    def __init__(self, use_spectral_norm=False):
+    def __init__(self, use_spectral_norm: bool = False) -> None:
         super(MultiPeriodDiscriminatorV2, self).__init__()
         # periods = [2, 3, 5, 7, 11, 17]
         periods = [2, 3, 5, 7, 11, 17, 23, 37]
@@ -968,7 +970,7 @@ class MultiPeriodDiscriminatorV2(torch.nn.Module):
         ]
         self.discriminators = nn.ModuleList(discs)
 
-    def forward(self, y, y_hat):
+    def forward(self, y: torch.Tensor, y_hat: torch.Tensor) -> tuple[list[torch.Tensor], list[torch.Tensor], list[list[torch.Tensor]], list[list[torch.Tensor]]]:
         y_d_rs = []  #
         y_d_gs = []
         fmap_rs = []
@@ -987,7 +989,7 @@ class MultiPeriodDiscriminatorV2(torch.nn.Module):
 
 
 class DiscriminatorS(torch.nn.Module):
-    def __init__(self, use_spectral_norm=False):
+    def __init__(self, use_spectral_norm: bool = False) -> None:
         super(DiscriminatorS, self).__init__()
         norm_f = weight_norm if use_spectral_norm == False else spectral_norm
         self.convs = nn.ModuleList(
@@ -1002,7 +1004,7 @@ class DiscriminatorS(torch.nn.Module):
         )
         self.conv_post = norm_f(Conv1d(1024, 1, 3, 1, padding=1))
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, list[torch.Tensor]]:
         fmap = []
 
         for l in self.convs:
@@ -1017,7 +1019,7 @@ class DiscriminatorS(torch.nn.Module):
 
 
 class DiscriminatorP(torch.nn.Module):
-    def __init__(self, period, kernel_size=5, stride=3, use_spectral_norm=False):
+    def __init__(self, period: int, kernel_size: int = 5, stride: int = 3, use_spectral_norm: bool = False) -> None:
         super(DiscriminatorP, self).__init__()
         self.period = period
         self.use_spectral_norm = use_spectral_norm
@@ -1073,7 +1075,7 @@ class DiscriminatorP(torch.nn.Module):
         )
         self.conv_post = norm_f(Conv2d(1024, 1, (3, 1), 1, padding=(1, 0)))
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, list[torch.Tensor]]:
         fmap = []
 
         # 1d to 2d

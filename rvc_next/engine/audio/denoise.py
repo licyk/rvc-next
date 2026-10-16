@@ -1,5 +1,7 @@
 """TorchGate spectral gating (Asaf Zorea), ported unchanged from the original ``tools/torchgate/``."""
 
+from typing import Any
+
 import torch
 from torch.nn.functional import conv1d, conv2d
 
@@ -7,7 +9,7 @@ from rvc_next.engine.f0.rmvpe import STFT
 
 
 @torch.no_grad()
-def amp_to_db(x, eps=torch.finfo(torch.float64).eps, top_db=40):
+def amp_to_db(x: torch.Tensor, eps: float = torch.finfo(torch.float64).eps, top_db: float = 40) -> torch.Tensor:
     """
     Convert the input tensor from amplitude to decibel scale.
 
@@ -28,7 +30,7 @@ def amp_to_db(x, eps=torch.finfo(torch.float64).eps, top_db=40):
 
 
 @torch.no_grad()
-def temperature_sigmoid(x, x0, temp_coeff):
+def temperature_sigmoid(x: torch.Tensor, x0: float, temp_coeff: float) -> torch.Tensor:
     """
     Apply a sigmoid function with temperature scaling.
 
@@ -44,7 +46,7 @@ def temperature_sigmoid(x, x0, temp_coeff):
 
 
 @torch.no_grad()
-def linspace(start, stop, num=50, endpoint=True, **kwargs):
+def linspace(start: float | torch.Tensor, stop: float | torch.Tensor, num: int = 50, endpoint: bool = True, **kwargs: Any) -> torch.Tensor:
     """
     Generate a linearly spaced 1-D tensor.
 
@@ -97,19 +99,19 @@ class TorchGate(torch.nn.Module):
     @torch.no_grad()
     def __init__(
         self,
-        sr,
-        nonstationary=False,
-        n_std_thresh_stationary=1.5,
-        n_thresh_nonstationary=1.3,
-        temp_coeff_nonstationary=0.1,
-        n_movemean_nonstationary=20,
-        prop_decrease=1.0,
-        n_fft=1024,
-        win_length=None,
-        hop_length=None,
-        freq_mask_smooth_hz=500,
-        time_mask_smooth_ms=50,
-    ):
+        sr: int,
+        nonstationary: bool = False,
+        n_std_thresh_stationary: float = 1.5,
+        n_thresh_nonstationary: float = 1.3,
+        temp_coeff_nonstationary: float = 0.1,
+        n_movemean_nonstationary: int = 20,
+        prop_decrease: float = 1.0,
+        n_fft: int = 1024,
+        win_length: int | None = None,
+        hop_length: int | None = None,
+        freq_mask_smooth_hz: float | None = 500,
+        time_mask_smooth_ms: float | None = 50,
+    ) -> None:
         super().__init__()
 
         # General Params
@@ -142,7 +144,7 @@ class TorchGate(torch.nn.Module):
         self.register_buffer("smoothing_filter", self._generate_mask_smoothing_filter())
 
     @torch.no_grad()
-    def _generate_mask_smoothing_filter(self):
+    def _generate_mask_smoothing_filter(self) -> torch.Tensor | None:
         """
         A PyTorch module that applies a spectral gate to an input signal using the STFT.
 
@@ -183,7 +185,7 @@ class TorchGate(torch.nn.Module):
         return smoothing_filter / smoothing_filter.sum()
 
     @torch.no_grad()
-    def _stationary_mask(self, X_db, xn=None):
+    def _stationary_mask(self, X_db: torch.Tensor, xn: torch.Tensor | None = None) -> torch.Tensor:
         """
         Computes a stationary binary mask to filter out noise in a log-magnitude spectrogram.
 
@@ -231,7 +233,7 @@ class TorchGate(torch.nn.Module):
         return sig_mask
 
     @torch.no_grad()
-    def _nonstationary_mask(self, X_abs):
+    def _nonstationary_mask(self, X_abs: torch.Tensor) -> torch.Tensor:
         """
         Computes a non-stationary binary mask to filter out noise in a log-magnitude spectrogram.
 
@@ -261,7 +263,8 @@ class TorchGate(torch.nn.Module):
 
         return sig_mask
 
-    def forward(self, x, xn=None):
+    # torch declares Module.forward as a writable Callable attribute; this implements the method.
+    def forward(self, x: torch.Tensor, xn: torch.Tensor | None = None) -> torch.Tensor:  # ty: ignore[invalid-mutable-override]
         """
         Apply the proposed algorithm to the input signal.
 
