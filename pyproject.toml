@@ -79,10 +79,20 @@ directml = ["torch-directml", "onnxruntime-directml"]
 effects = ["pedalboard>=0.9.16,!=0.9.25"]
 # Text to speech as an audio source (core/tts): Microsoft Edge's online voices.
 tts = ["edge-tts>=7,<8"]
+# Training logs (engine/train/loop.py); torch.utils.tensorboard requires TensorBoard 1.15+.
+tensorboard = ["tensorboard>=1.15,<3"]
 
 [dependency-groups]
 # tomli lets ty resolve the Python 3.10 fallback import on newer Pythons.
 dev = ["pytest", "pytest-cov", "ruff", "ty", "python-docstring-checker", "httpx", "tomli", "pedalboard>=0.9.16,!=0.9.25", "edge-tts>=7,<8"]
+# Opt-in reference libraries for parity tests, separate from normal development/runtime installs.
+# Install torchaudio with the matching torch version/build first (see development-setup).
+# Pin the reference implementations to the versions whose code/weights were ported.
+parity = ["torchaudio", "torchcrepe==0.0.24", "torchfcpe==0.0.4", "onnxruntime>=1.19,<2", "swift-f0==0.3.0"]
+# scripts/extract_swift_f0.py writes ONNX IR 10 models (supported by onnx 1.16+).
+extract-swift-f0 = ["onnx>=1.16,<2", "onnxruntime>=1.19,<2", "swift-f0==0.3.0"]
+# scripts/build_wheel.py invokes python -m build.
+build = ["build<2"]
 
 [project.scripts]
 rvc-next = "rvc_next.cli.app:main"
@@ -160,7 +170,7 @@ exclude = [
     "rvc_next/engine/models/transforms.py",
     "rvc_next/engine/models/synthesizer.py",
     "rvc_next/engine/f0/rmvpe.py",
-    # A one-off maintenance script that needs onnx, onnxruntime and swift-f0, which no environment installs.
+    # A one-off maintenance script whose dependencies are in the opt-in extract-swift-f0 group.
     "scripts/extract_swift_f0.py",
 ]
 

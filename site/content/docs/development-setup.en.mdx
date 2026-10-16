@@ -39,13 +39,20 @@ RVC Next has ported torchaudio's `Resample` and torchfcpe's FCPE inference path 
 To run these cases, install torchaudio and torch **as a matching pair** at the same version: torchaudio's final release is 2.11, it declares no torch requirement, and it refuses to load alongside newer torch versions.
 
 </Callout>
+
+Other opt-in dependencies are also declared in `pyproject.toml`:
+
+- TensorBoard training logs: `uv pip install -e '.[tensorboard]'`.
+- Comparisons against the original libraries: install matching torch / torchaudio builds as described above, then run `uv pip install --group parity`; this group also contains the torchcrepe, torchfcpe and SwiftF0 reference implementations and is separate from `dev`.
+- Extracting SwiftF0 weights again: `uv pip install --group extract-swift-f0`, then run `scripts/extract_swift_f0.py`.
+
 ### Other system dependencies
 
 | Dependency | Purpose | Installation |
 | --- | --- | --- |
 | PortAudio (`libportaudio2` on Linux) | `sounddevice` opens audio devices; live voice conversion and device enumeration tests need it | System package manager; CI uses `sudo apt-get install -y libportaudio2` |
 | [bun](https://bun.sh) | Web UI package manager, build and tests | Official installer; `dev.py` and `build_wheel.py` search `PATH`, then `~/.bun/bin/bun`, so a fresh installation works even before a new shell updates `PATH` |
-| `build` | `scripts/build_wheel.py` calls `python -m build` | `uv pip install build` (outside the `dev` group; needed only for packaging) |
+| `build` | `scripts/build_wheel.py` calls `python -m build` | `uv pip install --group build` (outside the `dev` group; needed only for packaging) |
 
 ### Real assets
 

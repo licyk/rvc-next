@@ -39,13 +39,20 @@ RVC Next 已经移植了 torchaudio 的 `Resample` 和 torchfcpe 的 FCPE 推理
 若要跑这些用例，torchaudio 必须与 torch **成对**安装同一版本：torchaudio 的最后一个版本是 2.11，不声明对 torch 的要求，与更新的 torch 放在一起会拒绝加载。
 
 </Callout>
+
+其他按需依赖也在 `pyproject.toml` 中声明：
+
+- 训练的 TensorBoard 日志：`uv pip install -e '.[tensorboard]'`。
+- 与原库比较的测试：先按上面的要求安装匹配的 torch / torchaudio，再执行 `uv pip install --group parity`；此组还包含 torchcrepe、torchfcpe 和 SwiftF0 的参考实现，不随 `dev` 组安装。
+- 重新提取 SwiftF0 权重：`uv pip install --group extract-swift-f0`，然后运行 `scripts/extract_swift_f0.py`。
+
 ### 其他系统依赖
 
 | 依赖 | 用途 | 安装 |
 | --- | --- | --- |
 | PortAudio（Linux 上的 `libportaudio2`） | `sounddevice` 打开音频设备；实时变声和设备枚举测试需要它 | 系统包管理器；CI 中是 `sudo apt-get install -y libportaudio2` |
 | [bun](https://bun.sh) | Web UI 的包管理器、构建与测试 | 官方安装脚本；`dev.py` 和 `build_wheel.py` 会先找 `PATH`，再找 `~/.bun/bin/bun`，所以刚装完、新 shell 还没更新 `PATH` 时也能用 |
-| `build` | `scripts/build_wheel.py` 调用 `python -m build` | `uv pip install build`（不在 `dev` 组里，只有打包时需要） |
+| `build` | `scripts/build_wheel.py` 调用 `python -m build` | `uv pip install --group build`（不在 `dev` 组里，只有打包时需要） |
 
 ### 真实资源
 
