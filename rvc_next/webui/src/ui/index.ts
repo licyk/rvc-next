@@ -64,7 +64,7 @@ export { default as Tooltip } from '@/ui/Tooltip.vue';
 export { default as TopAppBar } from '@/ui/TopAppBar.vue';
 export { default as Waveform } from '@/ui/Waveform.vue';
 export * as icons from '@/ui/icons';
-export { collapseHooks, containerFrom, prefersReducedMotion, staggerStyle, TRANSITIONS, useAxisDirection } from '@/ui/motion/transitions';
+export { collapseHooks, containerFrom, pinLeaving, prefersReducedMotion, staggerStyle, TRANSITIONS, useAxisDirection, useHeightGlide } from '@/ui/motion/transitions';
 export { installViewTransitions, morphStyle } from '@/ui/motion/viewTransition';
 export { useElementHeight } from '@/ui/useElementHeight';
 export { LAYER_Z, layerOpen, snackbarZ, useLayer, useLayerBase, type LayerKind, type LayerOptions } from '@/ui/layers';

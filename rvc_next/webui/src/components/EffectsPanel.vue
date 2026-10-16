@@ -1,18 +1,21 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useEffectsCatalog } from '@/api/queries/convert';
 import type { EffectModel, EffectSpec } from '@/api/types';
 import { useI18n } from '@/i18n';
-import { AppButton, AppMenu, IconButton, ParamSlider, TRANSITIONS, icons, type MenuItem } from '@/ui';
+import { AppButton, AppMenu, IconButton, ParamSlider, TRANSITIONS, icons, pinLeaving, useHeightGlide, type MenuItem } from '@/ui';
 
 /** A chain of effects over the converted voice (pedalboard on the server), applied top to bottom. */
-/** ``live``: offer only the effects that suit a stream. */
-const props = defineProps<{ disabled?: boolean; live?: boolean }>();
+/** ``live``: offer only the effects that suit a stream. ``section``: titled as a page section (Live), not a sub-heading. */
+const props = defineProps<{ disabled?: boolean; live?: boolean; section?: boolean }>();
 const model = defineModel<EffectModel[]>({ required: true });
 /** A finished change (a slider let go, an effect added, moved or removed): Live sends it on. */
 const emit = defineEmits<{ change: [EffectModel[]] }>();
 const { t, tOr } = useI18n();
 const catalog = useEffectsCatalog();
+// The chain's box eases to its new height as effects come and go, so the page under it glides.
+const box = ref<HTMLElement | null>(null);
+const glide = useHeightGlide(box);
 
 const MAX = 16;
 const specs = computed(() => new Map((catalog.data.value?.effects ?? []).map((s) => [s.kind, s])));
@@ -49,7 +52,7 @@ function setParam(i: number, name: string, v: number, done: boolean) {
 }
 function add(kind: string) {
   if (model.value.length >= MAX) return;
-  commit([...model.value, { kind: kind as EffectModel['kind'], params: {} }]);
+  void glide(() => commit([...model.value, { kind: kind as EffectModel['kind'], params: {} }]));
 }
 function move(i: number, by: -1 | 1) {
   const next = model.value.slice();
@@ -58,51 +61,59 @@ function move(i: number, by: -1 | 1) {
   commit(next);
 }
 function remove(i: number) {
-  commit(model.value.filter((_, j) => j !== i));
+  void glide(() => commit(model.value.filter((_, j) => j !== i)));
 }
 </script>
 
 <template>
   <section class="effects" :aria-label="t('effects.title')">
     <div class="head">
-      <h3 class="type-title-small title">{{ t('effects.title') }}</h3>
+      <h2 v-if="props.section" class="type-title-medium title">{{ t('effects.title') }}</h2>
+      <h3 v-else class="type-title-small title">{{ t('effects.title') }}</h3>
       <AppMenu v-if="available" :items="addItems" align="start" @select="add">
         <template #default="{ toggle }">
           <AppButton variant="text" :icon="icons.Plus" :disabled="props.disabled || model.length >= MAX" @click="toggle">{{ t('effects.add') }}</AppButton>
         </template>
       </AppMenu>
     </div>
-    <p v-if="!available" class="type-body-small muted">{{ t('effects.unavailable') }} <code>pip install rvc-next[effects]</code></p>
-    <p v-else-if="!model.length" class="type-body-small muted">{{ t('effects.empty') }}</p>
-    <TransitionGroup :name="TRANSITIONS.list" tag="ol" class="chain">
-      <li v-for="(e, i) in model" :key="keyOf(e)" class="effect">
-        <div class="effect-head">
-          <span class="type-label-large">{{ i + 1 }}. {{ kindLabel(e.kind) }}</span>
-          <span class="tools">
-            <IconButton :icon="icons.ChevronUp" :label="t('effects.up')" :disabled="props.disabled || i === 0" @click="move(i, -1)" />
-            <IconButton :icon="icons.ChevronDown" :label="t('effects.down')" :disabled="props.disabled || i === model.length - 1" @click="move(i, 1)" />
-            <IconButton :icon="icons.Trash2" :label="t('effects.remove')" :disabled="props.disabled" @click="remove(i)" />
-          </span>
-        </div>
-        <div v-if="specs.get(e.kind)" class="fields">
-          <ParamSlider
-            v-for="p in specs.get(e.kind)!.params"
-            :key="p.name"
-            :model-value="value(e, specs.get(e.kind)!, p.name)"
-            :label="paramLabel(p.name)"
-            :min="p.min"
-            :max="p.max"
-            :step="step(p.min, p.max)"
-            :unit="p.unit"
-            :default-value="p.default"
-            :disabled="props.disabled"
-            :reset-label="t('common.reset')"
-            @update:model-value="setParam(i, p.name, $event, false)"
-            @commit="setParam(i, p.name, $event, true)"
-          />
-        </div>
-      </li>
-    </TransitionGroup>
+    <div ref="box">
+      <div class="body">
+        <!-- The hint fades in once the last effect has faded out, never over it. -->
+        <Transition :name="TRANSITIONS.list" @before-leave="pinLeaving">
+          <p v-if="!available" key="unavailable" class="type-body-small muted">{{ t('effects.unavailable') }} <code>pip install rvc-next[effects]</code></p>
+          <p v-else-if="!model.length" key="empty" class="type-body-small muted after-leave">{{ t('effects.empty') }}</p>
+        </Transition>
+        <TransitionGroup :name="TRANSITIONS.list" tag="ol" class="chain" @before-leave="pinLeaving">
+          <li v-for="(e, i) in model" :key="keyOf(e)" class="effect">
+            <div class="effect-head">
+              <span class="type-label-large">{{ i + 1 }}. {{ kindLabel(e.kind) }}</span>
+              <span class="tools">
+                <IconButton :icon="icons.ChevronUp" :label="t('effects.up')" :disabled="props.disabled || i === 0" @click="move(i, -1)" />
+                <IconButton :icon="icons.ChevronDown" :label="t('effects.down')" :disabled="props.disabled || i === model.length - 1" @click="move(i, 1)" />
+                <IconButton :icon="icons.Trash2" :label="t('effects.remove')" :disabled="props.disabled" @click="remove(i)" />
+              </span>
+            </div>
+            <div v-if="specs.get(e.kind)" class="fields">
+              <ParamSlider
+                v-for="p in specs.get(e.kind)!.params"
+                :key="p.name"
+                :model-value="value(e, specs.get(e.kind)!, p.name)"
+                :label="paramLabel(p.name)"
+                :min="p.min"
+                :max="p.max"
+                :step="step(p.min, p.max)"
+                :unit="p.unit"
+                :default-value="p.default"
+                :disabled="props.disabled"
+                :reset-label="t('common.reset')"
+                @update:model-value="setParam(i, p.name, $event, false)"
+                @commit="setParam(i, p.name, $event, true)"
+              />
+            </div>
+          </li>
+        </TransitionGroup>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -111,6 +122,9 @@ function remove(i: number) {
 .head { display: flex; align-items: center; justify-content: space-between; gap: var(--app-space-2); }
 .title { margin: 0; }
 .muted { color: var(--md-sys-color-on-surface-variant); margin: 0; }
+/* Positioned: leaving items (pinLeaving) and the leaving hint are placed inside it. */
+.body { position: relative; min-width: 0; }
+.after-leave { --stagger: var(--md-sys-motion-duration-short3); }
 .chain { position: relative; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--app-space-2); }
 .effect { border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-shape-corner-medium); padding: var(--app-space-2) var(--app-space-4) var(--app-space-3); }
 .effect-head { display: flex; align-items: center; justify-content: space-between; gap: var(--app-space-2); }

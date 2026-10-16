@@ -521,6 +521,10 @@ rule tests come from Hanaikada.
   Panes switched by a segmented control (Live's server devices | this browser, the single/multi
   speaker mode in New experiment and the Dataset step) use `ui/AxisPanes`: the same slide, and the
   box eases to the new pane's height (clipping only meanwhile, as pickers list in place).
+  Lists whose cards come and go (`EffectsPanel`) pin leaving cards to their box (`pinLeaving`; a bare
+  `position: absolute` shrinks them and its overflow lifted the sticky footer) and glide their box's
+  height (`useHeightGlide(change)`, measured on the inner element: collapsing the box to measure
+  clamped the page's scroll position).
 - **Top bar:** always the app name (RVC Next); actions end with Help (a link to the docs site in
   the UI's language: `/docs`, `/en/docs`) and the theme button, which cycles
   light → dark → follow the system (Hanaikada's), its icon showing the current choice.

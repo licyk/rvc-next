@@ -247,7 +247,7 @@ const stateError = computed(() => (stateErrorKey.value !== null && stateErrorKey
       </Surface>
       <Surface :level="0" shape="large" class="section">
         <StreamParamsPanel v-model="stream" @change="onStream" />
-        <EffectsPanel live :model-value="stream.effects ?? []" @update:model-value="stream = { ...stream, effects: $event }" @change="onStream({ ...stream, effects: $event })" />
+        <EffectsPanel live section :model-value="stream.effects ?? []" @update:model-value="stream = { ...stream, effects: $event }" @change="onStream({ ...stream, effects: $event })" />
       </Surface>
       <Surface v-if="recordingItems.length" :level="0" shape="large" class="section">
         <h2 class="type-title-medium title">{{ t('live.recordings') }}</h2>

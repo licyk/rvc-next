@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { defineComponent, h, nextTick, ref, Transition } from 'vue';
-import { prefersReducedMotion, TRANSITIONS } from '@/ui/motion/transitions';
+import { pinLeaving, prefersReducedMotion, TRANSITIONS } from '@/ui/motion/transitions';
 
 const SRC = join(process.cwd(), 'src');
 
@@ -118,6 +118,13 @@ describe('motion (MD3 adoption §5.5.4)', () => {
     expect(seen.at(-1)).toEqual({});
     delete document.documentElement.dataset.motion;
     delete (document as unknown as { startViewTransition?: unknown }).startViewTransition;
+  });
+
+  it('pins a leaving list item to its own box', () => {
+    const el = document.createElement('li');
+    Object.defineProperties(el, { offsetTop: { value: 120 }, offsetLeft: { value: 0 }, offsetWidth: { value: 640 } });
+    pinLeaving(el);
+    expect([el.style.top, el.style.left, el.style.width]).toEqual(['120px', '0px', '640px']);
   });
 
   it('gives reduced motion a short crossfade between destinations', () => {

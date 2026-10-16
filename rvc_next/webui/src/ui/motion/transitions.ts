@@ -1,5 +1,5 @@
 /** Named transitions and helpers for the motion system. See motion.css. */
-import { ref, watch, type Ref } from 'vue';
+import { nextTick, ref, watch, type Ref } from 'vue';
 
 export const TRANSITIONS = {
   fadeThrough: 'fade-through',
@@ -84,3 +84,52 @@ export const collapseHooks = {
     e.style.height = '0';
   },
 };
+
+/**
+ * ``onBeforeLeave`` for a ``list`` TransitionGroup: the leaving item is taken out of the flow
+ * (``position: absolute``), which would shrink it to its content's width and drop it to wherever
+ * its static position lands; pinned to its own box, it fades out exactly where it was. The list
+ * (or the element around it) must be the positioned parent.
+ */
+export function pinLeaving(el: Element) {
+  const e = el as HTMLElement;
+  Object.assign(e.style, { top: `${e.offsetTop}px`, left: `${e.offsetLeft}px`, width: `${e.offsetWidth}px` });
+}
+
+/**
+ * A box that eases to its new height when what it holds is added or removed, instead of jumping
+ * (and taking the page under it, a sticky footer included, along). Pass the change to the returned
+ * function: it holds the current height, makes the change, waits for the DOM to update, then glides
+ * to the new height over the list's move time, clipping only meanwhile. Not under reduced motion.
+ * The box holds one element, measured for the new height: letting the box itself collapse to
+ * measure would clamp the page's scroll position when the page ends below it.
+ */
+export function useHeightGlide(box: Ref<HTMLElement | null | undefined>): (change: () => void) => Promise<void> {
+  const release = (el: HTMLElement) => {
+    el.style.height = el.style.overflow = el.style.transition = '';
+    el.removeEventListener('transitionend', onEnd);
+  };
+  function onEnd(e: Event) {
+    const el = e.currentTarget as HTMLElement;
+    if (e.target === el && (e as TransitionEvent).propertyName === 'height') release(el);
+  }
+  return async (change) => {
+    const el = box.value;
+    if (!el || prefersReducedMotion()) return change();
+    // Mid-glide, this is the height now shown, so a second change carries on from there.
+    const from = el.getBoundingClientRect().height;
+    el.style.transition = 'none';
+    el.style.height = `${from}px`;
+    el.style.overflow = 'clip';
+    // The change queues the re-render, so the tick waited for is the one that applies it.
+    change();
+    await nextTick();
+    const to = el.firstElementChild?.getBoundingClientRect().height ?? 0;
+    if (Math.abs(to - from) < 0.5) return release(el);
+    void el.offsetHeight;
+    el.addEventListener('transitionend', onEnd);
+    el.style.transition = 'height var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized)';
+    el.style.height = `${to}px`;
+    if (parseFloat(getComputedStyle(el).transitionDuration) === 0) release(el);
+  };
+}
