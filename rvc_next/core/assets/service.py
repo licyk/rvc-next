@@ -25,13 +25,38 @@ from rvc_next.core.jobs.models import Job, JobStep
 from rvc_next.core.jobs.service import JobContext, JobService, JobSpec
 from rvc_next.core.net.http import HttpClientProvider
 from rvc_next.core.settings import SettingsService
+from rvc_next.core.settings.models import DownloadSettings
 
 logger = logging.getLogger(__name__)
 
 ENDPOINTS = {"huggingface": "https://huggingface.co", "hf-mirror": "https://hf-mirror.com"}
+MODELSCOPE = "https://www.modelscope.cn"
+SOURCES = ("huggingface", "hf-mirror", "modelscope")
+"""The public sources, tried in this order after the chosen one when it lacks a file or serves it damaged."""
 CHUNK = 1024 * 1024
 RETRIES = 4
 VERIFIED_FILE = "assets-verified.json"
+
+
+def hf_endpoint(d: DownloadSettings) -> str:
+    """The Hugging Face endpoint of the download settings (huggingface.co when the source is ModelScope)."""
+    return d.endpoint.rstrip("/") if d.source == "custom" and d.endpoint else ENDPOINTS.get(d.source, ENDPOINTS["huggingface"])
+
+
+def _sizes(f: AssetFile | CatalogVoiceFile) -> set[int]:
+    return {f.size, *(a.size for a in getattr(f, "alternates", []))}
+
+
+def _digests(f: AssetFile | CatalogVoiceFile) -> set[str]:
+    return {d for d in (f.sha256, *(a.sha256 for a in getattr(f, "alternates", []))) if d}
+
+
+class _WrongContent(Exception):
+    """The source serves something else under this file's name (another size or checksum)."""
+
+
+class _Unavailable(Exception):
+    """The source does not have the file, or could not be reached."""
 
 
 def load_catalog() -> tuple[list[Repository], list[AssetSpec], list[CatalogVoice]]:
@@ -109,7 +134,7 @@ class AssetService:
         checks: list[bool | None] = []
         for f in spec.files:
             path = self.root / f.path
-            if path.is_file() and path.stat().st_size == f.size:
+            if path.is_file() and path.stat().st_size in _sizes(f):
                 installed += f.size
                 key = self._file_key(f)
                 checks.append(verified.get(key) if key else None)
@@ -219,11 +244,29 @@ class AssetService:
 
     def url(self, f: AssetFile | CatalogVoiceFile) -> str:
         """The download URL of ``f``: the chosen repository if it hosts the file, else another that does."""
+        return self.urls(f)[0]
+
+    def urls(self, f: AssetFile | CatalogVoiceFile) -> list[str]:
+        """Where ``f`` can be downloaded, in the order tried: the chosen source first, then the other
+        public ones; at each, the chosen repository if it hosts the file, then the others that do. Only
+        rvc-model has a ModelScope copy: with ModelScope chosen, a file elsewhere only (the community
+        models' own repositories, Applio's) comes from Hugging Face."""
         d = self._settings.settings.downloads
-        repo_id = d.repository if d.repository in f.sources else next(iter(f.sources))
-        repo = self._repo(repo_id)
-        base = d.endpoint.rstrip("/") if d.source == "custom" and d.endpoint else ENDPOINTS.get(d.source, ENDPOINTS["huggingface"])
-        return f"{base}/{repo.repo}/resolve/{repo.revision}/{f.sources[repo_id]}"
+        repo_ids = sorted(f.sources, key=lambda r: r != d.repository)
+        out: list[str] = []
+        for source in (d.source, *(s for s in SOURCES if s != d.source)):
+            for repo_id in repo_ids:
+                repo = self._repo(repo_id)
+                if source == "modelscope":
+                    if not repo.modelscope:
+                        continue
+                    url = f"{MODELSCOPE}/models/{repo.modelscope}/resolve/{repo.modelscope_revision}/{f.sources[repo_id]}"
+                else:
+                    base = hf_endpoint(d) if source == d.source else ENDPOINTS[source]
+                    url = f"{base}/{repo.repo}/resolve/{repo.revision}/{f.sources[repo_id]}"
+                if url not in out:
+                    out.append(url)
+        return out
 
     def _job_spec(self, request: dict[str, Any]) -> JobSpec:
         if request.get("voices"):
@@ -264,13 +307,13 @@ class AssetService:
                         on_bytes(n)
                         ctx.transfer(base + n, total)
 
-                    if not verify_only and not (path.is_file() and path.stat().st_size == f.size):
-                        ctx.log(f"Downloading {self.url(f)} ({f.size / 2**20:.1f} MiB)")
-                        self._fetch(ctx, f, path, on_fetch)
+                    checked = False
+                    if not verify_only and not (path.is_file() and path.stat().st_size in _sizes(f)):
+                        checked = self._fetch(ctx, f, path, on_fetch, on_bytes if check else None)
                     if not path.is_file():
                         ok = False
                     elif check and f.sha256:
-                        good = _sha256(path, on_bytes, ctx) == f.sha256
+                        good = checked or _sha256(path, on_bytes, ctx) in _digests(f)
                         key = self._file_key(f)
                         if key:
                             verified[key] = good
@@ -294,44 +337,77 @@ class AssetService:
             raise RvcNextError(f"{'Verification' if verify_only else 'Download'} failed for {', '.join(failed)}", {"assets": failed})
         return {"assets": results}
 
-    def _fetch(self, ctx: JobContext, f: AssetFile | CatalogVoiceFile, path: Path, on_bytes: Any) -> None:
+    def _fetch(self, ctx: JobContext, f: AssetFile | CatalogVoiceFile, path: Path, on_bytes: Any, on_hash: Any = None) -> bool:
+        """Download ``f`` to ``path`` from the first source that has it whole and, with ``on_hash``,
+        matching its checksum; return whether the checksum was checked. A source that lacks the file,
+        serves another size or content, or stays unreachable after its retries gives way to the next."""
         part = path.with_name(path.name + ".part")
         path.parent.mkdir(parents=True, exist_ok=True)
-        url = self.url(f)
-        name = url.rsplit("/", 1)[-1]
-        last_error: Exception | None = None
+        name = path.name
+        errors: list[str] = []
+        urls = self.urls(f)
+        for i, url in enumerate(urls):
+            ctx.log(f"Downloading {url} ({f.size / 2**20:.1f} MiB)")
+            try:
+                self._fetch_from(ctx, url, f, part, on_bytes)
+                if on_hash is not None and f.sha256 and _sha256(part, on_hash, ctx) not in _digests(f):
+                    raise _WrongContent("its checksum does not match")
+            except _WrongContent as e:
+                part.unlink(missing_ok=True)
+                errors.append(f"{url}: {e}")
+            except _Unavailable as e:
+                errors.append(f"{url}: {e}")
+            else:
+                part.replace(path)
+                return on_hash is not None and bool(f.sha256)
+            if i + 1 < len(urls):
+                ctx.log(f"{errors[-1]}; trying the next source")
+        raise RvcNextError(f"Could not download {name}", {"file": name, "errors": errors[-6:]})
+
+    def _fetch_from(self, ctx: JobContext, url: str, f: AssetFile | CatalogVoiceFile, part: Path, on_bytes: Any) -> None:
+        """Download ``url`` into ``part``, resuming what is there, until it holds one of ``f``'s sizes."""
+        sizes = _sizes(f)
+        last: str = ""
         for attempt in range(RETRIES):
             ctx.check_cancel()
             have = part.stat().st_size if part.exists() else 0
-            if have > f.size:
+            if have > max(sizes):
                 part.unlink()
                 have = 0
+            if have in sizes:
+                return
             headers = {"Range": f"bytes={have}-"} if have else {}
             try:
                 with self._http.client().stream("GET", url, headers=headers) as r:
-                    if r.status_code == 416 and have == f.size:
-                        break
+                    if r.status_code in (401, 403, 404, 410):
+                        raise _Unavailable(f"HTTP {r.status_code}")
+                    if r.status_code == 416:
+                        raise _WrongContent("the file there is shorter")
                     if r.status_code not in (200, 206):
-                        raise RvcNextError(f"HTTP {r.status_code} for {url}")
-                    if r.status_code == 200 and have:
+                        raise httpx.HTTPStatusError(f"HTTP {r.status_code}", request=r.request, response=r)
+                    if r.status_code == 200:
                         have = 0
+                    total = _stated_size(r, have)
+                    if total is not None and total not in sizes:
+                        raise _WrongContent(f"the file there is {total} bytes, not {f.size}")
+                    got = 0
                     with open(part, "ab" if have else "wb") as out:
                         for chunk in r.iter_bytes(CHUNK):
                             ctx.check_cancel()
                             out.write(chunk)
                             have += len(chunk)
+                            got += len(chunk)
                             on_bytes(have)
-                if have >= f.size:
-                    break
+                if have in sizes:
+                    return
+                if have > max(sizes) or not got:
+                    raise _WrongContent(f"the file there is not {f.size} bytes")
+                last = "the transfer ended early"
             except (httpx.HTTPError, OSError) as e:
-                last_error = e
-                ctx.log(f"Attempt {attempt + 1} failed: {e}")
+                last = str(e) or type(e).__name__
+                ctx.log(f"Attempt {attempt + 1} failed: {last}")
                 time.sleep(min(2**attempt, 10))
-        else:
-            raise RvcNextError(f"Could not download {name}: {last_error}")
-        if part.stat().st_size != f.size:
-            raise RvcNextError(f"Size mismatch for {name}: {part.stat().st_size} != {f.size}")
-        part.replace(path)
+        raise _Unavailable(last)
 
     # -- the voice catalog -----------------------------------------------------------
 
@@ -405,10 +481,7 @@ class AssetService:
                             ctx.progress((base + n) / total, step)
                             ctx.transfer(base + n, total)
 
-                        ctx.log(f"Downloading {self.url(f)} ({f.size / 2**20:.1f} MiB)")
-                        self._fetch(ctx, f, target, on_bytes)
-                        if _sha256(target, lambda n: None, ctx) != f.sha256:
-                            raise RvcNextError(f"Checksum mismatch for {v.name} ({f.role})")
+                        self._fetch(ctx, f, target, on_bytes, lambda n: None)
                         paths[f.role] = target
                         done += f.size
                     indexes = {"default": paths["index"]} if "index" in paths else {}
@@ -428,6 +501,15 @@ class AssetService:
 
     def _emit(self) -> None:
         self._events.publish(AssetsChangedEvent(assets=self.list_assets()))
+
+
+def _stated_size(r: httpx.Response, offset: int) -> int | None:
+    """The whole file's size as the response states it (``Content-Range``, or ``Content-Length`` past ``offset``)."""
+    if r.status_code == 206:
+        total = r.headers.get("content-range", "").rpartition("/")[2]
+        return int(total) if total.isdigit() else None
+    length = r.headers.get("content-length", "")
+    return offset + int(length) if length.isdigit() and "content-encoding" not in r.headers else None
 
 
 def _sha256(path: Path, on_bytes: Any, ctx: JobContext | None = None) -> str:

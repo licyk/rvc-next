@@ -112,7 +112,7 @@ Unrecognized files are skipped, with **Skipped: …** shown after import.
 
 Under each drop zone, **Or add from a link** takes one or more links separated by spaces; **Add** has the server download them (a **Download links** job shows the progress), and the import then goes on as for dropped files:
 
-- **Hugging Face**: a file (`…/blob/main/x.pth` or `…/resolve/main/x.pth`), a repository (`huggingface.co/owner/repo`), or a folder in one (`…/tree/main/folder`): every `.pth`, `.index`, `.zip` and separation file in it is downloaded. Hugging Face links go through the download source chosen in **Settings › Downloads** (for example hf-mirror).
+- **Hugging Face**: a file (`…/blob/main/x.pth` or `…/resolve/main/x.pth`), a repository (`huggingface.co/owner/repo`), or a folder in one (`…/tree/main/folder`): every `.pth`, `.index`, `.zip` and separation file in it is downloaded. Hugging Face links go through the Hugging Face endpoint chosen in **Settings › Downloads** (for example hf-mirror); through huggingface.co when the source is ModelScope.
 - **Google Drive**: a shared file link (`drive.google.com/file/d/…`). Drive changes how its downloads work from time to time; if a link stops working, download the file in the browser and drop it.
 - **Any other link** to a file.
 
@@ -240,7 +240,7 @@ Downloads resume after interruption (unfinished files end in `.part`), retry aut
 
 <Callout type="idea" title="Downloads too slow?">
 
-Configure downloads in **Settings › Downloads**: switch **Model repository** between rvc-model and the official RVC repository, or change **Download endpoint** to hf-mirror.com or a custom mirror. See “Downloads” in [Settings](/docs/guide-settings).
+Configure downloads in **Settings › Downloads**: switch **Model repository** between rvc-model and the official RVC repository, or change **Download source** to ModelScope, hf-mirror.com or a custom mirror. See “Downloads” in [Settings](/docs/guide-settings).
 
 </Callout>
 ### Demo voices

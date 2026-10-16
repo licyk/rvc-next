@@ -299,9 +299,18 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   demo voices under `voices/<name>/` and a `manifest.json` with sizes, SHA-256 and upstream paths)
   and `official` = lj1995/VoiceConversionWebUI. Each catalog file lists its path per repository;
   a file the chosen repository lacks comes from another (the demo voices exist only in
-  rvc-model). `downloads.source` is the endpoint (huggingface.co, hf-mirror.com or custom) both
-  are reached through. Uploads to rvc-model keep `manifest.json` in step, and `catalog.json` is
-  generated from it.
+  rvc-model). `downloads.source` is where they are reached: huggingface.co, hf-mirror.com, custom,
+  or `modelscope` — rvc-model's copy [licyks/rvc-model](https://www.modelscope.cn/models/licyks/rvc-model)
+  (`Repository.modelscope`, branch `master`), used whichever repository is chosen; a file only on
+  Hugging Face (community and Applio upstreams) comes from huggingface.co, as do Hugging Face links
+  (`hf_endpoint`). `assets.urls(f)` orders the candidates: the chosen source, then the other public
+  ones; at each, the chosen repository first. A candidate that lacks the file (401/403/404/410),
+  states another size (Content-Length/Content-Range, checked before the body), fails the checksum,
+  or stays unreachable after 4 tries gives way to the next. ModelScope commits small files inline
+  and converts their line endings to LF (`config.json` is always inline, so a byte-exact upload is
+  impossible): HuBERT's two JSON files list their LF copies as `AssetFile.alternates`, accepted by
+  status, download and verify. Uploads to rvc-model keep `manifest.json` in step, and `catalog.json`
+  is generated from it.
 - **Demo voices** (`catalog.json` `voices`): `assets.voice_catalog()` / `GET /models/catalog`,
   `download_voices()` / `POST /models/catalog/download`, `rvc-next model catalog|download`, and
   **Models › Voices › Demo voices**. A download is a `download` job (request `{"voices": [...]}`)
@@ -499,8 +508,11 @@ rule tests come from Hanaikada.
   request fields stay optional) and writes `paramSpecs.ts`; `typegen-check` diffs both. The API uses
   `separate_input_output_schemas=False` and event schemas in serialization mode; FastAPI still
   splits `Dataset`, `FitSettings`, `SliceSettings` and `SpeakerEntry` into `-Input`/`-Output` (see `api/types.ts`).
-- A field with a button beside it (Add, Browse, Build) centres the button on the field; such a field
-  has no supporting text (it makes the field taller), a hint goes below the row (`LinkImport`).
+- A field with buttons beside it (Add, Browse, Build) is a `ui/FieldRow` (Kodama's): the `end` slot
+  centres on the field's box (`--app-field-height`), not on the box and its supporting text, so the
+  field keeps its hint. Text fields and selects are `height: fit-content`, so fields side by side
+  in a stretching grid keep their boxes aligned when one has supporting or error text. `Tabs` is a
+  rounded bar (surface-container, no divider, a pill indicator).
 - **Status bars glide.** `LevelMeter` moves by transform with audio-meter ballistics (rise in
   100 ms, fall in 300 ms, the peak tick in 500 ms; `useFalling`). `ProgressBar` draws determinate
   bars itself with an ease-out transition (Material's eases in and out and restarts slow on every

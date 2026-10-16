@@ -3,6 +3,8 @@
     "rvc-model": {
       "repo": "licyk/rvc-model",
       "revision": "main",
+      "modelscope": "licyks/rvc-model",
+      "modelscope_revision": "master",
       "title": "rvc-model: every model rvc-next uses, by category, and the demo voices"
     },
     "official": {
@@ -121,7 +123,13 @@
           "sources": {
             "rvc-model": "hubert/hubert_base/config.json",
             "official": "hubert_base/config.json"
-          }
+          },
+          "alternates": [
+            {
+              "size": 1420,
+              "sha256": "19f6df5cafd00a0453e52440890be09193118f2ed573377586112d45b497cba4"
+            }
+          ]
         },
         {
           "path": "hubert_base/preprocessor_config.json",
@@ -130,7 +138,13 @@
           "sources": {
             "rvc-model": "hubert/hubert_base/preprocessor_config.json",
             "official": "hubert_base/preprocessor_config.json"
-          }
+          },
+          "alternates": [
+            {
+              "size": 216,
+              "sha256": "11b3be6aa5979d76000d415a42e74e78fbc7de313e9d3d1a8ac41416b34b3ae9"
+            }
+          ]
         },
         {
           "path": "hubert_base/pytorch_model.bin",

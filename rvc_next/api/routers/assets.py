@@ -17,7 +17,7 @@ def list_assets(services: ServicesDep) -> list[AssetStatus]:
 
 @router.get("/repositories", operation_id="list_asset_repositories")
 def repositories(services: ServicesDep) -> list[Repository]:
-    """The Hugging Face repositories models can come from; ``downloads.repository`` chooses one."""
+    """The repositories models can come from; ``downloads.repository`` chooses one, ``downloads.source`` where it is reached."""
     return services.assets.repositories()
 
 

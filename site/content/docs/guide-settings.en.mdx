@@ -110,7 +110,7 @@ After changing folders or browsable locations, click **Save** at the bottom righ
 | Option | Default | Description |
 | --- | --- | --- |
 | **Model repository** | `licyk/rvc-model · organised for rvc-next, with demo voices` | Hugging Face repository to download model files from |
-| **Download endpoint** | **Hugging Face** | Address used to access repositories: **Hugging Face**, **hf-mirror.com** or **Custom** |
+| **Download source** | **Hugging Face** | Where files come from: **Hugging Face**, **hf-mirror.com**, **ModelScope** or **Custom** |
 | **Custom endpoint** | — | Appears when **Custom** is selected; enter the mirror's address |
 | **Verify checksums** | On | Checks SHA-256 after download; damaged files are marked **Checksum mismatch** |
 
@@ -121,9 +121,11 @@ Two model repositories:
 
 As the UI explains: **rvc-model holds every model rvc-next uses, by category, and the demo voices. The official repository has the same models but no demo voices; demo voices always come from rvc-model.** If the selected repository lacks a file, it is fetched automatically from the other one.
 
+ModelScope has a copy of rvc-model, [licyks/rvc-model](https://www.modelscope.cn/models/licyks/rvc-model): with **ModelScope** chosen, files come from that copy whichever model repository is selected; the community base models and Applio's content-feature models exist only on Hugging Face and still come from there. A file the chosen source lacks or serves damaged comes from another source automatically; the job log shows the switch.
+
 <Callout type="idea" title="Slow downloads in mainland China?">
 
-Changing **Download endpoint** to **hf-mirror.com** is usually much faster. You can also specify it temporarily on the command line: `rvc-next assets download --source hf-mirror` (also saves it to settings).
+Changing **Download source** to **ModelScope** or **hf-mirror.com** is usually much faster. You can also specify it on the command line: `rvc-next assets download --source modelscope` (also saves it to settings).
 
 </Callout>
 ## Training defaults

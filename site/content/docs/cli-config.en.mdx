@@ -130,7 +130,7 @@ For detailed device and precision rules, see [Hardware and performance](/docs/ad
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | `downloads.repository` | `rvc-model`/`official` | `rvc-model` | Model repository: `licyk/rvc-model` (organized by category, including demo voices) or the official `lj1995/VoiceConversionWebUI`. Files missing from the selected repository are downloaded from the other one |
-| `downloads.source` | `huggingface`/`hf-mirror`/`custom` | `huggingface` | Endpoint for accessing the repository: `https://huggingface.co`, `https://hf-mirror.com`, or custom |
+| `downloads.source` | `huggingface`/`hf-mirror`/`modelscope`/`custom` | `huggingface` | Download source: `https://huggingface.co`, `https://hf-mirror.com`, ModelScope (rvc-model's copy `licyks/rvc-model`, used whichever repository is chosen; files only on Hugging Face still come from huggingface.co), or custom. A file the chosen source lacks or serves damaged comes from another source |
 | `downloads.endpoint` | str | Empty | Address used when `source` is `custom` |
 | `downloads.verify_checksums` | bool | `true` | Verify SHA-256 after downloading |
 

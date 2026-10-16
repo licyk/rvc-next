@@ -73,17 +73,23 @@ icon: Package
 </Callout>
 ## 两个下载仓库
 
-| 仓库 id | Hugging Face 仓库 | 内容 |
-| --- | --- | --- |
-| `rvc-model`（默认） | [licyk/rvc-model](https://huggingface.co/licyk/rvc-model) | RVC Next 用到的每个文件，按类别整理，外加示例音色和 `manifest.json` |
-| `official` | [lj1995/VoiceConversionWebUI](https://huggingface.co/lj1995/VoiceConversionWebUI) | 官方 RVC 仓库；没有示例音色，也没有 FCPE 和 CREPE 权重 |
+| 仓库 id | Hugging Face 仓库 | ModelScope 副本 | 内容 |
+| --- | --- | --- | --- |
+| `rvc-model`（默认） | [licyk/rvc-model](https://huggingface.co/licyk/rvc-model) | [licyks/rvc-model](https://www.modelscope.cn/models/licyks/rvc-model)（分支 `master`） | RVC Next 用到的每个文件，按类别整理，外加示例音色和 `manifest.json` |
+| `official` | [lj1995/VoiceConversionWebUI](https://huggingface.co/lj1995/VoiceConversionWebUI) | 无 | 官方 RVC 仓库；没有示例音色，也没有 FCPE 和 CREPE 权重 |
 
-两个设置共同决定下载地址（`AssetService.url()`）：
+两个设置共同决定下载地址（`AssetService.urls()`，`url()` 是其中第一个）：
 
 - `downloads.repository`（`rvc-model` 或 `official`）选**仓库**。某个文件在所选仓库里没有（`sources` 里没有这个键）时，自动改用列出的另一个仓库——示例音色、FCPE 和 CREPE 因此总是从 rvc-model 下载，即使选的是官方仓库。
-- `downloads.source` 选**端点**：`huggingface`（`https://huggingface.co`）、`hf-mirror`（`https://hf-mirror.com`）或 `custom`（`downloads.endpoint`）。两个仓库都经由同一个端点访问。
+- `downloads.source` 选**下载源**：`huggingface`（`https://huggingface.co`）、`hf-mirror`（`https://hf-mirror.com`）、`modelscope`（`https://www.modelscope.cn`）或 `custom`（`downloads.endpoint`）。`catalog.json` 中 rvc-model 的条目带有 `modelscope`（`licyks/rvc-model`）和 `modelscope_revision`（`master`），`GET /assets/repositories` 的 `Repository` 也返回这两个字段。只有 rvc-model 有 ModelScope 副本：选 ModelScope 时无论选的是哪个仓库，都从这个副本下载；只在 Hugging Face 上的文件（社区底模和 Applio 内容特征模型的上游仓库）仍从 huggingface.co 下载。
 
-最终 URL 为 `<端点>/<repo>/resolve/<revision>/<sources[仓库]>`。两个仓库的 `revision` 目前都是 `main`。
+Hugging Face 上的 URL 为 `<端点>/<repo>/resolve/<revision>/<sources[仓库]>`，两个仓库的 `revision` 目前都是 `main`；ModelScope 上为 `https://www.modelscope.cn/models/<modelscope>/resolve/<modelscope_revision>/<sources[仓库]>`。
+
+`urls()` 给出按顺序尝试的全部地址：先是所选的下载源，再是其余公共下载源（`huggingface`、`hf-mirror`、`modelscope` 中未选的那些）；在每个下载源上先试所选仓库，再试其他收录该文件的仓库。某个地址返回 404/401/403/410、声明的大小不对（下载前由 `Content-Length` 或 `Content-Range` 判断）、校验和不符，或重试 4 次后仍连不上，就换下一个地址，任务日志里写「…; trying the next source」。所有地址都失败时任务以 `RvcNextError` 结束，`detail.errors` 列出最后几次的原因。
+
+**ModelScope 的换行符**：ModelScope 把内联提交的小文本文件转成 LF 换行（`config.json` 总是内联提交），因此 HuBERT 的 `hubert_base/config.json`（1420 字节）和 `preprocessor_config.json`（216 字节）在那里是 LF 版本，与官方的 CRLF 原件字节不同。目录中文件的 `alternates`（`{size, sha256}` 列表）列出这类也被接受的内容：状态、下载和校验都接受原件或任一替代内容。
+
+导入链接里的 Hugging Face 链接仍经由 Hugging Face 端点下载（`assets.service.hf_endpoint`）：下载源为 ModelScope 时用 huggingface.co。
 
 **内容特征模型**（分组 `embedder`，资源 `embedder-<名称>`，位于 `embedders/<名称>/`）是 Applio 音色可能使用的类 HuBERT 模型（`engine/features/embedders.py`），来自 `hf:IAHispano/Applio`（上游，固定修订版本）；配置文件的哈希由该修订版本计算，权重的哈希来自 LFS。`assets download --group all` 不包含它们。
 
@@ -114,8 +120,8 @@ FCPE 曾通过 torchfcpe 包使用，而 torchfcpe 依赖 torchaudio 并内置�
 下载是 `download` 任务（资源 `io`，并发容量 4），由 `AssetService.download(ids, group, verify_only, foreground)` 提交；命令行以 `foreground=True` 在前台执行。每个资源是任务的一个步骤。
 
 - **跳过已有文件**：大小与目录一致的文件不重新下载。
-- **断点续传**（`_fetch()`）：下载写入 `<文件名>.part`；已有部分时发 `Range: bytes=<已有>-`。服务器回 200 而不是 206 时从头写；回 416 且 `.part` 已完整时视为完成；`.part` 比目标大时删除重下。最多重试 4 次（`RETRIES`），退避 1、2、4…秒（上限 10 秒）。完成后检查大小，再把 `.part` 改名为正式文件。
-- **校验**：`downloads.verify_checksums`（默认开）或 `verify_only` 时计算 SHA-256 并与目录比较。
+- **断点续传**（`_fetch()` 逐个尝试 `urls()`，`_fetch_from()` 下载一个地址）：下载写入 `<文件名>.part`；已有部分时发 `Range: bytes=<已有>-`。服务器回 200 而不是 206 时从头写；`.part` 已是可接受的大小时视为完成；`.part` 比目标大时删除重下。每个地址最多重试 4 次（`RETRIES`），退避 1、2、4…秒（上限 10 秒）。内容不对（大小或校验和）时删除 `.part`，换下一个地址。完成后把 `.part` 改名为正式文件。
+- **校验**：`downloads.verify_checksums`（默认开）或 `verify_only` 时计算 SHA-256 并与目录比较（原件或 `alternates` 之一）；下载时在改名之前就校验，所以内容损坏的地址会被跳过。
 - **校验缓存**：结果按 `<path>|<size>|<mtime_ns>` 为键存入数据目录的 `assets-verified.json`。文件大小或修改时间变化后缓存自然失效。这样列出资源状态时不必每次重算几 GB 的哈希，又能在文件被替换时重新显示为「未校验」。
 - **进度**：进度按字节计算；`ctx.transfer(done, total)` 让任务卡片显示速度与剩余时间（见 [核心服务](/docs/development-core)）。
 - 失败的资源记为 `failed`，任务以 `RvcNextError` 结束，`detail.assets` 列出失败的 id。

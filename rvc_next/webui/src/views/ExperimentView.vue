@@ -21,7 +21,7 @@ import { formatBytes, formatDate } from '@/format';
 import { useHandoffStore } from '@/stores/handoff';
 import { useJobsStore } from '@/stores/jobs';
 import { useTrainStore } from '@/stores/train';
-import { AppButton, AppCard, AppDialog, AxisPanes, Badge, ConfirmDialog, DropZone, EmptyState, ExpansionPanel, IconButton, ParamSlider, PathField, ProgressBar, SegmentedControl, SelectField, Surface, Switch, TextField, icons, useSnackbar } from '@/ui';
+import { AppButton, AppCard, AppDialog, AxisPanes, Badge, ConfirmDialog, DropZone, EmptyState, ExpansionPanel, FieldRow, IconButton, ParamSlider, PathField, ProgressBar, SegmentedControl, SelectField, Surface, Switch, TextField, icons, useSnackbar } from '@/ui';
 
 const props = defineProps<{ name: string }>();
 const { t, tOr, locale } = useI18n();
@@ -213,10 +213,12 @@ const num = (v: unknown) => (v === '' || v === null || v === undefined ? null : 
           <Surface v-if="step === 'dataset' && dataset" key="dataset" :level="0" class="panel">
             <SegmentedControl v-model="dataset.mode" :options="modes" />
             <AxisPanes :value="dataset.mode" :order="DATASET_MODES">
-              <div v-if="dataset.mode === 'single'" key="single" class="folder">
+              <FieldRow v-if="dataset.mode === 'single'" key="single">
                 <PathField :model-value="dataset.folder ?? ''" :label="t('train.folder')" @update:model-value="dataset.folder = $event || null" />
-                <AppButton variant="text" @click="browseOpen = true">{{ t('common.browse') }}</AppButton>
-              </div>
+                <template #end>
+                  <AppButton variant="text" @click="browseOpen = true">{{ t('common.browse') }}</AppButton>
+                </template>
+              </FieldRow>
               <SpeakerTable v-else key="multi" v-model="dataset.speakers" @from-folders="fromFolders" />
             </AxisPanes>
             <DropZone
@@ -366,10 +368,7 @@ const num = (v: unknown) => (v === '' || v === null || v === undefined ? null : 
 .title { margin: 0; overflow-wrap: anywhere; }
 .stage { position: relative; overflow: hidden; }
 .panel { display: flex; flex-direction: column; gap: var(--app-space-3); padding: var(--app-space-4); min-width: 0; }
-/* The folder field and Browse: the button centred on the field. */
-.folder { display: flex; align-items: center; gap: var(--app-space-2); }
-.folder > :first-child { flex: 1; min-width: 0; }
-.form { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--app-space-3); }
+.form { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--app-space-3); align-items: start; }
 .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--app-space-2); }
 .upload { display: flex; flex-direction: column; gap: var(--app-space-1); }
 .actions.start { justify-content: flex-start; }

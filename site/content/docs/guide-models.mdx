@@ -112,7 +112,7 @@ models/
 
 每个拖放区下方的 **或从链接添加** 可以填一个或多个链接（用空格分隔）；点 **添加** 后由服务器下载（一个 **下载链接** 任务显示进度），之后的导入与拖入文件相同：
 
-- **Hugging Face**：一个文件（`…/blob/main/x.pth` 或 `…/resolve/main/x.pth`）、一个仓库（`huggingface.co/owner/repo`），或仓库里的一个文件夹（`…/tree/main/folder`）：其中所有 `.pth`、`.index`、`.zip` 和分离模型文件都会被下载。Hugging Face 链接通过 **设置 › 下载** 中选择的下载源（例如 hf-mirror）下载。
+- **Hugging Face**：一个文件（`…/blob/main/x.pth` 或 `…/resolve/main/x.pth`）、一个仓库（`huggingface.co/owner/repo`），或仓库里的一个文件夹（`…/tree/main/folder`）：其中所有 `.pth`、`.index`、`.zip` 和分离模型文件都会被下载。Hugging Face 链接通过 **设置 › 下载** 中选择的 Hugging Face 端点（例如 hf-mirror）下载；下载源为 ModelScope 时经由 huggingface.co。
 - **Google Drive**：分享的文件链接（`drive.google.com/file/d/…`）。Drive 会不时改变下载方式；如果链接失效，请在浏览器中下载文件后拖入。
 - **其他任意** 指向文件的链接。
 
@@ -240,7 +240,7 @@ rvc-next 会读取 `assets/weights` 中的音色，并在 `assets/indices` 和 `
 
 <Callout type="idea" title="下载太慢？">
 
-下载来源在 **设置 › 下载** 中配置：可以在 **模型仓库**（rvc-model 或 RVC 官方仓库）之间切换，也可以把 **下载端点** 改成 hf-mirror.com 或自定义镜像。详见 [设置](/docs/guide-settings) 的“下载”一节。
+下载来源在 **设置 › 下载** 中配置：可以在 **模型仓库**（rvc-model 或 RVC 官方仓库）之间切换，也可以把 **下载源** 改成 ModelScope（魔搭）、hf-mirror.com 或自定义镜像。详见 [设置](/docs/guide-settings) 的“下载”一节。
 
 </Callout>
 ### 示例音色

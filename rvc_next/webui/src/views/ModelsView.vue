@@ -16,7 +16,7 @@ import { useModelImport } from '@/components/useModelImport';
 import ServerPathDialog from '@/components/ServerPathDialog.vue';
 import { useI18n } from '@/i18n';
 import { formatBytes, formatRate } from '@/format';
-import { AppButton, AppCard, AppDialog, Badge, ConfirmDialog, DropZone, EmptyState, IconButton, ParamSlider, PathField, ProgressBar, SearchField, SelectField, Surface, Switch, Tabs, TextField, TRANSITIONS, icons, morphStyle, staggerStyle, useAxisDirection, useSnackbar } from '@/ui';
+import { AppButton, AppCard, AppDialog, Badge, ConfirmDialog, DropZone, EmptyState, FieldRow, IconButton, ParamSlider, PathField, ProgressBar, SearchField, SelectField, Surface, Switch, Tabs, TextField, TRANSITIONS, icons, morphStyle, staggerStyle, useAxisDirection, useSnackbar } from '@/ui';
 
 type Tab = 'voices' | 'base' | 'separation' | 'assets' | 'tools';
 const { t, tOr } = useI18n();
@@ -228,10 +228,12 @@ function extract() {
             </div>
           </section>
           <AppDialog v-model:open="legacyOpen" :title="t('models.addLegacy')" width="small" :close-label="t('common.close')">
-            <div class="row">
+            <FieldRow>
               <PathField v-model="legacyPath" :label="t('models.legacyPath')" />
-              <AppButton variant="text" @click="legacyBrowse = true">{{ t('common.browse') }}</AppButton>
-            </div>
+              <template #end>
+                <AppButton variant="text" @click="legacyBrowse = true">{{ t('common.browse') }}</AppButton>
+              </template>
+            </FieldRow>
             <template #actions>
               <AppButton variant="text" @click="legacyOpen = false">{{ t('common.cancel') }}</AppButton>
               <AppButton :disabled="!legacyPath.trim()" :loading="legacy.add.isPending.value" @click="addLegacy">{{ t('common.add') }}</AppButton>
@@ -451,8 +453,5 @@ function extract() {
 /* Tools are one column of sections (as Convert, Separate, Live); their fields wrap in a grid. */
 .tool { display: flex; flex-direction: column; gap: var(--app-space-3); padding: var(--app-space-4); }
 .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: var(--app-space-3) var(--app-space-6); align-items: center; }
-/* A field and its button (Browse): the button centred on the field. */
-.row { display: flex; flex-wrap: wrap; gap: var(--app-space-2); align-items: center; }
-.row > :first-child { flex: 1; min-width: 0; }
 .actions { display: flex; justify-content: flex-end; }
 </style>

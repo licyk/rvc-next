@@ -55,7 +55,7 @@ function picked(sel: { path: string }[]) {
           <IconButton :icon="icons.FolderOpen" :label="t('common.browse')" @click="browse(i)" />
         </div>
         <TextField type="number" :min="1" :max="100" :model-value="r.repeat" :label="t('train.speakers.repeat')" @update:model-value="patch(i, { repeat: Number($event) })" />
-        <IconButton :icon="icons.Trash2" :label="t('common.remove')" @click="removeRow(i)" />
+        <div class="cell"><IconButton :icon="icons.Trash2" :label="t('common.remove')" @click="removeRow(i)" /></div>
       </div>
     </div>
     <div class="actions">
@@ -72,7 +72,10 @@ function picked(sel: { path: string }[]) {
 .title { margin: 0; }
 .table { display: flex; flex-direction: column; gap: var(--app-space-2); overflow-x: auto; }
 .row { display: grid; grid-template-columns: minmax(120px, 1.2fr) 88px minmax(160px, 2fr) 88px 48px; gap: var(--app-space-2); align-items: center; min-width: 560px; }
-.folder { display: flex; align-items: center; gap: var(--app-space-1); min-width: 0; }
+/* A field's error text makes its cell taller: the cells line up on the fields' boxes, not on their middles. */
+.row:not(.head) { align-items: start; }
+.folder { display: flex; align-items: center; gap: var(--app-space-1); min-width: 0; min-height: var(--app-field-height); }
+.cell { display: flex; align-items: center; min-height: var(--app-field-height); }
 .path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--app-space-2); }
 </style>

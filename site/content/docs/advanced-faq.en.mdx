@@ -69,25 +69,25 @@ The FCPE model (`fcpe`, about 41 MB) is an asset in the default `inference` down
 </Accordion>
 <Accordion title="Downloads are slow or cannot reach Hugging Face?">
 
-Switch to the hf-mirror endpoint:
+Switch to ModelScope or the hf-mirror endpoint:
 
 <Tabs items={["Web UI", "Command line"]}>
 <Tab value="Web UI">
 
-Under **Settings** › **Downloads** › **Download endpoint**, select **hf-mirror.com**. Or select **Custom** and enter another mirror in **Custom endpoint**.
+Under **Settings** › **Downloads** › **Download source**, select **ModelScope** or **hf-mirror.com**. Or select **Custom** and enter another mirror in **Custom endpoint**.
 
 </Tab>
 <Tab value="Command line">
 
 ```bash
-rvc-next assets download --source hf-mirror
+rvc-next assets download --source modelscope
 # Or
 rvc-next config set downloads.source hf-mirror
 ```
 
 </Tab>
 </Tabs>
-Downloads support resuming: after an interruption, downloading again continues from the `.part` file, with automatic retries on failure. **Model repository** can switch between `rvc-model` (default, including demo voices) and the official repository; both contain the same model files.
+Downloads support resuming: after an interruption, downloading again continues from the `.part` file, with automatic retries on failure. **Model repository** can switch between `rvc-model` (default, including demo voices) and the official repository; both contain the same model files. ModelScope has only rvc-model's copy, so the community base models and Applio's content-feature models still come from Hugging Face; a file the chosen source lacks or serves damaged comes from another source automatically.
 
 </Accordion>
 <Accordion title="An asset shows “Checksum mismatch”?">

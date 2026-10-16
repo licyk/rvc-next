@@ -99,10 +99,10 @@ rvc-next assets list              # 查看每个资源的状态
 
 </Tab>
 </Tabs>
-下载支持断点续传，失败会自动重试，完成后会校验 SHA-256。默认从 Hugging Face 上的 [licyk/rvc-model](https://huggingface.co/licyk/rvc-model) 仓库下载；如果访问 Hugging Face 不方便，可以在 **设置 › 下载** 中把 **下载端点** 改为 **hf-mirror.com**，或者用命令行：
+下载支持断点续传，失败会自动重试，完成后会校验 SHA-256。默认从 Hugging Face 上的 [licyk/rvc-model](https://huggingface.co/licyk/rvc-model) 仓库下载；如果访问 Hugging Face 不方便，可以在 **设置 › 下载** 中把 **下载源** 改为 **ModelScope（魔搭）**（[licyks/rvc-model](https://www.modelscope.cn/models/licyks/rvc-model)，适合中国大陆）或 **hf-mirror.com**，或者用命令行：
 
 ```bash
-rvc-next assets download --source hf-mirror
+rvc-next assets download --source modelscope
 ```
 
 <Callout type="idea" title="已经装过原版 RVC？">

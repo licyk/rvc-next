@@ -81,6 +81,100 @@ def test_repository_choice_and_fallback(services):
     assert [r.id for r in services.assets.repositories() if r.selected] == ["official"]
 
 
+def test_modelscope_source(services):
+    """ModelScope reaches rvc-model's copy there, whichever repository is chosen; a file only on Hugging Face
+    (a community model's own repository) comes from there; the other sources follow as fallbacks."""
+    rmvpe = services.assets.spec("rmvpe").files[0]
+    services.settings.update({"downloads": {"source": "modelscope"}})
+    assert services.assets.urls(rmvpe) == [
+        "https://www.modelscope.cn/models/licyks/rvc-model/resolve/master/rmvpe/rmvpe.pt",
+        "https://huggingface.co/licyk/rvc-model/resolve/main/rmvpe/rmvpe.pt",
+        "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.pt",
+        "https://hf-mirror.com/licyk/rvc-model/resolve/main/rmvpe/rmvpe.pt",
+        "https://hf-mirror.com/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.pt",
+    ]
+    services.settings.update({"downloads": {"repository": "official"}})
+    assert services.assets.url(rmvpe) == "https://www.modelscope.cn/models/licyks/rvc-model/resolve/master/rmvpe/rmvpe.pt"
+    assert services.assets.urls(rmvpe)[1] == "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.pt"
+    snowie = services.assets.spec("community-snowie-40k").files[0]
+    assert services.assets.url(snowie).startswith("https://huggingface.co/MUSTAR/SnowieV3.1-40k/resolve/")
+    rvc_model = next(r for r in services.assets.repositories() if r.id == "rvc-model")
+    assert rvc_model.modelscope == "licyks/rvc-model" and rvc_model.modelscope_revision == "master"
+
+
+def test_download_falls_back_to_the_next_source(make_services):
+    """A file a source lacks (404) or serves with other content comes from the next one; a file stored with
+    LF line endings (ModelScope's small text files) is accepted as one of the file's alternates."""
+    from rvc_next.core.assets.models import FileContent
+    from rvc_next.core.context import build_services
+
+    good = {"a.bin": b"a" * 3000, "b.bin": b"b" * 2000, "c.txt": b"x\r\ny\r\n"}
+    lf = b"x\ny\n"
+    served: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        served.append(f"{request.url.host}{request.url.path}")
+        name = request.url.path.rsplit("/", 1)[1]
+        if request.url.host == "www.modelscope.cn":
+            if name == "a.bin":
+                return httpx.Response(404)
+            if name == "b.bin":
+                return httpx.Response(200, content=b"B" * 2000)
+            if name == "c.txt":
+                return httpx.Response(200, content=lf)
+        return httpx.Response(200, content=good[name])
+
+    data_dir = make_services().settings.data_dir
+    services = build_services(data_dir=data_dir, environ={}, transport=httpx.MockTransport(handler))
+    try:
+        services.settings.update({"downloads": {"source": "modelscope"}})
+        files = [
+            AssetFile(
+                path=f"fb/{n}",
+                sources={"rvc-model": n},
+                size=len(b),
+                sha256=hashlib.sha256(b).hexdigest(),
+                alternates=[FileContent(size=len(lf), sha256=hashlib.sha256(lf).hexdigest())] if n == "c.txt" else [],
+            )
+            for n, b in good.items()
+        ]
+        services.assets.add_specs([AssetSpec(id="fb", title="Fallback", description="", group="inference", files=files)])
+        job = services.assets.download(["fb"], foreground=True)
+        assert job.state == "completed", job.error
+        root = services.assets.root / "fb"
+        assert (root / "a.bin").read_bytes() == good["a.bin"] and (root / "b.bin").read_bytes() == good["b.bin"]
+        assert (root / "c.txt").read_bytes() == lf
+        assert served == [
+            "www.modelscope.cn/models/licyks/rvc-model/resolve/master/a.bin",
+            "huggingface.co/licyk/rvc-model/resolve/main/a.bin",
+            "www.modelscope.cn/models/licyks/rvc-model/resolve/master/b.bin",
+            "huggingface.co/licyk/rvc-model/resolve/main/b.bin",
+            "www.modelscope.cn/models/licyks/rvc-model/resolve/master/c.txt",
+        ]
+        assert not list(root.glob("*.part"))
+        status = services.assets.status("fb")
+        assert status.state == "installed" and status.verified is True
+        assert services.assets.download(["fb"], verify_only=True, foreground=True).state == "completed"
+    finally:
+        services.close()
+
+
+def test_download_fails_when_no_source_has_the_file(make_services):
+    from rvc_next.core.context import build_services
+
+    data_dir = make_services().settings.data_dir
+    services = build_services(data_dir=data_dir, environ={}, transport=httpx.MockTransport(lambda r: httpx.Response(200, content=b"short")))
+    try:
+        services.assets.add_specs(
+            [AssetSpec(id="nf", title="Nowhere", description="", group="inference", files=[AssetFile(path="nf/x.bin", sources={"rvc-model": "x.bin"}, size=100, sha256="0" * 64)])]
+        )
+        job = services.assets.download(["nf"], foreground=True)
+        assert job.state == "failed" and job.error is not None
+        assert len(job.error.detail["errors"]) == 3  # huggingface, hf-mirror, modelscope
+    finally:
+        services.close()
+
+
 def test_voice_download_adds_to_library(make_services, tmp_path):
     from rvc_next.core.assets.models import CatalogVoice
     from rvc_next.core.context import build_services

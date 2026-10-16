@@ -25,13 +25,15 @@ def assets_list(json_output: Annotated[bool, typer.Option("--json", help="Print 
             [(a.id, a.title, a.group, human_size(a.size), a.state + (" ✓" if a.verified else "")) for a in items],
         )
         repo = next(r for r in services.assets.repositories() if r.selected)
-        typer.echo(f"Downloads come from {repo.repo} ({repo.id}); change with --repository or downloads.repository")
+        d = services.settings.settings.downloads
+        where = f"{repo.modelscope} on ModelScope" if d.source == "modelscope" and repo.modelscope else f"{repo.repo} ({d.source})"
+        typer.echo(f"Downloads come from {where}; change with --repository and --source, or downloads.repository and downloads.source")
 
 
 def assets_download(
     ids: Annotated[list[str] | None, typer.Argument(help="Asset ids; see 'rvc-next assets list'")] = None,
     group: Annotated[str | None, Group] = None,
-    source: Annotated[str | None, typer.Option(help="Endpoint: huggingface, hf-mirror or custom (saved to settings)")] = None,
+    source: Annotated[str | None, typer.Option(help="Source: huggingface, hf-mirror, modelscope or custom (saved to settings)")] = None,
     repository: Annotated[str | None, typer.Option(help="rvc-model or official (saved to settings)")] = None,
 ) -> None:
     """Download assets, resuming partial files and checking their checksums."""

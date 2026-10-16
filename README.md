@@ -115,7 +115,9 @@ Models download from [licyk/rvc-model](https://huggingface.co/licyk/rvc-model), 
 model rvc-next uses, organised by category, together with the official RVC demo voices. The
 official repository, [lj1995/VoiceConversionWebUI](https://huggingface.co/lj1995/VoiceConversionWebUI),
 can be used instead (`rvc-next config set downloads.repository official`, or Settings ›
-Downloads); `downloads.source` switches the endpoint to `hf-mirror.com` or a custom one.
+Downloads); `downloads.source` switches the source to `hf-mirror.com`, ModelScope
+([licyks/rvc-model](https://www.modelscope.cn/models/licyks/rvc-model), a copy of rvc-model for
+mainland China) or a custom endpoint.
 
 Your own models are imported on the Models screen or with `rvc-next model import`: voices
 (`.pth`, with their `.index`), training base models (G and D `.pth`) and separation models

@@ -171,7 +171,7 @@ export interface paths {
         };
         /**
          * Repositories
-         * @description The Hugging Face repositories models can come from; ``downloads.repository`` chooses one.
+         * @description The repositories models can come from; ``downloads.repository`` chooses one, ``downloads.source`` where it is reached.
          */
         get: operations["list_asset_repositories"];
         put?: never;
@@ -2659,7 +2659,7 @@ export interface components {
              * @default huggingface
              * @enum {string}
              */
-            source: "huggingface" | "hf-mirror" | "custom";
+            source: "huggingface" | "hf-mirror" | "modelscope" | "custom";
             /**
              * Endpoint
              * @default
@@ -4050,6 +4050,13 @@ export interface components {
             repo: string;
             /** Revision */
             revision: string;
+            /** Modelscope */
+            modelscope: string | null;
+            /**
+             * Modelscope Revision
+             * @default master
+             */
+            modelscope_revision: string;
             /** Title */
             title: string;
             /**

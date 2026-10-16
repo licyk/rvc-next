@@ -69,25 +69,25 @@ FCPE 的模型（`fcpe`，约 41 MB）是一项资源，包含在默认下载的
 </Accordion>
 <Accordion title="下载很慢或连不上 Hugging Face？">
 
-切换到 hf-mirror 镜像端点：
+切换到 ModelScope（魔搭）或 hf-mirror 镜像：
 
 <Tabs items={["Web UI", "命令行"]}>
 <Tab value="Web UI">
 
-**设置** › **下载** › **下载端点** 选择 **hf-mirror.com**。也可以选 **自定义**，在 **自定义地址** 中填写其他镜像。
+**设置** › **下载** › **下载源** 选择 **ModelScope（魔搭）** 或 **hf-mirror.com**。也可以选 **自定义**，在 **自定义地址** 中填写其他镜像。
 
 </Tab>
 <Tab value="命令行">
 
 ```bash
-rvc-next assets download --source hf-mirror
+rvc-next assets download --source modelscope
 # 或
 rvc-next config set downloads.source hf-mirror
 ```
 
 </Tab>
 </Tabs>
-下载支持断点续传：中断后再次下载会从 `.part` 文件继续，失败时自动重试。**模型仓库** 可以在 `rvc-model`（默认，含示例音色）和官方仓库之间切换，两者的模型文件相同。
+下载支持断点续传：中断后再次下载会从 `.part` 文件继续，失败时自动重试。**模型仓库** 可以在 `rvc-model`（默认，含示例音色）和官方仓库之间切换，两者的模型文件相同。ModelScope 上只有 rvc-model 的副本，社区底模和 Applio 的内容特征模型仍从 Hugging Face 下载；所选下载源缺少或损坏的文件会自动改从其他下载源下载。
 
 </Accordion>
 <Accordion title="资源显示“校验不符”？">

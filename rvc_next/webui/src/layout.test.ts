@@ -56,23 +56,23 @@ describe('one-column pages', () => {
   });
 });
 
-/** A field with its button beside it (Add, Browse, Build): the button is centred on the field. */
-const FIELD_ROWS: [file: string, selector: string][] = [
-  ['views/ModelDetailView.vue', '.row'],
-  ['views/ModelsView.vue', '.row'],
-  ['views/ExperimentView.vue', '.folder'],
-  ['views/TrainView.vue', '.folder'],
-  ['components/LinkImport.vue', '.row'],
-];
+/** A field with its buttons beside it (Add, Browse, Build): the buttons centre on the field's box. */
+const FIELD_ROWS = ['views/ModelDetailView.vue', 'views/ModelsView.vue', 'views/ExperimentView.vue', 'views/TrainView.vue', 'components/LinkImport.vue', 'ui/TokenField.vue'];
 
 describe('field rows', () => {
-  it.each(FIELD_ROWS)('%s %s centres its button on the field', (file, selector) => {
-    expect(rule(file, selector)).toContain('align-items: center');
+  // A field with supporting text: its buttons centre on the field's box, not on the box and the text under it.
+  it('FieldRow centres its end on the field box alone', () => {
+    expect(rule('ui/FieldRow.vue', '.field-row')).toContain('align-items: flex-start');
+    const end = rule('ui/FieldRow.vue', '.end');
+    expect(end).toContain('align-items: center');
+    expect(end).toContain('min-height: var(--app-field-height)');
   });
-  // Supporting text makes the field taller than its box, so the button would sit below its middle.
-  it.each(FIELD_ROWS)('%s %s gives its field no supporting text', (file) => {
-    const source = readFileSync(join(SRC, file), 'utf8');
-    for (const row of source.matchAll(/<div class="(?:row|folder)">([\s\S]*?)<\/div>/g)) if (/<AppButton/.test(row[1])) expect(row[1]).not.toContain('supporting-text');
+  it.each(FIELD_ROWS)('%s puts its fields and their buttons in a FieldRow', (file) => {
+    expect(readFileSync(join(SRC, file), 'utf8')).toContain('<FieldRow');
+  });
+  // Fields side by side in a stretching grid keep their own boxes (Train's settings, Models › Tools).
+  it.each([['ui/TextField.vue', '.text-field'], ['ui/SelectField.vue', '.select']] as const)('%s keeps its own height', (file, selector) => {
+    expect(rule(file, selector)).toContain('height: fit-content');
   });
 });
 

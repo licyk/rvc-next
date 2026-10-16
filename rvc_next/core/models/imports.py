@@ -208,12 +208,11 @@ class ImportService:
         return JobSpec(title=title, run=run, resources=frozenset({"io"}))
 
     def _run_fetch(self, ctx: JobContext, session_id: str, urls: list[str], allow_private: bool) -> dict[str, Any]:
-        from rvc_next.core.assets.service import ENDPOINTS
+        from rvc_next.core.assets.service import hf_endpoint
         from rvc_next.core.net.fetch import fetch, resolve
 
         assert self.http is not None
-        d = self._settings.settings.downloads
-        endpoint = d.endpoint if d.source == "custom" and d.endpoint else ENDPOINTS.get(d.source, ENDPOINTS["huggingface"])
+        endpoint = hf_endpoint(self._settings.settings.downloads)
         client = self.http.client()
         files = []
         for u in urls:

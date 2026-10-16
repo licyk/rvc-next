@@ -68,8 +68,10 @@ class DownloadSettings(Record):
     repository: Literal["rvc-model", "official"] = "rvc-model"
     """Where model files come from: licyk/rvc-model (every model by category, and the demo voices)
     or the official lj1995/VoiceConversionWebUI. A file the chosen one lacks comes from the other."""
-    source: Literal["huggingface", "hf-mirror", "custom"] = "huggingface"
-    """The Hugging Face endpoint the repository is reached through."""
+    source: Literal["huggingface", "hf-mirror", "modelscope", "custom"] = "huggingface"
+    """Where the repository is reached: a Hugging Face endpoint, or ModelScope (``licyks/rvc-model``; a
+    repository with no ModelScope copy is reached through Hugging Face). A file the source lacks or serves
+    damaged comes from another one."""
     endpoint: str = ""
     verify_checksums: bool = True
 

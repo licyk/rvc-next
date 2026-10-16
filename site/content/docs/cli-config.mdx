@@ -130,7 +130,7 @@ rvc-next config set server.access_token null # 清除令牌
 | 设置 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `downloads.repository` | `rvc-model`/`official` | `rvc-model` | 模型仓库：`licyk/rvc-model`（按类别收录，含示例音色）或官方 `lj1995/VoiceConversionWebUI`。所选仓库缺少的文件从另一个仓库下载 |
-| `downloads.source` | `huggingface`/`hf-mirror`/`custom` | `huggingface` | 访问仓库的端点：`https://huggingface.co`、`https://hf-mirror.com` 或自定义 |
+| `downloads.source` | `huggingface`/`hf-mirror`/`modelscope`/`custom` | `huggingface` | 下载源：`https://huggingface.co`、`https://hf-mirror.com`、ModelScope（rvc-model 的副本 `licyks/rvc-model`，无论选哪个仓库都从这里下载；只在 Hugging Face 上的文件仍从 huggingface.co 下载）或自定义。所选下载源缺少或损坏的文件会改从其他下载源下载 |
 | `downloads.endpoint` | str | 空 | `source` 为 `custom` 时使用的地址 |
 | `downloads.verify_checksums` | bool | `true` | 下载后校验 SHA-256 |
 

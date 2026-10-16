@@ -20,7 +20,7 @@ import { useSessionOutputs } from '@/components/sessionOutputs';
 import { useI18n } from '@/i18n';
 import { useJobsStore } from '@/stores/jobs';
 import { formatBytes, formatRate } from '@/format';
-import { AppButton, ConfirmDialog, DataList, DropZone, IconButton, PathField, SelectField, Surface, TextField, icons, morphStyle, useSnackbar } from '@/ui';
+import { AppButton, ConfirmDialog, DataList, DropZone, FieldRow, IconButton, PathField, SelectField, Surface, TextField, icons, morphStyle, useSnackbar } from '@/ui';
 
 const props = defineProps<{ id: string }>();
 const { t } = useI18n();
@@ -179,14 +179,18 @@ function doDelete() {
           </ul>
           <SelectField v-if="keyOptions.length > 1" v-model="indexKey" :label="t('models.detail.index')" :options="keyOptions" />
           <DropZone :label="t('models.detail.attach')" hint=".index" accept=".index" :multiple="false" compact @files="onIndexFiles" />
-          <div class="row">
+          <FieldRow>
             <PathField v-model="indexPath" :label="t('models.detail.attachPath')" />
-            <AppButton variant="text" :disabled="!indexPath.trim()" @click="setIndexPath.mutate({ id, key: indexKey ?? 'default', path: indexPath.trim() }, { onError: onErr })">{{ t('common.add') }}</AppButton>
-          </div>
-          <div class="row">
+            <template #end>
+              <AppButton variant="text" :disabled="!indexPath.trim()" @click="setIndexPath.mutate({ id, key: indexKey ?? 'default', path: indexPath.trim() }, { onError: onErr })">{{ t('common.add') }}</AppButton>
+            </template>
+          </FieldRow>
+          <FieldRow>
             <SelectField v-model="buildFrom" :label="t('models.detail.build')" :options="expOptions" />
-            <AppButton variant="tonal" :icon="icons.Hammer" :disabled="!buildFrom" @click="buildIndex.mutate({ id, experiment: buildFrom! }, { onError: onErr })">{{ t('models.detail.build') }}</AppButton>
-          </div>
+            <template #end>
+              <AppButton variant="tonal" :icon="icons.Hammer" :disabled="!buildFrom" @click="buildIndex.mutate({ id, experiment: buildFrom! }, { onError: onErr })">{{ t('models.detail.build') }}</AppButton>
+            </template>
+          </FieldRow>
           <ServerPathDialog v-model:open="browseIndex" @select="(s) => s[0] && (indexPath = s[0].path)" />
         </Surface>
         <Surface v-if="params" :level="0" class="panel">
@@ -231,7 +235,4 @@ function doDelete() {
 .indexes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--app-space-1); }
 .index { display: flex; align-items: center; gap: var(--app-space-2); min-width: 0; }
 .path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
-/* A field and its button (Add, Build): the button centred on the field. */
-.row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--app-space-2); }
-.row > :first-child { flex: 1; min-width: 0; }
 </style>

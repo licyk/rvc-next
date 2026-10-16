@@ -7,7 +7,7 @@ import ErrorNotice from '@/components/ErrorNotice.vue';
 import ServerPathDialog from '@/components/ServerPathDialog.vue';
 import { useI18n } from '@/i18n';
 import { formatAgo } from '@/format';
-import { AppButton, AppCard, AppDialog, AxisPanes, Badge, EmptyState, PathField, SegmentedControl, TRANSITIONS, TextField, icons, staggerStyle } from '@/ui';
+import { AppButton, AppCard, AppDialog, AxisPanes, Badge, EmptyState, FieldRow, PathField, SegmentedControl, TRANSITIONS, TextField, icons, staggerStyle } from '@/ui';
 
 const { t, tOr, locale } = useI18n();
 const router = useRouter();
@@ -82,10 +82,12 @@ const open = (e: ExperimentSummary) => router.push(`/train/${encodeURIComponent(
         <TextField v-model="name" :label="t('train.name')" />
         <SegmentedControl v-model="mode" :options="modes" />
         <AxisPanes :value="mode" :order="MODES">
-          <div v-if="mode === 'single'" key="single" class="folder">
+          <FieldRow v-if="mode === 'single'" key="single">
             <PathField v-model="folder" :label="t('train.folder')" />
-            <AppButton variant="text" @click="browseOpen = true">{{ t('common.browse') }}</AppButton>
-          </div>
+            <template #end>
+              <AppButton variant="text" @click="browseOpen = true">{{ t('common.browse') }}</AppButton>
+            </template>
+          </FieldRow>
           <p v-else key="multi" class="type-body-medium muted hint">{{ t('train.multiHint') }}</p>
         </AxisPanes>
         <ErrorNotice v-if="error" :error="error" />
@@ -119,7 +121,4 @@ const open = (e: ExperimentSummary) => router.push(`/train/${encodeURIComponent(
 /* The fields of the New experiment dialog, spaced apart. */
 .new-form { display: flex; flex-direction: column; gap: var(--app-space-4); }
 .hint { margin: 0; }
-/* The folder field and Browse: the button centred on the field. */
-.folder { display: flex; align-items: center; gap: var(--app-space-2); }
-.folder > :first-child { flex: 1; min-width: 0; }
 </style>

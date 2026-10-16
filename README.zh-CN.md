@@ -92,7 +92,7 @@ rvc-next webui                    # http://127.0.0.1:7868
 
 ## 模型
 
-模型从 [licyk/rvc-model](https://huggingface.co/licyk/rvc-model) 下载，这个仓库按类别存放了 rvc-next 用到的全部模型，以及 RVC 官方演示音色。也可以改用官方仓库 [lj1995/VoiceConversionWebUI](https://huggingface.co/lj1995/VoiceConversionWebUI)（运行 `rvc-next config set downloads.repository official`，或在 **设置** › **下载** 中切换）；`downloads.source` 可以把下载地址切换到 `hf-mirror.com` 或自定义地址。
+模型从 [licyk/rvc-model](https://huggingface.co/licyk/rvc-model) 下载，这个仓库按类别存放了 rvc-next 用到的全部模型，以及 RVC 官方演示音色。也可以改用官方仓库 [lj1995/VoiceConversionWebUI](https://huggingface.co/lj1995/VoiceConversionWebUI)（运行 `rvc-next config set downloads.repository official`，或在 **设置** › **下载** 中切换）；`downloads.source` 可以把下载源切换到 `hf-mirror.com`、ModelScope（[licyks/rvc-model](https://www.modelscope.cn/models/licyks/rvc-model)，rvc-model 在魔搭上的副本，适合中国大陆）或自定义地址。
 
 自己的模型可以在 **模型** 界面导入，或用 `rvc-next model import` 导入：音色（`.pth`，连同其 `.index`）、训练用的底模（G 和 D 的 `.pth`）以及分离模型（检查点连同其 `.yaml`），可以是散装文件，也可以打包成 `.zip`。文件按内容识别，所以即使 `.pth` 和 `.index` 的文件名毫不相关，也能正确配对：索引的维度决定它适用的音色版本；有多个音色都符合时，由你选择。索引也可以单独导入，之后再分配给某个音色。导入的底模会出现在实验设置中，导入的分离模型会作为预设出现在 **分离** 界面。
 

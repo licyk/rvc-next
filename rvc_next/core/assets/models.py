@@ -10,6 +10,11 @@ AssetGroup = Literal["inference", "embedder", "training", "separation", "communi
 AssetState = Literal["installed", "missing", "partial", "corrupt", "downloading"]
 
 
+class FileContent(Record):
+    size: int
+    sha256: str
+
+
 class AssetFile(Record):
     path: str
     """Relative to the assets folder, in the original's layout."""
@@ -17,6 +22,9 @@ class AssetFile(Record):
     sha256: str | None = None
     sources: dict[str, str]
     """Repository id → path of this file in that repository."""
+    alternates: list[FileContent] = Field(default_factory=list)
+    """Other contents accepted as this file: the same text with LF line endings, as ModelScope stores
+    small text files whatever was uploaded."""
 
 
 class CommunityBase(Record):
@@ -61,6 +69,9 @@ class Repository(Record):
     repo: str
     """The Hugging Face repository, ``owner/name``."""
     revision: str
+    modelscope: str | None = None
+    """The same repository on ModelScope, ``owner/name``, used when ``downloads.source`` is ``modelscope``."""
+    modelscope_revision: str = "master"
     title: str
     selected: bool = False
     upstream: bool = False

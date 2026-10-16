@@ -99,10 +99,10 @@ rvc-next assets list              # View the status of each asset
 
 </Tab>
 </Tabs>
-Downloads support resuming, retry automatically on failure and verify SHA-256 on completion. By default, they use the [licyk/rvc-model](https://huggingface.co/licyk/rvc-model) repository on Hugging Face. If accessing Hugging Face is difficult, change **Download endpoint** to **hf-mirror.com** in **Settings › Downloads**, or use the command line:
+Downloads support resuming, retry automatically on failure and verify SHA-256 on completion. By default, they use the [licyk/rvc-model](https://huggingface.co/licyk/rvc-model) repository on Hugging Face. If accessing Hugging Face is difficult, change **Download source** to **ModelScope** ([licyks/rvc-model](https://www.modelscope.cn/models/licyks/rvc-model), good for mainland China) or **hf-mirror.com** in **Settings › Downloads**, or use the command line:
 
 ```bash
-rvc-next assets download --source hf-mirror
+rvc-next assets download --source modelscope
 ```
 
 <Callout type="idea" title="Already have the original RVC installed?">

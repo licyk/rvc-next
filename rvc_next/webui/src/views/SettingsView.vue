@@ -63,8 +63,10 @@ function saveFolders() {
 }
 // Downloads
 const repositories = useAssetRepositories();
-const repositoryOptions = computed(() => (repositories.data.value ?? []).map((r) => ({ value: r.id, label: `${r.repo} · ${t(`settings.repositories.${r.id}`)}` })));
-const sourceOptions = computed(() => (['huggingface', 'hf-mirror', 'custom'] as const).map((v) => ({ value: v, label: t(`settings.sources.${v}`) })));
+const repositoryOptions = computed(() =>
+  (repositories.data.value ?? []).map((r) => ({ value: r.id, label: `${s.value?.downloads.source === 'modelscope' && r.modelscope ? r.modelscope : r.repo} · ${t(`settings.repositories.${r.id}`)}` })),
+);
+const sourceOptions = computed(() => (['huggingface', 'hf-mirror', 'modelscope', 'custom'] as const).map((v) => ({ value: v, label: t(`settings.sources.${v}`) })));
 const endpoint = ref('');
 watch(s, (v) => v && (endpoint.value = v.downloads.endpoint), { immediate: true });
 // Training defaults
@@ -147,6 +149,7 @@ const previewShown = ref(true);
             <SelectField :model-value="s.downloads.repository" :label="t('settings.repository')" :options="repositoryOptions" @update:model-value="patch({ downloads: { repository: $event } })" />
             <span class="type-body-small muted">{{ t('settings.repositoryHint') }}</span>
             <SelectField :model-value="s.downloads.source" :label="t('settings.source')" :options="sourceOptions" @update:model-value="patch({ downloads: { source: $event } })" />
+            <span class="type-body-small muted">{{ t('settings.sourceHint') }}</span>
             <TextField v-if="s.downloads.source === 'custom'" v-model="endpoint" :label="t('settings.endpoint')" @change="patch({ downloads: { endpoint } })" />
             <Switch :model-value="s.downloads.verify_checksums" :label="t('settings.verifyChecksums')" @update:model-value="patch({ downloads: { verify_checksums: $event } })" />
           </template>

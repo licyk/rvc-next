@@ -110,7 +110,7 @@ icon: Settings
 | 选项 | 默认值 | 说明 |
 | --- | --- | --- |
 | **模型仓库** | `licyk/rvc-model · 为 rvc-next 整理，含示例音色` | 模型文件从哪个 Hugging Face 仓库下载 |
-| **下载端点** | **Hugging Face** | 通过哪个地址访问仓库：**Hugging Face**、**hf-mirror.com** 或 **自定义** |
+| **下载源** | **Hugging Face** | 从哪里下载：**Hugging Face**、**hf-mirror.com**、**ModelScope（魔搭）** 或 **自定义** |
 | **自定义地址** | — | 选 **自定义** 时出现，填写镜像站地址 |
 | **校验文件** | 开 | 下载完成后核对 SHA-256，发现损坏会标记为 **校验不符** |
 
@@ -121,9 +121,11 @@ icon: Settings
 
 正如界面上的说明：**rvc-model 按类别收录 rvc-next 用到的全部模型，并包含示例音色。官方仓库模型相同但没有示例音色；示例音色始终从 rvc-model 下载。** 所选仓库缺少某个文件时，会自动从另一个仓库获取。
 
+ModelScope 上有 rvc-model 的副本 [licyks/rvc-model](https://www.modelscope.cn/models/licyks/rvc-model)：选 **ModelScope（魔搭）** 后，无论选的是哪个模型仓库都从这个副本下载；社区底模和 Applio 的内容特征模型只在 Hugging Face 上，仍从 Hugging Face 下载。所选下载源缺少或损坏的文件会自动改从其他下载源下载，任务日志里能看到换源的记录。
+
 <Callout type="idea" title="在中国大陆下载慢？">
 
-把 **下载端点** 改为 **hf-mirror.com** 通常会快很多。命令行也可以临时指定：`rvc-next assets download --source hf-mirror`（会同时保存到设置）。
+把 **下载源** 改为 **ModelScope（魔搭）** 或 **hf-mirror.com** 通常会快很多。命令行也可以临时指定：`rvc-next assets download --source modelscope`（会同时保存到设置）。
 
 </Callout>
 ## 训练默认值

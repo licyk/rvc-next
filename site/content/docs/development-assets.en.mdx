@@ -73,17 +73,23 @@ There are 17 assets and 37 files, totaling about 4.9 GiB. SwiftF0's 165 KB weigh
 </Callout>
 ## Two download repositories
 
-| Repository ID | Hugging Face repository | Contents |
-| --- | --- | --- |
-| `rvc-model` (default) | [licyk/rvc-model](https://huggingface.co/licyk/rvc-model) | Every file RVC Next uses, organized by category, plus demo voices and `manifest.json` |
-| `official` | [lj1995/VoiceConversionWebUI](https://huggingface.co/lj1995/VoiceConversionWebUI) | The official RVC repository; no demo voices, FCPE or CREPE weights |
+| Repository ID | Hugging Face repository | ModelScope copy | Contents |
+| --- | --- | --- | --- |
+| `rvc-model` (default) | [licyk/rvc-model](https://huggingface.co/licyk/rvc-model) | [licyks/rvc-model](https://www.modelscope.cn/models/licyks/rvc-model) (branch `master`) | Every file RVC Next uses, organized by category, plus demo voices and `manifest.json` |
+| `official` | [lj1995/VoiceConversionWebUI](https://huggingface.co/lj1995/VoiceConversionWebUI) | None | The official RVC repository; no demo voices, FCPE or CREPE weights |
 
-Two settings determine download URLs (`AssetService.url()`):
+Two settings determine download URLs (`AssetService.urls()`; `url()` is the first of them):
 
 - `downloads.repository` (`rvc-model` or `official`) selects the **repository**. If a file is absent from the selected repository (no matching key in `sources`), use another listed repository automatically—demo voices, FCPE and CREPE therefore always download from rvc-model, even when the official repository is selected.
-- `downloads.source` selects the **endpoint**: `huggingface` (`https://huggingface.co`), `hf-mirror` (`https://hf-mirror.com`), or `custom` (`downloads.endpoint`). Both repositories use the same endpoint.
+- `downloads.source` selects the **source**: `huggingface` (`https://huggingface.co`), `hf-mirror` (`https://hf-mirror.com`), `modelscope` (`https://www.modelscope.cn`), or `custom` (`downloads.endpoint`). The rvc-model entry in `catalog.json` carries `modelscope` (`licyks/rvc-model`) and `modelscope_revision` (`master`), which `GET /assets/repositories` returns in `Repository` too. Only rvc-model has a ModelScope copy: with ModelScope chosen, files come from that copy whichever repository is selected; files only on Hugging Face (the community base models' and Applio's content-feature models' upstream repositories) still come from huggingface.co.
 
-The resulting URL is `<endpoint>/<repo>/resolve/<revision>/<sources[repository]>`. Both repositories currently use `main` as `revision`.
+On Hugging Face the URL is `<endpoint>/<repo>/resolve/<revision>/<sources[repository]>`, both repositories currently at `main`; on ModelScope it is `https://www.modelscope.cn/models/<modelscope>/resolve/<modelscope_revision>/<sources[repository]>`.
+
+`urls()` lists every URL in the order tried: the chosen source first, then the other public ones (whichever of `huggingface`, `hf-mirror`, `modelscope` is not chosen); at each source the chosen repository first, then the others that host the file. A URL that answers 404/401/403/410, states another size (from `Content-Length` or `Content-Range`, before downloading), gives a wrong checksum, or stays unreachable after 4 retries gives way to the next, and the job log says “…; trying the next source”. When every URL fails, the job ends with `RvcNextError`, the last reasons in `detail.errors`.
+
+**ModelScope line endings**: ModelScope converts small text files committed inline to LF line endings (and always commits `config.json` inline), so HuBERT's `hubert_base/config.json` (1420 bytes) and `preprocessor_config.json` (216 bytes) are stored there with LF, unlike the official CRLF originals. A catalog file's `alternates` (a list of `{size, sha256}`) lists such other accepted contents: status, download and verification accept the original or any alternate.
+
+Hugging Face links in imports still go through a Hugging Face endpoint (`assets.service.hf_endpoint`): huggingface.co when the source is ModelScope.
 
 **Content-feature models** (group `embedder`, assets `embedder-<name>` in `embedders/<name>/`) are the HuBERT-style models Applio voices may be trained on (`engine/features/embedders.py`), from `hf:IAHispano/Applio` (upstream, pinned); the config files' hashes were computed from that revision, the weights' come from LFS. `assets download --group all` leaves them out.
 
@@ -114,8 +120,8 @@ FCPE previously used the torchfcpe package, which depends on torchaudio and bund
 Downloads are `download` jobs (`io` resource, concurrency capacity 4), submitted by `AssetService.download(ids, group, verify_only, foreground)`; the CLI runs them in the foreground with `foreground=True`. Each asset is one job step.
 
 - **Skip existing files**: files whose sizes match the catalog are not downloaded again.
-- **Resume** (`_fetch()`): write downloads to `<filename>.part`; when partial data exists, send `Range: bytes=<downloaded bytes>-`. A 200 response instead of 206 restarts writing; 416 with a complete `.part` counts as finished; an oversized `.part` is deleted and downloaded again. Retry at most 4 times (`RETRIES`), with 1, 2, 4… seconds of backoff (capped at 10 seconds). On completion, check size and rename `.part` to the final file.
-- **Verification**: compute SHA-256 and compare with the catalog when `downloads.verify_checksums` (default on) or `verify_only` is enabled.
+- **Resume** (`_fetch()` tries each of `urls()`, `_fetch_from()` downloads one): write downloads to `<filename>.part`; when partial data exists, send `Range: bytes=<downloaded bytes>-`. A 200 response instead of 206 restarts writing; a `.part` already at an accepted size counts as finished; an oversized `.part` is deleted and downloaded again. Retry each URL at most 4 times (`RETRIES`), with 1, 2, 4… seconds of backoff (capped at 10 seconds). Wrong content (size or checksum) deletes the `.part` and moves to the next URL. On completion, rename `.part` to the final file.
+- **Verification**: compute SHA-256 and compare with the catalog (the original or one of its `alternates`) when `downloads.verify_checksums` (default on) or `verify_only` is enabled; a download is checked before the rename, so a URL serving damaged content is skipped.
 - **Verification cache**: store results in the data directory's `assets-verified.json`, keyed by `<path>|<size>|<mtime_ns>`. Size or modification-time changes naturally invalidate the cache. Listing asset status avoids repeatedly hashing several GB, while replaced files appear unverified again.
 - **Progress**: measured in bytes; `ctx.transfer(done, total)` lets job cards display speed and remaining time (see [Core services](/docs/development-core)).
 - Failed assets are marked `failed`; the job ends with `RvcNextError`, with failed IDs listed in `detail.assets`.
