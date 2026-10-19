@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import shutil
 import time
 from collections.abc import Iterable, Iterator
@@ -28,6 +29,21 @@ logger = logging.getLogger(__name__)
 UPLOAD_TTL_SECONDS = 24 * 3600
 MIN_POINTS, MAX_POINTS = 64, 4096
 MAX_ANALYSIS_SECONDS = 30 * 60
+
+
+def _upload_entry(path: str) -> str | None:
+    """The entry under ``uploads/`` that ``path`` lies in (an upload's folder, named by its id), on either
+    platform's separators; None when the path is not under an ``uploads`` folder."""
+    parts = [p for p in re.split(r"[\\/]", path) if p]
+    for i in range(len(parts) - 2, -1, -1):
+        if parts[i] == "uploads":
+            return parts[i + 1]
+    return None
+
+
+def _like_prefix(text: str) -> str:
+    """A ``LIKE … ESCAPE '\\'`` pattern for text starting with ``text``: its ``%`` and ``_`` are not wildcards."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
 def _audio_ext(name: str) -> bool:
@@ -428,19 +444,24 @@ class AudioFileService:
     # -- housekeeping -----------------------------------------------------------------
 
     def cleanup(self) -> None:
-        """Remove uploads older than a day that no output references, and outputs past their retention."""
+        """Remove uploads older than a day that no output references, and outputs past their retention.
+
+        Outputs record their source as an absolute path, written wherever the data directory was then. An upload is
+        matched by its entry under ``uploads/`` (the folder named by its id), never by the whole path, so a data
+        directory opened from another place (moved, renamed, reached through a link) keeps every upload an output
+        still uses.
+        """
         now = time.time()
-        referenced = {r["source_path"] for r in self._db.fetchall("SELECT DISTINCT source_path FROM outputs WHERE source_path IS NOT NULL")}
+        referenced = {_upload_entry(r["source_path"]) for r in self._db.fetchall("SELECT DISTINCT source_path FROM outputs WHERE source_path IS NOT NULL")}
         if self.uploads_dir.is_dir():
             for folder in self.uploads_dir.iterdir():
                 try:
-                    if now - folder.stat().st_mtime < UPLOAD_TTL_SECONDS:
-                        continue
-                    files = list(folder.iterdir()) if folder.is_dir() else [folder]
-                    if any(str(f) in referenced for f in files):
+                    if now - folder.stat().st_mtime < UPLOAD_TTL_SECONDS or folder.name in referenced:
                         continue
                     shutil.rmtree(folder, ignore_errors=True) if folder.is_dir() else folder.unlink(missing_ok=True)
-                    self._db.execute("DELETE FROM audio_files WHERE path LIKE ?", (str(folder) + "%",))
+                    # The upload's row by its id (its folder's name), wherever its path was recorded; rows of server
+                    # paths inside the folder by their path.
+                    self._db.execute("DELETE FROM audio_files WHERE id = ? OR path = ? OR path LIKE ? ESCAPE '\\'", (folder.name, str(folder), _like_prefix(str(folder) + os.sep)))
                 except OSError:
                     continue
         days = self._settings.settings.convert.keep_outputs_days

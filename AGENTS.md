@@ -380,7 +380,7 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   with PyAV; server paths are checked against `paths.browse_roots` **in the API** (the CLI is
   trusted). Left empty, the roots are home, the legacy roots, the data directory and every drive
   (Windows, `core/files.windows_drives`) or mounted volume (`/Volumes`, `/media/<user>`, `/mnt`), never resolved (resolving a drive opens it: a
-  disconnected network drive would stall every `GET /settings`); peaks cached under `cache/peaks/`; outputs carry provenance; zip streamed.
+  disconnected network drive would stall every `GET /settings`); peaks cached under `cache/peaks/`; outputs carry provenance; zip streamed. Start-up `cleanup()` removes uploads older than a day that no output's `source_path` names, matching the entry under `uploads/` (the folder named by the upload's id), never the whole path: rows hold absolute paths, and comparing them deleted every upload once the data directory was opened from another place.
 - **Analysis** (`engine/audio/analysis.py`, `audio.analyse`, `GET /outputs/{id}/analysis` and
   `source-analysis`, `GET /audio/files/{id}/analysis`, `rvc-next analyse`): a 128-band mel
   spectrogram as base64 bytes and the pitch every 10 ms from SwiftF0 on the CPU (never the GPU
