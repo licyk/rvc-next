@@ -911,3 +911,21 @@ rvc-next jobs show [OPTIONS] JOB_ID
 rvc-next jobs list --state failed
 rvc-next jobs show j18f3c2a9b1c4d5e6f --log   # Job ID from jobs list
 ```
+
+## Results: `output`
+
+### `output check`
+
+Check that every output, the input it was made from, and every uploaded or server audio file is where its record says. Files the data directory moved away from are found again by the last parts of their path (with the recorded size); the missing ones are listed. Exits 1 when an output or audio file is missing.
+
+| Option | Description |
+| --- | --- |
+| `--fix` | Rewrite the records of files found elsewhere, and old absolute records inside the data directory |
+| `--prune-missing` | Delete the records of outputs and audio files found nowhere |
+| `--rebase OLD NEW` | Records under folder `OLD` point under `NEW` instead (an outputs folder that moved with its disk) |
+| `--json` | Print JSON |
+
+```bash
+rvc-next output check
+rvc-next output check --rebase /mnt/old-disk/rvc-outputs /mnt/new-disk/rvc-outputs
+```

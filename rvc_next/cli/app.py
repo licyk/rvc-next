@@ -28,6 +28,7 @@ from rvc_next.cli.commands.model import (
     model_merge,
     model_remove,
 )
+from rvc_next.cli.commands.output import output_check
 from rvc_next.cli.commands.preset import preset_list, preset_remove, preset_save
 from rvc_next.cli.commands.separate import separate
 from rvc_next.cli.commands.system import doctor, env, version
@@ -120,6 +121,10 @@ def get_app() -> typer.Typer:
     jobs_cli.command(help="List jobs", name="list")(jobs_list)
     jobs_cli.command(help="Show a job", name="show")(jobs_show)
     app.add_typer(jobs_cli, name="jobs")
+
+    output_cli = typer_factory(help="Conversion and separation results")
+    output_cli.command(help="Check that every output and audio file is where its record says", name="check")(output_check)
+    app.add_typer(output_cli, name="output")
 
     return app
 

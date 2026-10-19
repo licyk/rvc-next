@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import threading
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -24,7 +25,7 @@ from rvc_next.core.db import Database
 from rvc_next.core.errors import BusyError, ConflictError, NotFoundError, ValidationError
 from rvc_next.core.events import EventBus
 from rvc_next.core.events.models import ExperimentChangedEvent, TrainMetricsEvent
-from rvc_next.core.files import trash
+from rvc_next.core.files import from_stored, is_absolute_text, to_stored, trash
 from rvc_next.core.jobs.models import Job, JobStep
 from rvc_next.core.jobs.service import JobContext, JobService, JobSpec
 from rvc_next.core.models.models import VoiceModel
@@ -33,6 +34,7 @@ from rvc_next.core.params import f0_assets
 from rvc_next.core.safety import unique_path, validate_name
 from rvc_next.core.separation.service import SeparationService
 from rvc_next.core.settings import SettingsService
+from rvc_next.core.storage import PREVIOUS_DATA_DIR_KEY
 from rvc_next.core.training.models import (
     STAGE_ORDER,
     Checkpoint,
@@ -61,6 +63,10 @@ UPLOAD_DIR = "dataset_upload"
 MAX_DATASET_UPLOAD = 8 * 1024**3
 WORKER = "rvc_next.workers.train"
 CLEAN_DIR = "dataset_clean"
+FINGERPRINTS = 2
+"""``experiment.json``'s ``fingerprints``: 2 names the experiment's own files relative to its folder (and keeps a dataset
+folder inside it relative), so moving the experiments folder or the data directory leaves every stage current. Absent
+(1): every path named absolute, as written before."""
 STAGE_TITLES = {"clean": "Clean up the dataset", "slice": "Slice", "f0": "Extract pitch", "features": "Extract features", "fit": "Train", "index": "Build the index"}
 # How much of a full run each stage takes, for one progress bar.
 STAGE_WEIGHT = {"clean": 2.0, "slice": 0.5, "f0": 1.0, "features": 1.0, "fit": 10.0, "index": 0.3}
@@ -111,9 +117,17 @@ class TrainingService:
         path = folder / EXPERIMENT_FILE
         if path.is_file():
             try:
-                exp = Experiment.model_validate_json(path.read_text(encoding="utf-8"))
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                layout = raw.pop("fingerprints", 1)
+                exp = Experiment.model_validate(raw)
             except ValueError as e:
                 raise ValidationError(f"{path} is damaged: {e}") from e
+            written = exp.dataset
+            exp.dataset = self._dataset_on_disk(exp.dataset, folder)
+            if layout < FINGERPRINTS:
+                exp.name = name
+                self._upgrade_fingerprints(exp, folder, written)
+                self._save(exp)
         elif folder.is_dir():
             # A folder copied in from an original install: describe it from what it holds.
             exp = self._from_legacy(name, folder)
@@ -130,9 +144,72 @@ class TrainingService:
         folder.mkdir(parents=True, exist_ok=True)
         exp.updated_at = now_iso()
         data = exp.model_dump(exclude={"path", "running_job"})
+        data["dataset"] = self._dataset_stored(exp.dataset, folder).model_dump()
+        data["fingerprints"] = FINGERPRINTS
         tmp = folder / (EXPERIMENT_FILE + ".tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         tmp.replace(folder / EXPERIMENT_FILE)
+
+    @staticmethod
+    def _folder_stored(value: str | None, folder: Path) -> str | None:
+        """A dataset folder as ``experiment.json`` keeps it: relative inside the experiment's folder (an uploaded
+        dataset), so it moves with it; any other folder as it was given."""
+        if not value or value.startswith("~"):
+            return value
+        stored = to_stored(Path(value), folder)
+        return value if is_absolute_text(stored) else stored
+
+    @staticmethod
+    def _folder_on_disk(value: str | None, folder: Path) -> str | None:
+        """A recorded dataset folder on disk. An absolute one from before, inside the experiment's folder at its old
+        place (``…/<experiment>/dataset_upload/…``), is found under its folder now."""
+        if not value or value.startswith("~"):
+            return value
+        path = from_stored(value, folder)
+        if is_absolute_text(value) and not path.is_dir():
+            parts = [p for p in re.split(r"[\\/]", value) if p]
+            if UPLOAD_DIR in parts:
+                moved = folder.joinpath(*parts[len(parts) - 1 - parts[::-1].index(UPLOAD_DIR) :])
+                if moved.is_dir():
+                    return str(moved)
+        return str(path)
+
+    def _dataset_stored(self, ds: Dataset, folder: Path) -> Dataset:
+        speakers = [s.model_copy(update={"folder": self._folder_stored(s.folder, folder)}) for s in ds.speakers]
+        return ds.model_copy(update={"folder": self._folder_stored(ds.folder, folder), "speakers": speakers})
+
+    def _dataset_on_disk(self, ds: Dataset, folder: Path) -> Dataset:
+        speakers = [s.model_copy(update={"folder": self._folder_on_disk(s.folder, folder)}) for s in ds.speakers]
+        return ds.model_copy(update={"folder": self._folder_on_disk(ds.folder, folder), "speakers": speakers})
+
+    def _upgrade_fingerprints(self, exp: Experiment, folder: Path, written: Dataset) -> None:
+        """Rewrite the stage fingerprints of an experiment from before they named its files relative to its folder.
+
+        A stored fingerprint is recomputed the old way, naming every path absolute: as the paths are now, and as they
+        were at the experiment's earlier place. That place is known from where the data directory was before
+        (``core/storage``) or from an uploaded dataset's recorded folder. A stage whose fingerprint matches read the
+        same files, and gets one in the new form; any other keeps its old one, which shows it changed.
+        """
+        places: list[Path | None] = [None]
+        previous = self._db.get_meta(PREVIOUS_DATA_DIR_KEY)
+        data_dir = self._settings.data_dir
+        if previous and (folder == data_dir or data_dir in folder.parents):
+            places.append(Path(previous) / folder.relative_to(data_dir))
+        for value in [written.folder, *(s.folder for s in written.speakers)]:
+            parts = [p for p in re.split(r"[\\/]", value or "") if p]
+            if value and is_absolute_text(value) and UPLOAD_DIR in parts:
+                cut = value.replace("\\", "/").rfind("/" + UPLOAD_DIR)
+                places.append(Path(value[:cut]))
+        upgraded = 0
+        for stage, state in exp.stages.items():
+            if state.fingerprint is None:
+                continue
+            for place in dict.fromkeys(places):
+                if self._fingerprint(exp, stage, rename=_named_at(folder, place)) == state.fingerprint:
+                    state.fingerprint = self._fingerprint(exp, stage)
+                    upgraded += 1
+                    break
+        logger.info("Experiment %s: %d of %d stage fingerprints carried over to the relative form", exp.name, upgraded, sum(s.fingerprint is not None for s in exp.stages.values()))
 
     def _emit(self, exp: Experiment, removed: bool = False) -> None:
         self._events.publish(
@@ -245,6 +322,10 @@ class TrainingService:
     def _check_dataset(self, ds: Dataset) -> None:
         folders = [ds.folder] if ds.mode == "single" else [s.folder for s in ds.speakers]
         for f in folders:
+            # experiment.json keeps a folder inside the experiment relative to it, so a relative folder given here would
+            # be read as one; a working directory means nothing to the server anyway.
+            if f and not Path(f).expanduser().is_absolute():
+                raise ValidationError(f"A dataset folder must be absolute: {f}")
             if f and not Path(f).expanduser().is_dir():
                 raise NotFoundError(f"No such folder: {f}")
         if ds.mode == "multi":
@@ -758,11 +839,16 @@ class TrainingService:
         root = Path(folder).expanduser()
         return [(p, p.name) for p in sorted(root.iterdir()) if p.is_file() and is_audio_path(p)]
 
-    def _fingerprint(self, exp: Experiment, stage: str) -> str:
+    def _fingerprint(self, exp: Experiment, stage: str, rename: Callable[[Path], str] | None = None) -> str:
+        """What ``stage`` reads, as a fingerprint naming the experiment's own files relative to its folder; ``rename``
+        names the paths instead (``_upgrade_fingerprints``)."""
+        from functools import partial
+
         from rvc_next.engine.train.experiment import feature_dir
-        from rvc_next.engine.train.fingerprint import of_paths
+        from rvc_next.engine.train.fingerprint import of_paths as of_any_paths
 
         folder = self._dir(exp.name)
+        of_paths = partial(of_any_paths, base=folder, rename=rename)
         ds = exp.dataset
         sources = [ds.folder] if ds.mode == "single" else [s.folder for s in ds.speakers]
         sources = [str(Path(s).expanduser()) for s in sources if s]
@@ -930,3 +1016,18 @@ def _earliest(current: str | None, stage: str) -> str:
 def _safe_name(name: str) -> str:
     """A file or folder name from an upload, without characters a file system refuses."""
     return "".join("_" if c in '<>:"/\\|?*' or ord(c) < 32 else c for c in name).strip(" .") or "audio"
+
+
+def _named_at(folder: Path, place: Path | None) -> Callable[[Path], str]:
+    """Paths named as fingerprints named them before they were relative: absolute, with the experiment's files under
+    ``place`` (its folder then) instead of ``folder``; ``place`` None: where they are now."""
+
+    def name(path: Path) -> str:
+        if place is not None:
+            try:
+                return str(place / path.relative_to(folder))
+            except ValueError:
+                pass
+        return str(path.resolve())
+
+    return name

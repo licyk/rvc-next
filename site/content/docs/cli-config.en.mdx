@@ -86,7 +86,7 @@ Whenever a running server reads settings, it checks at most once per second whet
 </Callout>
 ## All settings [#all-settings]
 
-In the "Type" column, `str?` and `int?` mean the value can be empty (`null`). An empty folder setting means "use the default folder under the data directory".
+In the "Type" column, `str?` and `int?` mean the value can be empty (`null`). An empty folder setting means "use the default folder under the data directory"; a relative folder is inside the data directory as well (`results` is `<data directory>/results`, whatever folder rvc-next is started from).
 
 ### `server`: server
 

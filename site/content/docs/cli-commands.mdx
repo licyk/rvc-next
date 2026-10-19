@@ -911,3 +911,21 @@ rvc-next jobs show [OPTIONS] JOB_ID
 rvc-next jobs list --state failed
 rvc-next jobs show j18f3c2a9b1c4d5e6f --log   # 任务 id 来自 jobs list
 ```
+
+## 结果：`output`
+
+### `output check`
+
+检查每个输出、生成它的输入，以及每个上传或服务器音频文件是否在记录的位置。数据目录移动后不在原处的文件按路径末尾几段重新找到（大小须与记录一致），找不到的列出来。有输出或音频文件缺失时退出码为 1。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--fix` | 改写在别处找到的文件的记录，以及数据目录内旧式的绝对路径记录 |
+| `--prune-missing` | 删除哪里都找不到的输出和音频文件的记录 |
+| `--rebase OLD NEW` | 把目录 `OLD` 下的记录指向 `NEW`（随磁盘移动了的结果目录） |
+| `--json` | 打印 JSON |
+
+```bash
+rvc-next output check
+rvc-next output check --rebase /mnt/old-disk/rvc-outputs /mnt/new-disk/rvc-outputs
+```

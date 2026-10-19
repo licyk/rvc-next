@@ -68,6 +68,8 @@ class VoiceModel(Record):
     indexes: dict[str, str] = Field(default_factory=dict)
     """``default`` or ``spk<N>`` → index path."""
     has_index: bool = False
+    missing: bool = False
+    """The voice's file is not there (its folder is gone or not mounted); kept, with its presets, until it comes back."""
     size: int = 0
     info: str = ""
     provenance: Provenance = Field(default_factory=Provenance)

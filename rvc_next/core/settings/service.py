@@ -307,7 +307,9 @@ class SettingsService:
     # -- resolved folders ---------------------------------------------------
 
     def _folder(self, value: str, default: str) -> Path:
-        return Path(value).expanduser().resolve() if value else self.data_dir / default
+        """A folder setting: empty is ``default`` inside the data directory, and a relative one is inside the data
+        directory too (never the working directory, which changes with every launch)."""
+        return (self.data_dir / Path(value).expanduser()).resolve() if value else self.data_dir / default
 
     @property
     def models_dir(self) -> Path:

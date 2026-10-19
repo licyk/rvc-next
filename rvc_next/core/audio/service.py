@@ -23,6 +23,7 @@ from rvc_next.core.files import is_within, reveal, trash, zip_stream
 from rvc_next.core.params import VoiceParamsModel
 from rvc_next.core.safety import unique_path, validate_name
 from rvc_next.core.settings import SettingsService
+from rvc_next.core.storage import StorageService
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +54,14 @@ def _audio_ext(name: str) -> bool:
 
 
 class AudioFileService:
-    def __init__(self, settings: SettingsService, db: Database, events: EventBus) -> None:
+    """Audio file and output records keep their paths relative to the data directory when the file lies inside it
+    (``core/storage``); records hand them out absolute, as they are on disk now."""
+
+    def __init__(self, settings: SettingsService, db: Database, events: EventBus, storage: StorageService) -> None:
         self._settings = settings
         self._db = db
         self._events = events
+        self._storage = storage
 
     @property
     def uploads_dir(self) -> Path:
@@ -110,7 +115,7 @@ class AudioFileService:
         if not path.is_file():
             raise NotFoundError(f"No such file: {path}")
         st = path.stat()
-        row = self._db.fetchone("SELECT * FROM audio_files WHERE path = ? AND mtime_ns = ? AND origin = 'path'", (str(path.resolve()), st.st_mtime_ns))
+        row = self._db.fetchone("SELECT * FROM audio_files WHERE path = ? AND mtime_ns = ? AND origin = 'path'", (self._storage.store(path.resolve()), st.st_mtime_ns))
         if row is not None:
             return self._row(row)
         info = self.probe(path)
@@ -121,30 +126,36 @@ class AudioFileService:
         created = now_iso()
         self._db.execute(
             "INSERT INTO audio_files(id, path, name, origin, duration, sample_rate, channels, size, mtime_ns, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (file_id, str(path), path.name, origin, info.duration, info.sample_rate, info.channels, size, st.st_mtime_ns, created),
+            (file_id, self._storage.store(path), path.name, origin, info.duration, info.sample_rate, info.channels, size, st.st_mtime_ns, created),
         )
         return AudioFile(
             id=file_id, name=path.name, path=str(path), origin=origin, duration=info.duration, sample_rate=info.sample_rate, channels=info.channels, size=size, created_at=created
         )
 
-    def get_file(self, file_id: str) -> AudioFile:
+    def _fetch_file(self, file_id: str) -> Any:
         row = self._db.fetchone("SELECT * FROM audio_files WHERE id = ?", (file_id,))
         if row is None:
             raise NotFoundError(f"Unknown audio file: {file_id}")
-        return self._row(row)
+        return row
+
+    def get_file(self, file_id: str) -> AudioFile:
+        return self._row(self._fetch_file(file_id))
 
     def file_path(self, file_id: str) -> Path:
-        path = Path(self.get_file(file_id).path)
-        if not path.is_file():
-            raise NotFoundError(f"The file is gone: {path.name}")
+        """The file's path; ``not_found`` with ``detail.reason`` ``file_missing`` when it is gone."""
+        row = self._fetch_file(file_id)
+        path = self._storage.find("audio", row)
+        if path is None:
+            raise self._storage.missing_error("audio", row)
         return path
 
-    @staticmethod
-    def _row(r: Any) -> AudioFile:
+    def _row(self, r: Any) -> AudioFile:
+        path = self._storage.find("audio", r)
         return AudioFile(
             id=r["id"],
             name=r["name"],
-            path=r["path"],
+            path=str(path or self._storage.resolve(r["path"])),
+            exists=path is not None,
             origin=r["origin"],
             duration=r["duration"],
             sample_rate=r["sample_rate"],
@@ -163,17 +174,12 @@ class AudioFileService:
         if ref.kind == "output-source":
             if not ref.id:
                 raise ValidationError("An output-source reference needs an output id")
-            src = self.get_output(ref.id).source_path
-            if not src or not Path(src).is_file():
-                raise NotFoundError("The input this output was made from is gone")
-            return Path(src), Path(src).name
+            path = self.source_file(ref.id)
+            return path, path.name
         if ref.kind == "output":
             if not ref.id:
                 raise ValidationError("An output reference needs an id")
-            out = self.get_output(ref.id)
-            path = Path(out.path)
-            if not path.is_file():
-                raise NotFoundError(f"The output file is gone: {path.name}")
+            path = self.output_file(ref.id)
             return path, path.name
         if not ref.path:
             raise ValidationError("A path reference needs a path")
@@ -250,7 +256,8 @@ class AudioFileService:
 
         points = max(MIN_POINTS, min(MAX_POINTS, int(points)))
         st = path.stat()
-        key = hashlib.sha1(f"{path.resolve()}|{st.st_size}|{st.st_mtime_ns}|{points}".encode()).hexdigest()
+        # Keyed by the path as a record keeps it, so the cache follows the data directory when it moves.
+        key = hashlib.sha1(f"{self._storage.store(path)}|{st.st_size}|{st.st_mtime_ns}|{points}".encode()).hexdigest()
         cache = self.peaks_dir / key[:2] / f"{key}.json"
         if cache.is_file():
             try:
@@ -281,7 +288,7 @@ class AudioFileService:
 
         columns = max(64, min(4000, int(columns)))
         st = path.stat()
-        key = hashlib.sha1(f"analysis|{path.resolve()}|{st.st_size}|{st.st_mtime_ns}|{columns}".encode()).hexdigest()
+        key = hashlib.sha1(f"analysis|{self._storage.store(path)}|{st.st_size}|{st.st_mtime_ns}|{columns}".encode()).hexdigest()
         cache = self.peaks_dir / key[:2] / f"{key}.json"
         if cache.is_file():
             try:
@@ -349,10 +356,10 @@ class AudioFileService:
             (
                 out_id,
                 job_id,
-                str(path),
+                self._storage.store(path),
                 kind,
                 label,
-                str(source_path) if source_path else None,
+                self._storage.store(source_path) if source_path else None,
                 model_id,
                 voice.model_dump_json() if voice else None,
                 info.duration if info else None,
@@ -367,11 +374,14 @@ class AudioFileService:
             self._events.publish(OutputsAddedEvent(job_id=job_id, outputs=[output]))
         return output
 
-    def get_output(self, output_id: str) -> Output:
+    def _fetch_output(self, output_id: str) -> Any:
         row = self._db.fetchone("SELECT * FROM outputs WHERE id = ?", (output_id,))
         if row is None:
             raise NotFoundError(f"Unknown output: {output_id}")
-        return self._output_row(row)
+        return row
+
+    def get_output(self, output_id: str) -> Output:
+        return self._output_row(self._fetch_output(output_id))
 
     def list_outputs(self, job_id: str | None = None, voice_id: str | None = None, kind: str | None = None, cursor: str | None = None, limit: int = 100) -> OutputPage:
         where, params = [], []
@@ -395,9 +405,10 @@ class AudioFileService:
         return OutputPage(items=items, next_cursor=next_cursor)
 
     def delete_output(self, output_id: str, delete_file: bool = True) -> None:
-        out = self.get_output(output_id)
-        if delete_file:
-            path = Path(out.path)
+        row = self._fetch_output(output_id)
+        # Only the file the record leads to now: a record whose file is gone has nothing to trash.
+        path = self._storage.find("output", row) if delete_file else None
+        if path is not None:
             trash(path, self._settings.data_dir / "trash")
             try:
                 path.parent.rmdir()
@@ -407,9 +418,21 @@ class AudioFileService:
         self._events.publish(OutputsRemovedEvent(ids=[output_id]))
 
     def output_file(self, output_id: str) -> Path:
-        path = Path(self.get_output(output_id).path)
-        if not path.is_file():
-            raise NotFoundError(f"The output file is gone: {path.name}")
+        """The output's file; ``not_found`` with ``detail.reason`` ``file_missing`` when it is gone."""
+        row = self._fetch_output(output_id)
+        path = self._storage.find("output", row)
+        if path is None:
+            raise self._storage.missing_error("output", row)
+        return path
+
+    def source_file(self, output_id: str) -> Path:
+        """The input an output was made from; ``not_found`` when it has none or it is gone."""
+        row = self._fetch_output(output_id)
+        if not row["source_path"]:
+            raise NotFoundError("This output records no input")
+        path = self._storage.find("source", row)
+        if path is None:
+            raise self._storage.missing_error("source", row)
         return path
 
     def zip_outputs(self, ids: list[str]) -> Iterator[bytes]:
@@ -420,24 +443,25 @@ class AudioFileService:
         reveal(path)
 
     def _output_row(self, r: Any) -> Output:
-        path = Path(r["path"])
-        source = r["source_path"]
+        found = self._storage.find("output", r)
+        path = found or self._storage.resolve(r["path"])
+        source = (self._storage.find("source", r) or self._storage.resolve(r["source_path"])) if r["source_path"] else None
         return Output(
             id=r["id"],
             job_id=r["job_id"],
-            path=r["path"],
+            path=str(path),
             name=path.name,
             kind=r["kind"],
             label=r["label"],
-            source_path=source,
-            source_name=Path(source).name if source else None,
+            source_path=str(source) if source else None,
+            source_name=source.name if source else None,
             model_id=r["model_id"],
             voice=VoiceParamsModel.model_validate_json(r["voice"]) if r["voice"] else None,
             duration=r["duration"],
             sample_rate=r["sample_rate"],
             channels=r["channels"],
             size=r["size"],
-            exists=path.is_file(),
+            exists=found is not None,
             created_at=r["created_at"],
         )
 

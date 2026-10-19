@@ -31,6 +31,7 @@ EXPECTED_TREE = {
         "merge": None,
         "remove": None,
     },
+    "output": {"check": None},
     "preset": {"list": None, "remove": None, "save": None},
     "separate": None,
     "train": {"dataset": {"scan": None, "speakers": None}, "export": None, "import": None, "list": None, "new": None, "run": None, "status": None},

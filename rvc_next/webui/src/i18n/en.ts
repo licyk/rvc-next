@@ -90,6 +90,7 @@ export default {
     noneHint: 'Import a .pth model, or a .zip with its index, in Models.',
     choose: 'Choose a voice',
     noIndex: 'no index',
+    missing: 'file missing',
     legacy: 'legacy',
     speaker: 'Speaker',
     speakers: '{n} speakers',

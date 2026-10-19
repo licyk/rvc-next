@@ -86,7 +86,7 @@ rvc-next config set server.access_token null # 清除令牌
 </Callout>
 ## 全部设置项 [#all-settings]
 
-下表中"类型"一栏的 `str?`、`int?` 表示可以为空（`null`）。文件夹类设置留空表示"使用数据目录下的默认文件夹"。
+下表中"类型"一栏的 `str?`、`int?` 表示可以为空（`null`）。文件夹类设置留空表示"使用数据目录下的默认文件夹"；相对路径同样位于数据目录内（`results` 即 `<数据目录>/results`，与从哪个目录启动 rvc-next 无关）。
 
 ### `server`：服务器
 

@@ -27,6 +27,8 @@ By default, in the data directory: `%APPDATA%\rvc-next` on Windows, `~/Library/A
 
 Use `RVC_NEXT_DATA_DIR` or `rvc-next webui --data-dir <path>` to choose another location. To move only one category of files, change the **Voices**, **Experiments**, **Results**, or **Assets** folder under **Settings** › **Storage**. For the directory layout, see [Configuration and environment variables](/docs/cli-config#data-dir).
 
+The data directory can be moved, renamed or copied as a whole (with rvc-next stopped): start rvc-next with the new location and results, uploads, voices and experiments are found there, and finished training stages stay finished. A result whose file is gone is shown as missing; `rvc-next output check` lists every missing file, and `--prune-missing` removes their records.
+
 </Accordion>
 <Accordion title="How do I reset settings to defaults?">
 

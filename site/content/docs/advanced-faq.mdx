@@ -27,6 +27,8 @@ rvc-next config set server.port 8000    # 以后都用（下次启动服务器�
 
 用环境变量 `RVC_NEXT_DATA_DIR` 或 `rvc-next webui --data-dir <路径>` 换到其他位置；只想移动某一类文件，改 **设置** › **存储** 中的 **音色**、**实验**、**结果**、**资源** 文件夹。目录结构见 [配置与环境变量](/docs/cli-config#data-dir)。
 
+数据目录可以整体移动、改名或复制（先停止 rvc-next）：用新位置启动 rvc-next，结果、上传、音色和实验都会在那里找到，已完成的训练阶段仍然算完成。文件已不在的结果显示为缺失；`rvc-next output check` 列出所有缺失的文件，加 `--prune-missing` 删除它们的记录。
+
 </Accordion>
 <Accordion title="怎样把设置恢复为默认值？">
 

@@ -90,6 +90,7 @@ export default {
     noneHint: '在“模型”中导入 .pth 模型，或包含索引的 .zip。',
     choose: '选择音色',
     noIndex: '无索引',
+    missing: '文件缺失',
     legacy: '旧版',
     speaker: '说话人',
     speakers: '{n} 个说话人',

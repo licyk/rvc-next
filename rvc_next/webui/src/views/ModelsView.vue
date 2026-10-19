@@ -202,6 +202,7 @@ function extract() {
               <span class="type-title-medium name">{{ v.name }}</span>
               <span class="type-body-small muted">{{ describe(v) }}</span>
               <div class="badges">
+                <Badge v-if="v.missing" :value="t('voice.missing')" tone="error" />
                 <Badge v-if="!v.has_index" :value="t('voice.noIndex')" tone="warning" />
                 <Badge v-if="v.speakers.length" :value="t('voice.speakers', { n: v.speakers.length })" tone="neutral" />
                 <Badge v-if="v.legacy" :value="t('voice.legacy')" tone="neutral" />

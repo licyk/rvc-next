@@ -29,6 +29,8 @@ class AudioFile(Record):
     sample_rate: int | None = None
     channels: int | None = None
     size: int
+    exists: bool = True
+    """False when the file is gone: neither at ``path`` nor anywhere it could have moved to."""
     created_at: str
 
 

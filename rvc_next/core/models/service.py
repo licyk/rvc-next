@@ -22,7 +22,7 @@ from rvc_next.core.engine_errors import map_engine_error
 from rvc_next.core.errors import ConflictError, InvalidPathError, ModelFormatError, NotFoundError, RvcNextError, ValidationError
 from rvc_next.core.events import EventBus
 from rvc_next.core.events.models import ModelsChangedEvent
-from rvc_next.core.files import slugify, trash, zip_stream
+from rvc_next.core.files import from_stored, relocations, slugify, to_stored, trash, zip_stream
 from rvc_next.core.jobs.service import JobContext, JobService, JobSpec
 from rvc_next.core.models.importers import index_key, legacy_index_roots, legacy_weights, suggest_index
 from rvc_next.core.models.models import (
@@ -138,6 +138,7 @@ class VoiceModelService:
             speaker_slots=r["speaker_slots"],
             indexes=indexes,
             has_index=any(Path(p).is_file() for p in indexes.values()),
+            missing=not Path(r["model_path"]).is_file(),
             size=r["size"],
             info=r["info"],
             provenance=Provenance.model_validate(json.loads(r["meta"] or "{}").get("provenance", {})),
@@ -166,6 +167,9 @@ class VoiceModelService:
         with self._lock:
             self._migrate_layout()
             seen: set[str] = set()
+            # A folder that is not there (a disk not mounted, a models folder set to a place that is gone) keeps its
+            # voices, shown as missing: dropping them would take their presets along (ON DELETE CASCADE).
+            unreachable: set[str] = set() if self.root.is_dir() else {"library"}
             if self.root.is_dir():
                 for folder in sorted(self.root.iterdir()):
                     if folder.is_dir() and (folder / MODEL_FILE).is_file():
@@ -175,12 +179,17 @@ class VoiceModelService:
                         except Exception as e:
                             logger.warning("Skipping %s: %s", folder, e)
             for root in self._settings.settings.paths.legacy_roots:
+                legacy_path = Path(root.path).expanduser()
+                if not legacy_path.is_dir():
+                    logger.warning("The legacy root %s is not there; its voices are kept, shown as missing", legacy_path)
+                    unreachable.add(f"legacy:{root.id}")
+                    continue
                 try:
-                    seen.update(v.id for v in self._scan_legacy_root(root.id, Path(root.path).expanduser(), suggest=False))
+                    seen.update(v.id for v in self._scan_legacy_root(root.id, legacy_path, suggest=False))
                 except Exception as e:
                     logger.warning("Skipping legacy root %s: %s", root.path, e)
             rows = self._db.fetchall("SELECT id, location, model_path FROM voice_models")
-            removed = [r["id"] for r in rows if r["id"] not in seen and (r["location"] != "temporary" or not Path(r["model_path"]).is_file())]
+            removed = [r["id"] for r in rows if r["id"] not in seen and r["location"] not in unreachable and (r["location"] != "temporary" or not Path(r["model_path"]).is_file())]
             for rid in removed:
                 self._db.execute("DELETE FROM voice_models WHERE id = ?", (rid,))
         if removed:
@@ -320,6 +329,25 @@ class VoiceModelService:
         except (OSError, ValueError):
             return {}
 
+    def _stored_index(self, path: Path) -> str:
+        """An index path as ``legacy-voices.json`` keeps it: relative to the models folder inside it (the copies in
+        ``attached-indexes/``), so it follows that folder and the data directory; absolute elsewhere."""
+        return to_stored(path, self._settings.models_dir)
+
+    def _index_on_disk(self, value: str) -> Path:
+        """A recorded index path on disk. An absolute one from before, under a models folder that has moved since, is
+        found again by its last parts (``attached-indexes/<voice>/<file>``)."""
+        path = from_stored(value, self._settings.models_dir)
+        if path.is_file():
+            return path
+        return next((p for p in relocations(value, [self._settings.models_dir], min_parts=3) if p.is_file()), path)
+
+    def _legacy_indexes(self, entry: dict[str, Any]) -> dict[str, str]:
+        """A legacy voice's indexes as the database keeps them (absolute), rewriting the entry's into their stored form."""
+        on_disk = {key: self._index_on_disk(str(value)) for key, value in entry.get("indexes", {}).items()}
+        entry["indexes"] = {key: self._stored_index(path) for key, path in on_disk.items()}
+        return {key: str(path) for key, path in on_disk.items()}
+
     def _save_legacy_state(self, data: dict[str, Any]) -> None:
         path = self._settings.data_dir / LEGACY_FILE
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -356,7 +384,7 @@ class VoiceModelService:
                         description=entry.get("description", ""),
                         tags=entry.get("tags", []),
                         speaker_names=entry.get("speakers"),
-                        indexes=entry.get("indexes", {}),
+                        indexes=self._legacy_indexes(entry),
                         hidden=bool(entry.get("hidden")),
                     )
                 )
@@ -530,7 +558,7 @@ class VoiceModelService:
                 description=entry.get("description", ""),
                 tags=entry.get("tags", []),
                 speaker_names=entry.get("speakers"),
-                indexes=entry.get("indexes", {}),
+                indexes=self._legacy_indexes(entry),
                 hidden=bool(entry.get("hidden")),
             )
         else:
@@ -631,11 +659,12 @@ class VoiceModelService:
             if source is None:
                 idx.pop(key, None)
             else:
-                idx[key] = str(source.resolve())
+                idx[key] = self._stored_index(source.resolve())
             entry["indexes"] = idx
             entry["suggested"] = False
+            on_disk = self._legacy_indexes(entry)
             self._save_legacy_state(state)
-            self._db.execute("UPDATE voice_models SET indexes = ?, updated_at = ? WHERE id = ?", (json.dumps(idx), now_iso(), voice_id))
+            self._db.execute("UPDATE voice_models SET indexes = ?, updated_at = ? WHERE id = ?", (json.dumps(on_disk), now_iso(), voice_id))
         elif voice.location == "library":
             folder = Path(voice.model_path).parent
             target = folder / _index_filename(key)

@@ -130,9 +130,18 @@ def run(request: IndexRequest, progress: Any = None, log: Any = None, cancel: Ca
         if cancel is not None:
             cancel.check()
         suffix = "" if speaker_id is None else f"_spkid{speaker_id}"
-        fp = of_paths(groups[speaker_id], extra=(request.version, name))
+        fp = of_paths(groups[speaker_id], extra=(request.version, name), base=exp)
         key = suffix or "default"
         added = _existing(exp, "added", name, request.version, suffix)
+        if (
+            not request.force
+            and added
+            and stored.get(key) != fp
+            and stored.get(key) == of_paths(groups[speaker_id], extra=(request.version, name), rename=lambda p: str(p.resolve()))
+        ):
+            # Written before fingerprints named the experiment's files relative to its folder, over the same files.
+            stored[key] = fp
+            _write_fingerprints(exp, stored)
         if not request.force and added and stored.get(key) == fp:
             newest = max(added, key=os.path.getmtime)
             log(f"Index{' for speaker ' + str(speaker_id) if speaker_id is not None else ''} is up to date: {newest.name}")

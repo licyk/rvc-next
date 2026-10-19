@@ -25,6 +25,7 @@ from rvc_next.core.presets.service import PresetService
 from rvc_next.core.separation.library import SeparationLibrary
 from rvc_next.core.separation.service import SeparationService
 from rvc_next.core.settings import SettingsService
+from rvc_next.core.storage import StorageService
 from rvc_next.core.tts.service import TtsService
 
 if TYPE_CHECKING:
@@ -39,6 +40,7 @@ class Services:
     settings: SettingsService
     events: EventBus
     db: Database
+    storage: StorageService
     http: HttpClientProvider
     compute: ComputeService
     jobs: JobService
@@ -88,11 +90,14 @@ def build_services(
     settings = SettingsService(data_dir=data_dir, settings_path=settings_path, environ=environ, overrides=settings_overrides, config_dir=config_dir)
     events = LocalEventBus()
     db = Database(settings.data_dir / DB_FILE_NAME)
+    storage = StorageService(settings, db, events)
+    # Records of files inside the data directory follow it: rewritten here when it is opened somewhere new.
+    storage.reconcile()
     http = HttpClientProvider(transport)
     compute = ComputeService(settings, events)
     jobs = JobService(settings, db, events, compute)
     assets = AssetService(settings, events, http, jobs)
-    audio = AudioFileService(settings, db, events)
+    audio = AudioFileService(settings, db, events, storage)
     models = VoiceModelService(settings, db, events, jobs)
     presets = PresetService(settings, db, events)
     models.presets = presets
@@ -116,6 +121,7 @@ def build_services(
         settings=settings,
         events=events,
         db=db,
+        storage=storage,
         http=http,
         compute=compute,
         jobs=jobs,

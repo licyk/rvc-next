@@ -152,10 +152,18 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   overwritten, by the next save; every change publishes `settings_changed` with the changed keys
   (`core/context.py`), and a `paths.*` change rescans the library.
 - **Events** carry snapshots; job progress is throttled to 4/s and job logs batched (≤ 50 lines).
-- **Database** (`rvc-next.db`): three migrations (1: `voice_models presets jobs outputs audio_files
+- **Database** (`rvc-next.db`): four migrations (1: `voice_models presets jobs outputs audio_files
   client_state`; 2: `voice_models.catalog_id`; 3: `voice_models.meta`, JSON with the file's
-  `provenance`, and every row re-read). It is a cache for voices (rebuilt from `models/` and legacy roots by
+  `provenance`, and every row re-read; 4: `meta`, where the data directory was opened last). It is a cache for voices (rebuilt from `models/` and legacy roots by
   `models.rescan()`), and the record of jobs and outputs. Experiments are folders, not rows.
+- **Recorded paths are relative** to the folder that holds the file when it lies inside it, never absolute
+  (`core/storage.py`, `files.to_stored` / `from_stored`): `audio_files.path`, `outputs.path` / `source_path`
+  (to the data directory), `legacy-voices.json` indexes (to the models folder), `experiment.json` dataset folders
+  and stage fingerprints (to the experiment's folder). The data directory is moved, copied and opened through links;
+  `StorageService.reconcile` rewrites old absolute rows when it is opened somewhere new, a stale record is found
+  again by its path's last parts and size, a copy never reaches the original's files, a missing file is
+  `file_missing`, and `rvc-next output check` lists and repairs. A rescan keeps the voices of a folder that is not
+  there (`VoiceModel.missing`): deleting them took their presets along.
 
 ## 5. Engine
 
@@ -406,7 +414,9 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   `sample` with the slice as source; `GET /train/experiments/{name}/samples`). The G checkpoint
   carries the fp16 scaler state; metrics add `grad_g`/`grad_d`; small models carry `epoch`,
   `step`, `creation_date` and `training.author`. Training pitch takes every neural method too.
-- **Training:** `experiment.json` per folder; stage fingerprints (`engine/train/fingerprint.py`);
+- **Training:** `experiment.json` per folder; stage fingerprints (`engine/train/fingerprint.py`, the experiment's own
+  files named relative to its folder; `"fingerprints": 2`, older ones upgraded on load when they match the old,
+  absolute form here or at the folder's earlier place);
   **Run all** runs what is not done or whose fingerprint changed, and everything after it (fit alone
   when only `epochs` grew); editing the
   dataset or rates marks later stages `stale`. Stages run in `workers.train`; metrics become

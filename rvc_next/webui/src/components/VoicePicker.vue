@@ -39,7 +39,11 @@ const options = computed<PickerOption[]>(() =>
     label: v.name,
     description: describe(v),
     keywords: v.tags,
-    badges: [...(v.has_index ? [] : [{ text: t('voice.noIndex'), tone: 'warning' as const }]), ...(v.legacy ? [{ text: t('voice.legacy'), tone: 'neutral' as const }] : [])],
+    badges: [
+      ...(v.missing ? [{ text: t('voice.missing'), tone: 'error' as const }] : []),
+      ...(v.has_index ? [] : [{ text: t('voice.noIndex'), tone: 'warning' as const }]),
+      ...(v.legacy ? [{ text: t('voice.legacy'), tone: 'neutral' as const }] : []),
+    ],
   })),
 );
 </script>
