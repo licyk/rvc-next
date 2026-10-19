@@ -114,3 +114,15 @@ def test_missing_asset_exit_code(runner, tiny_voice_file, wav_file, tmp_path):
     app = get_app()
     r = runner.invoke(app, ["convert", str(wav_file), "-v", str(tiny_voice_file), "-o", str(tmp_path / "o")])
     assert r.exit_code == 7
+
+
+def test_data_dir_option_before_or_after_the_command(runner, tmp_path):
+    """``--data-dir`` at any level points the command at another data directory, as the environment variable does."""
+    app = get_app()
+    for args, folder in ((["--data-dir", str(tmp_path / "a"), "config", "path"], "a"), (["config", "path", "--data-dir", str(tmp_path / "b")], "b")):
+        r = runner.invoke(app, args)
+        assert r.exit_code == 0, r.output
+        assert r.output.strip().endswith(str(tmp_path / folder / "settings.toml")), r.output
+    r = runner.invoke(app, [*["jobs", "list"], "--data-dir", str(tmp_path / "c")])
+    assert r.exit_code == 0, r.output
+    assert (tmp_path / "c" / "rvc-next.db").is_file() and not (tmp_path / "data" / "rvc-next.db").exists()
