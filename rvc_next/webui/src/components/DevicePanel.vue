@@ -11,6 +11,7 @@ import {
   devicesFor,
   driverOptions,
   driverValue,
+  exclusiveApplies,
   fallbackNote,
   selectionFor,
   selectionValue,
@@ -150,21 +151,27 @@ const driverChoice = (role: 'input' | 'output') => driverValue(pool(role), model
 function setDriver(role: 'input' | 'output', value: string | null) {
   if (value) commit({ ...model.value, [role]: withDriver(pool(role), model.value[role], value) });
 }
-// An automatic driver that had to fall back: which one opened the device and what the others said.
-// The open devices first (the session's, the idle meter's), else what the check found.
-function driverNote(role: Role): string | null {
+// The device a role runs on: the open one (the session's, the idle meter's), else what the check
+// found; none when it is another device than the one now chosen.
+function inUse(role: Role) {
   const sel = model.value[role];
   const info = live.state.opened.find((r) => r.role === role) ?? (props.running ? live.state.resolved.find((r) => r.role === role) : undefined) ?? resolved(role);
-  if (!sel || (sel.physical_key && info?.device?.physical_key !== sel.physical_key)) return null;
-  return fallbackNote(info, (driver, refused) => t('devices.fallbackNote', { driver, refused }));
+  if (!sel || (sel.physical_key && info?.device?.physical_key !== sel.physical_key)) return undefined;
+  return info;
 }
-const isWasapi = (role: 'input' | 'output') => variant(role)?.host_api === 'wasapi';
+// An automatic driver that had to fall back: which one opened the device and what the others said.
+const driverNote = (role: Role): string | null => fallbackNote(inUse(role), (driver, refused) => t('devices.fallbackNote', { driver, refused }));
+// The exclusive switch follows the driver in use: under Auto, the one the device opened through.
+const isWasapi = (role: 'input' | 'output') => exclusiveApplies(pool(role), model.value[role], inUse(role)?.device);
 const monitorSource = computed({ get: () => model.value.monitor_source, set: (v) => commit({ ...model.value, monitor_source: v }) });
 const sourceOptions = computed(() => (['converted', 'input', 'both'] as const).map((v) => ({ value: v, label: t(`devices.monitorSource.${v}`) })));
 
 // Exclusive mode is WASAPI's own: turning it on fixes the output's driver to WASAPI (no fallback).
 function setExclusive(on: boolean) {
-  patchSel('output', on ? { exclusive: true, driver: 'fixed' } : { exclusive: false });
+  const sel = model.value.output;
+  const wasapi = outputs.value.find((d) => d.key === sel.physical_key)?.variants.find((v) => v.host_api === 'wasapi');
+  if (on && wasapi) commit({ ...model.value, output: { ...withDriver(outputs.value, sel, wasapi.id), exclusive: true } });
+  else patchSel('output', on ? { exclusive: true, driver: 'fixed' } : { exclusive: false });
 }
 
 function runAction(role: 'input' | 'output' | 'monitor', action: string | null | undefined) {

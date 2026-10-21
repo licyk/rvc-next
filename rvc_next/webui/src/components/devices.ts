@@ -113,6 +113,16 @@ export function fallbackNote(device: ResolvedDevice | undefined, format: (driver
   return format(hostApiLabel(device.device.host_api), refused);
 }
 
+/**
+ * Whether WASAPI's exclusive mode applies to a selection: its driver fixed to WASAPI or, for Auto,
+ * WASAPI being the driver the device opened through (``inUse``: the open device, else the one the
+ * check would open), the first one to try when neither is known.
+ */
+export function exclusiveApplies(devices: PhysicalDevice[], sel: DeviceSelection | null | undefined, inUse: AudioDevice | null | undefined): boolean {
+  const auto = isAutoDriver(devices, sel) && inUse != null && inUse.physical_key === sel?.physical_key;
+  return (auto ? inUse.host_api : variantOf(devices, sel)?.host_api) === 'wasapi';
+}
+
 /** The concrete device of a selection in this enumeration, if present. */
 export function variantOf(devices: PhysicalDevice[], sel: DeviceSelection | null | undefined): AudioDevice | null {
   const d = devices.find((x) => x.key === sel?.physical_key);

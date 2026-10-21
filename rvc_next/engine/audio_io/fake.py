@@ -3,7 +3,8 @@
 Each fake stream runs a thread that calls its callback once per block at the device's own rate,
 ``1 + ppm·1e-6`` times nominal (``time_scale`` speeds everything up). Inputs come from a signal
 function; outputs are recorded per device. ``lose(index)`` stalls a device's streams, as an
-unplugged USB device does; ``refuse`` makes opening fail with a reason, ``refuse_start`` makes a
+unplugged USB device does, and ``drops`` stalls the first stream started on a device that many
+seconds in (once: the next stream runs, as a device plugged back in does); ``refuse`` makes opening fail with a reason, ``refuse_start`` makes a
 stream open and then fail to start, as PortAudio's ``Unanticipated host error`` does. ``loopback`` wires an
 output back into every input, as a cable would: input sample ``n`` is output sample
 ``n − block − delay`` (in each stream's own count; a block played during one callback is captured
@@ -86,6 +87,7 @@ class FakeStream:
         self.finished = finished
         self._thread: threading.Thread | None = None
         self._running = False
+        self._stall_at: float | None = None
         self.samples = 0
         self.calls = 0
 
@@ -102,6 +104,8 @@ class FakeStream:
         for index in (self.in_index, self.out_index):
             if index is not None and index in self.backend.refuse_start:
                 raise RuntimeError(f"Error starting stream: {self.backend.refuse_start[index]}")
+        drop = next((self.backend.drops.pop(i) for i in (self.in_index, self.out_index) if i in self.backend.drops), None)
+        self._stall_at = None if drop is None else time.perf_counter() + drop / self.backend.time_scale
         self._running = True
         self._thread = threading.Thread(target=self._run, name=f"fake-{self.kind}", daemon=True)
         self._thread.start()
@@ -128,6 +132,8 @@ class FakeStream:
                 break
             if self.in_index in self.backend.lost or self.out_index in self.backend.lost:
                 continue
+            if self._stall_at is not None and time.perf_counter() >= self._stall_at:
+                continue  # dropped (``drops``)
             if self.calls and (self.in_index in self.backend.stops or self.out_index in self.backend.stops):
                 self._running = False  # the driver gave up after starting the stream
                 self.finished()
@@ -170,6 +176,7 @@ class FakeBackend:
         list_loopback: bool = False,
         stops: list[int] | None = None,
         refuse_start: dict[int, str] | None = None,
+        drops: dict[int, float] | None = None,
     ) -> None:
         if hostapis is None or devices is None:
             hostapis, devices = default_devices()
@@ -187,6 +194,8 @@ class FakeBackend:
         if loopback is not None:
             self.source = self._loopback_source(**loopback)
         self.lost: set[int] = set()
+        self.drops = {int(k): float(v) for k, v in (drops or {}).items()}
+        """Devices whose first stream stalls after this many seconds, as if unplugged (``lose``), once."""
         self.stops = {int(i) for i in stops or []}
         """Devices whose streams open and start, then stop by themselves after one block (a driver that gives up)."""
         self.recorded: dict[int, list[np.ndarray]] = {}
@@ -332,6 +341,7 @@ def backend_from_request(name: str, enable_asio: bool = False, fake: dict[str, A
             list_loopback=list_loopback,
             stops=cfg.get("stops"),
             refuse_start=cfg.get("refuse_start"),
+            drops=cfg.get("drops"),
         )
     from rvc_next.engine.audio_io.streams import SounddeviceBackend
 

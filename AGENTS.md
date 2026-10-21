@@ -481,7 +481,8 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   `State.opened`/`fallbacks`; the core tries the driver that last opened a device first until the list changes
   (`_drivers`), shows it in `LiveState.opened` and `ResolvedDevice.fallback`, and an all-refused error lists each
   driver (`detail.drivers`). A selection saved before the field (None) is auto on the recommended driver, fixed on
-  another; exclusive mode fixes it. `Endpoint.same` compares candidate sets, so a gain change after a fallback keeps
+  another; exclusive mode fixes it (to the WASAPI variant), and under Auto its switch shows only while WASAPI is the driver in
+  use (`exclusiveApplies`). `Endpoint.same` compares candidate sets, so a gain change after a fallback keeps
   the open streams. The check only sees a start failure on devices it runs (the input not while the meter shows).
 - **Browser audio** (`engine/audio_io/browser.py`, `LiveConfig.browser`, WebSocket `/live/browser-audio`):
   the browser's microphone and speakers instead of the server's devices. The browser's clock drives

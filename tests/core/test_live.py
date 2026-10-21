@@ -512,3 +512,44 @@ def test_an_automatic_driver_falls_back_and_is_remembered(live, services, tiny_v
     live.fake = {**live.fake, "devices": [d for d in data["devices"] if d["index"] != 9]}
     live.devices(refresh=True)
     assert [c.host_api for c in live.resolve(devices)[0].candidates] == ["wasapi", "directsound", "mme"]
+
+
+def test_an_automatic_driver_reconnects_through_its_drivers(live, services, tiny_voice_file, monkeypatch):
+    """The microphone drops out mid-session, and the device list changes meanwhile: the reconnect finds
+    the Auto selection again by its key (``exact`` on any driver), tries the recommended driver first
+    (the list changed), and the worker reopens it through WASAPI's refusal onto DirectSound."""
+    import json
+
+    from rvc_next.protocol import live as P
+
+    data = json.loads((Path(__file__).resolve().parents[1] / "fixtures" / "devices" / "windows.json").read_text())
+    live.fake = {
+        "hostapis": data["hostapis"],
+        "devices": data["devices"],
+        "platform": "win32",
+        "time_scale": 1.0,
+        "refuse_start": {"26": "Unanticipated host error [PaErrorCode -9999]"},
+        "drops": {"13": 1.5},  # DirectSound's first microphone stream stalls, as if unplugged
+    }
+    mic = next(p for p in live.devices(refresh=True).inputs if p.name == "Microphone (Realtek(R) Audio)")
+    devices = LiveDevices(input=DeviceSelection(physical_key=mic.key, name=mic.name, driver="auto"))
+    sent: list[P.Message] = []
+    send = live._supervisor.send
+    monkeypatch.setattr(live._supervisor, "send", lambda message: (sent.append(message), send(message))[1])
+    voice = services.models.import_paths([tiny_voice_file]).voices[0]
+    params = VoiceParamsModel(f0_method="pm", index_rate=0, rms_mix_rate=0)
+    live.start(LiveConfig(voice_id=voice.id, params=params, stream=StreamParamsModel(block_ms=200, context_ms=500), devices=devices))
+    assert wait_for(lambda: live.state().state == "running"), live.state()
+    assert next(o for o in live.state().opened if o.role == "input").device.host_api == "directsound"
+    # Another device comes or goes while the microphone is out: the remembered driver is forgotten.
+    live.fake = {**live.fake, "devices": [d for d in data["devices"] if d["index"] != 9]}
+    assert wait_for(lambda: live.state().state == "reconnecting"), live.state()
+    assert wait_for(lambda: live.state().state == "running" and any(isinstance(m, P.SetDevices) for m in sent)), live.state()
+    reopen = next(m for m in sent if isinstance(m, P.SetDevices))
+    assert [c["host_api"] for c in reopen.devices["input"]["candidates"]] == ["wasapi", "directsound", "mme"]
+    assert wait_for(lambda: any(o.role == "input" and o.fallback for o in live.state().opened)), live.state()
+    opened = next(o for o in live.state().opened if o.role == "input")
+    assert opened.device is not None and opened.device.host_api == "directsound" and [a.host_api for a in opened.fallback] == ["wasapi"]
+    assert next(r for r in live.state().resolved if r.role == "input").status == "exact"
+    live.stop()
+    assert wait_for(lambda: live.state().state == "stopped")

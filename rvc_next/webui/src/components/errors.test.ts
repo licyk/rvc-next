@@ -36,6 +36,24 @@ describe('error view', () => {
     expect(errorView({ code: 'device_unavailable', message: 'x', detail: { role: null, reason: 'busy' } }, t, tOr).title).toBe('The audio device is not available');
   });
 
+  it('lists every driver an automatic device was tried through, one per line', () => {
+    const drivers = 'WASAPI: Error starting stream: Unanticipated host error\nDirectSound: The driver ended the input stream within 0.4 s of starting it\nMME: Device unavailable';
+    const view = errorView(
+      {
+        code: 'device_unavailable',
+        message: 'The input device “Microphone” could not be opened through any of its drivers (WASAPI: …; DirectSound: …; MME: …)',
+        detail: { reason: 'busy', role: 'input', device: 'Microphone', host_api: null, drivers },
+      },
+      t,
+      tOr,
+    );
+    expect(view.title).toBe('The input device is not available');
+    // No one driver to name: the drivers tried stand instead, as a block.
+    expect(view.fields.map((f) => f.key)).toEqual(['reason', 'role', 'device']);
+    expect(view.blocks).toEqual([{ key: 'drivers', label: 'Drivers tried', value: drivers }]);
+    expect(errorReport(view, 'Error code').endsWith(`Drivers tried:\n${drivers}`)).toBe(true);
+  });
+
   it('keeps tracebacks and process output readable, and copies everything', () => {
     const view = errorView(
       { code: 'internal_error', message: 'The live worker stopped unexpectedly (killed by SIGSEGV (signal 11))', detail: { exit_code: -11, log: 'loading\nFatal Python error: Segmentation fault' } },

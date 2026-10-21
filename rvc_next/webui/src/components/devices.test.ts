@@ -7,6 +7,7 @@ import {
   deviceOptions,
   driverOptions,
   driverValue,
+  exclusiveApplies,
   fallbackNote,
   isAutoDriver,
   selectionFor,
@@ -85,6 +86,21 @@ describe('device menu options', () => {
     const fmt = (driver: string, refused: string) => `${driver} | ${refused}`;
     expect(fallbackNote({ ...opened, fallback: [] }, fmt)).toBeNull();
     expect(fallbackNote({ ...opened, fallback: [{ device_id: 'x', host_api: 'wasapi', reason: 'busy', error: 'host error' }] }, fmt)).toBe('DirectSound | WASAPI: host error');
+  });
+
+  it('offers exclusive mode only when the driver in use is WASAPI', () => {
+    const sel = selectionFor('zeta mic', list);
+    const directsound = variant('Zeta Mic-ds', 'directsound', 'Zeta Mic');
+    // Auto: the first driver to try until the device has opened, then the one it opened through.
+    expect(exclusiveApplies(list, sel, null)).toBe(true);
+    expect(exclusiveApplies(list, sel, directsound)).toBe(false);
+    expect(exclusiveApplies(list, sel, list[0].variants[0])).toBe(true);
+    // Another device open (the choice just changed): what was open says nothing about this one.
+    expect(exclusiveApplies(list, sel, variant('x', 'directsound', 'Other Mic'))).toBe(true);
+    // A fixed driver decides alone; exclusive on keeps the switch shown, whatever opened.
+    expect(exclusiveApplies(list, withDriver(list, sel, 'Zeta Mic-mme'), null)).toBe(false);
+    expect(exclusiveApplies(list, withDriver(list, sel, 'Zeta Mic-wasapi'), directsound)).toBe(true);
+    expect(exclusiveApplies(list, { ...sel, exclusive: true }, directsound)).toBe(true);
   });
 
   it('offers channels and reports resolution statuses', () => {
