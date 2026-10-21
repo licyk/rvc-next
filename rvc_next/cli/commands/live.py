@@ -18,18 +18,19 @@ JsonOpt = Annotated[bool, typer.Option("--json", help="Print JSON")]
 
 
 def _find(listing: DeviceList, direction: str, ref: str | None) -> DeviceSelection | None:
-    """A device by id (any variant), by name, or ``default``; None keeps the saved one."""
+    """A device by id (a variant: that driver alone), by name (its drivers tried in turn), or
+    ``default``; None keeps the saved one."""
     from rvc_next.core.live.models import DeviceSelection
 
     if ref is None:
         return None
     if ref.lower() == "default":
-        return DeviceSelection()
+        return DeviceSelection(driver="auto")
     physicals = listing.inputs if direction == "input" else listing.outputs
     for p in physicals:
         for v in p.variants:
             if v.id == ref:
-                return DeviceSelection(device_id=v.id, physical_key=p.key, name=p.name, host_api=v.host_api)
+                return DeviceSelection(device_id=v.id, physical_key=p.key, name=p.name, host_api=v.host_api, driver="fixed")
     wanted = ref.lower()
     matches = [p for p in physicals if wanted == p.name.lower()] or [p for p in physicals if wanted in p.name.lower()]
     if len(matches) != 1:
@@ -37,7 +38,26 @@ def _find(listing: DeviceList, direction: str, ref: str | None) -> DeviceSelecti
         raise typer.BadParameter(f"{ref!r} matches {len(matches)} {direction} devices ({names}); use an id from 'rvc-next live devices'")
     p = matches[0]
     v = next(x for x in p.variants if x.id == p.recommended_id)
-    return DeviceSelection(device_id=v.id, physical_key=p.key, name=p.name, host_api=v.host_api)
+    return DeviceSelection(device_id=v.id, physical_key=p.key, name=p.name, host_api=v.host_api, driver="auto")
+
+
+def _with_driver(services: Services, listing: DeviceList, direction: str, selection: DeviceSelection, driver: str | None) -> DeviceSelection:
+    """``selection`` with its driver: ``auto`` (each in turn while they refuse) or a host API id (that one alone)."""
+    from rvc_next.core.live.models import LiveDevices
+
+    if driver is None:
+        return selection
+    if driver.lower() == "auto":
+        return selection.model_copy(update={"driver": "auto", "exclusive": False})
+    devices = LiveDevices(input=selection) if direction == "input" else LiveDevices(output=selection)
+    found = next(r for r in services.live.resolve(devices, listing) if r.role == direction).device
+    physical = next((p for p in (listing.inputs if direction == "input" else listing.outputs) if found is not None and p.key == found.physical_key), None)
+    if physical is None:
+        raise typer.BadParameter(f"No {direction} device to use through {driver}")
+    variant = next((v for v in physical.variants if v.host_api == driver.lower()), None)
+    if variant is None:
+        raise typer.BadParameter(f"{physical.name} is listed under {', '.join(v.host_api for v in physical.variants)}, not {driver}")
+    return selection.model_copy(update={"device_id": variant.id, "physical_key": physical.key, "name": physical.name, "host_api": variant.host_api, "driver": "fixed"})
 
 
 def live_devices(refresh: Annotated[bool, typer.Option("--refresh", help="Enumerate again")] = True, json_output: JsonOpt = False) -> None:
@@ -75,7 +95,10 @@ def live_check(json_output: JsonOpt = False) -> None:
             print_json(result)
             return
         for r in result.resolved:
-            console.print(f"{r.role:8} {r.status:16} {r.device.name if r.device else '-'}{' via ' + r.device.host_api if r.device else ''}", markup=False)
+            via = f" via {r.device.host_api}{' (auto)' if r.candidates else ''}" if r.device else ""
+            console.print(f"{r.role:8} {r.status:16} {r.device.name if r.device else '-'}{via}", markup=False)
+            for a in r.fallback:
+                console.print(f"{'':25} {a.host_api} refused it: {a.error}", style="yellow", markup=False)
         for p in result.problems:
             console.print(f"[yellow]{p.role}: {p.message}[/yellow]")
         if result.topology:
@@ -132,6 +155,10 @@ def live_run(
     voice: Annotated[str | None, typer.Option("--voice", "-v", help="Voice id or name (default: the last one used)")] = None,
     input_: Annotated[str | None, typer.Option("--input", help="Input device id, name or 'default'")] = None,
     output: Annotated[str | None, typer.Option("--output", help="Output device id, name or 'default'")] = None,
+    input_driver: Annotated[
+        str | None, typer.Option("--input-driver", help="The input's driver: 'auto' (the recommended one, then each other while they refuse) or a host API id such as wasapi")
+    ] = None,
+    output_driver: Annotated[str | None, typer.Option("--output-driver", help="The output's driver: 'auto' or a host API id")] = None,
     monitor: Annotated[str | None, typer.Option("--monitor", help="Monitor output id, name, 'default' or 'none'")] = None,
     preset: Annotated[str | None, typer.Option(help="Start from this preset")] = None,
     speaker: ParamOptions.speaker = None,
@@ -190,6 +217,8 @@ def live_run(
             devices.input = sel
         if (sel := _find(listing, "output", output)) is not None:
             devices.output = sel
+        devices.input = _with_driver(services, listing, "input", devices.input, input_driver)
+        devices.output = _with_driver(services, listing, "output", devices.output, output_driver)
         if monitor is not None:
             devices.monitor = None if monitor.lower() == "none" else _find(listing, "output", monitor)
         if input_gain is not None:

@@ -9,8 +9,9 @@ from rvc_next.core.record import Record
 
 Direction = Literal["input", "output"]
 LiveStateName = Literal["stopped", "starting", "loading", "prewarming", "running", "stopping", "error", "reconnecting"]
-LiveStage = Literal["devices", "worker", "runtime", "voice", "index", "hubert", "pitch"]
-"""The step under way while ``starting`` (devices, worker: the server) or ``loading`` (the rest: the live worker)."""
+LiveStage = Literal["devices", "worker", "runtime", "voice", "index", "hubert", "pitch", "driver"]
+"""The step under way while ``starting`` (devices, worker: the server) or ``loading`` (the rest: the live
+worker); ``driver`` while a device that refused is tried through its next driver."""
 ResolutionStatus = Literal["exact", "matched", "default_fallback", "missing"]
 
 
@@ -78,6 +79,11 @@ class DeviceSelection(Record):
     physical_key: str | None = None
     name: str | None = None
     host_api: str | None = None
+    driver: Literal["auto", "fixed"] | None = None
+    """``auto``: the device is opened through its recommended driver, then each of its others in turn
+    while they refuse (``host_api`` is only the last one chosen); ``fixed``: through ``host_api`` alone.
+    None (saved before this choice existed): automatic when ``host_api`` is the recommended driver or
+    none, fixed otherwise. Exclusive mode always fixes the driver."""
     channels: list[int] | None = None
     """Input: 1-based channels mixed to mono. Output: channels written. None: the first (input) or first two (output)."""
     sample_rate: int | None = None
@@ -95,11 +101,28 @@ class LiveDevices(Record):
     """Applied to the input before it is metered and converted."""
 
 
+class DriverAttempt(Record):
+    """A driver that refused a device whose driver is chosen automatically."""
+
+    device_id: str | None = None
+    host_api: str | None = None
+    reason: str
+    """missing, busy, channels, format or stopped (as ``DeviceProblem.reason``)."""
+    error: str
+    """The driver's own message."""
+
+
 class ResolvedDevice(Record):
     role: Literal["input", "output", "monitor"]
     status: ResolutionStatus
     device: AudioDevice | None = None
+    """The device to open; with an automatic driver, the one that opened (once one has)."""
     message: str | None = None
+    candidates: list[AudioDevice] = Field(default_factory=list)
+    """An automatic driver: the device under each driver it is tried through, in order (the driver
+    that opened it last, then the rest best first). Empty when the driver is fixed."""
+    fallback: list[DriverAttempt] = Field(default_factory=list)
+    """The drivers that refused it before ``device``'s, here or the last time it was opened."""
 
 
 class BrowserAudio(Record):
@@ -220,6 +243,9 @@ class LiveState(Record):
     HuBERT and the pitch model. Steps with nothing to do (a worker already running, models already
     loaded) are skipped."""
     recording: LiveRecording | None = None
+    opened: list[ResolvedDevice] = Field(default_factory=list)
+    """The open devices whose driver is chosen automatically — the session's, or while stopped the
+    input meter's and Hear yourself's: the driver each one opened through and those that refused."""
     latency_test: LatencyMeasurement | None = None
     """The last latency measurement, while it still applies: cleared when the input, the output or
     the block length changes; recomputed when the crossfade or input denoise does."""

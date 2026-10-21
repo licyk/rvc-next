@@ -5,6 +5,11 @@ is never disturbed. Saved selections are resolved against a fresh list (§7.6) b
 and every device change; an output that would silently become the system default is refused
 unless the user confirms. After a device loss the service re-enumerates every 2 seconds and
 reopens the same device when it returns.
+
+A device whose driver is chosen automatically (``DeviceSelection.driver``) goes to the workers with
+its other drivers as ``candidates``; they open it through the next one when one refuses
+(``engine/audio_io/fallback.py``) and say which opened (``P.State.opened``, a check's ``opened``).
+The driver that last opened a device is tried first from then on, until the device list changes.
 """
 
 from __future__ import annotations
@@ -129,6 +134,9 @@ class LiveService:
         self._enumerating = threading.Lock()
         """One enumeration at a time: callers that ask meanwhile share its list."""
         self._lost: set[str] = set()
+        self._drivers: dict[str, dict[str, dict[str, Any]]] = {"input": {}, "output": {}}
+        """By direction, a physical device's key → the driver that last opened it automatically
+        (``host_api``) and the drivers that had refused before (``fallback``); cleared when the list changes."""
         self._device_error_selection: dict[str, Any] | None = None
         """The failing role's selection when ``LiveState.device_error`` was set: another one clears it."""
         self._meter_since: float | None = None
@@ -392,6 +400,13 @@ class LiveService:
                 if config is not None:
                     changes["config"] = config.model_copy(update={"voice_id": in_use})
                 self._settings.update({"live": {"last_voice": in_use}})
+        # Which driver each automatically chosen device opened through: remembered for the next open,
+        # shown on the device panel, and during a session the device it resolved to.
+        opened = self._opened(message.opened, message.fallbacks, self._state.resolved)
+        changes["opened"] = opened
+        if opened and state in ACTIVE:
+            replaced = {o.role: o for o in opened}
+            changes["resolved"] = [replaced.get(r.role, r) for r in self._state.resolved]
         if state == "running" and self._state.state != "running":
             changes["started_at"] = now_iso()
             with self._lock:
@@ -526,6 +541,8 @@ class LiveService:
             with self._lock:
                 self._devices = fresh
                 self._devices_at = started
+                if changed:
+                    self._drivers = {"input": {}, "output": {}}  # a device came or went: the recommended drivers first again
         if changed and cached is not None:
             self._events.publish(DevicesChangedEvent(devices=self._view(fresh)))
             with self._lock:
@@ -584,16 +601,68 @@ class LiveService:
         }
 
     def resolve(self, devices: LiveDevices, device_list: DeviceList | None = None) -> list[ResolvedDevice]:
-        from rvc_next.engine.audio_io.devices import resolve_selection
+        from rvc_next.engine.audio_io.devices import resolve_drivers
 
         listing = (device_list or self.devices()).model_dump()
+        with self._lock:
+            remembered = {d: dict(m) for d, m in self._drivers.items()}
         out: list[ResolvedDevice] = []
         roles: list[tuple[str, DeviceSelection | None, str]] = [("input", devices.input, "input"), ("output", devices.output, "output")]
         if devices.monitor is not None:
             roles.append(("monitor", devices.monitor, "output"))
         for role, selection, direction in roles:
-            status, device, message = resolve_selection(selection.model_dump() if selection else None, listing, direction)
-            out.append(ResolvedDevice.model_validate({"role": role, "status": status, "device": device, "message": message}))
+            preferred = {key: entry["host_api"] for key, entry in remembered[direction].items()}
+            status, device, message, candidates = resolve_drivers(selection.model_dump() if selection else None, listing, direction, preferred)
+            fallback: list[dict[str, Any]] = []
+            if candidates and device is not None:
+                entry = remembered[direction].get(device["physical_key"])
+                if entry is not None and entry["host_api"] == device["host_api"]:
+                    fallback = entry["fallback"]
+            out.append(ResolvedDevice.model_validate({"role": role, "status": status, "device": device, "message": message, "candidates": candidates, "fallback": fallback}))
+        return out
+
+    def _variant(self, direction: str, device_id: str) -> Any:
+        """The ``AudioDevice`` with ``device_id`` in the last enumeration, or None."""
+        with self._lock:
+            listing = self._devices
+        for p in (listing.inputs if direction == "input" else listing.outputs) if listing is not None else []:
+            for v in p.variants:
+                if v.id == device_id:
+                    return v
+        return None
+
+    def _remember(self, role: str, device_id: str, fallback: list[dict[str, Any]]) -> None:
+        """A device with an automatic driver opened through ``device_id``'s: try that driver first next
+        time. The drivers that refused are kept until another one opens it, so the reason stays known."""
+        direction = "input" if role == "input" else "output"
+        v = self._variant(direction, device_id)
+        if v is None:
+            return
+        with self._lock:
+            known = self._drivers[direction].get(v.physical_key)
+            if known is not None and known["host_api"] == v.host_api and not fallback:
+                return  # the same driver again, at the first try: keep why it was chosen
+            self._drivers[direction][v.physical_key] = {"host_api": v.host_api, "fallback": list(fallback)}
+
+    def _opened(self, opened: dict[str, str], fallbacks: dict[str, list[dict[str, Any]]], resolved: list[ResolvedDevice]) -> list[ResolvedDevice]:
+        """Remember the drivers the worker opened (``P.State.opened``) and describe each open device as
+        a ``ResolvedDevice``: the variant in use and the drivers that refused it."""
+        by_role = {r.role: r for r in resolved}
+        out: list[ResolvedDevice] = []
+        for role, device_id in opened.items():
+            if role not in ("input", "output", "monitor"):
+                continue
+            self._remember(role, device_id, fallbacks.get(role) or [])
+            v = self._variant("input" if role == "input" else "output", device_id)
+            if v is None:
+                continue
+            direction = "input" if role == "input" else "output"
+            with self._lock:
+                entry = self._drivers[direction].get(v.physical_key)
+            fallback = fallbacks.get(role) or (entry["fallback"] if entry is not None and entry["host_api"] == v.host_api else [])
+            r = by_role.get(role)
+            base = r.model_dump() if r is not None else {"role": role, "status": "exact"}
+            out.append(ResolvedDevice.model_validate({**base, "device": v.model_dump(), "fallback": fallback}))
         return out
 
     @staticmethod
@@ -605,6 +674,7 @@ class LiveService:
             "channels": selection.channels,
             "sample_rate": selection.sample_rate,
             "exclusive": selection.exclusive,
+            "candidates": [c.model_dump() for c in resolved.candidates],
         }
 
     def _worker_devices(self, devices: LiveDevices, resolved: list[ResolvedDevice]) -> dict[str, Any]:
@@ -652,6 +722,11 @@ class LiveService:
             )
             topology = result.get("topology") if result.get("topology") in ("duplex", "split") else None
             sample_rate = result.get("sample_rate")
+            opened = {o.role: o for o in self._opened(result.get("opened") or {}, result.get("attempts") or {}, resolved)}
+            if opened:
+                # The drivers that passed, after those that refused: what Start will open.
+                resolved = [opened.get(r.role, r) for r in resolved]
+                by_role = {r.role: r for r in resolved}
             if not result.get("ok"):
                 reason = result.get("reason") or "format"
                 exclusive = any(s and s.exclusive for s in (devices.input, devices.output))
@@ -701,14 +776,10 @@ class LiveService:
         out = next(r for r in resolved if r.role == "output")
         if out.device is None:
             raise DeviceError(out.message or "No output device", "missing", {"role": request.role})
-        result = self._run_devices(
-            {
-                "action": "test_tone",
-                "device": {**selection.model_dump(), "device_id": out.device.id, "host_api": out.device.host_api, "portaudio_index": out.device.portaudio_index},
-            }
-        )
+        result = self._run_devices({"action": "test_tone", "device": _probe_selection(selection, out)})
         if not result.get("ok"):
             raise DeviceError(result.get("message") or "The test sound could not play", result.get("reason") or "format", {"role": request.role})
+        self._opened(result.get("opened") or {}, result.get("attempts") or {}, [])
         return self.state()
 
     # -- measured latency ---------------------------------------------------------------------
@@ -1227,11 +1298,20 @@ class LiveService:
 
 
 def _probe_selection(selection: DeviceSelection | None, resolved: ResolvedDevice | None) -> dict[str, Any] | None:
-    """A selection as the devices worker opens it: the saved choice plus the resolved device's index."""
+    """A selection as the devices worker opens it: the saved choice plus the resolved device's index,
+    and for an automatic driver the same device under each driver to try (the first is its own)."""
     if selection is None or resolved is None or resolved.device is None:
         return None
     d = resolved.device
-    return {**selection.model_dump(), "device_id": d.id, "host_api": d.host_api, "portaudio_index": d.portaudio_index, "loopback_source": d.loopback_source}
+    candidates = [{"device_id": c.id, "host_api": c.host_api, "portaudio_index": c.portaudio_index, "loopback_source": c.loopback_source} for c in resolved.candidates]
+    return {
+        **selection.model_dump(),
+        "device_id": d.id,
+        "host_api": d.host_api,
+        "portaudio_index": d.portaudio_index,
+        "loopback_source": d.loopback_source,
+        "candidates": candidates,
+    }
 
 
 def _feedback(resolved: list[ResolvedDevice]) -> DeviceProblem | None:

@@ -208,6 +208,56 @@ def test_device_loss_then_reconnect(worker) -> None:
     assert client.of(P.State)[-1].error is None
 
 
+def two_drivers(backend: FakeBackend) -> dict[str, Any]:
+    """List the microphone under a second host API too (PulseAudio, index 3): one device, two drivers,
+    as the core sends an automatic selection (``candidates``)."""
+    backend.hostapis.append({"name": "PulseAudio", "devices": [3], "default_input_device": 3, "default_output_device": -1})
+    backend.devices.append({**backend.devices[0], "index": 3, "hostapi": 1})
+    grouped = group_devices(backend.hostapis, backend.devices, "linux")
+    mic = next(p for p in grouped["inputs"] if p["name"] == "Mic")
+    assert [v["host_api"] for v in mic["variants"]] == ["alsa", "pulse"]
+    return {"device": mic["variants"][0], "channels": None, "sample_rate": None, "exclusive": False, "candidates": mic["variants"]}
+
+
+def test_a_refusing_driver_falls_back_to_the_next(worker) -> None:
+    """ALSA's stream will not start (the reported WDM-KS failure, in kind): the session, the meter and
+    the error all go through the device's other driver."""
+    w, client, backend, tmp = worker
+    mic = two_drivers(backend)
+    backend.refuse_start[0] = "Unanticipated host error [PaErrorCode -9999]"
+    config = start_config(make_tiny_voice(tmp / "a.pth"))
+    config["devices"]["input"] = mic
+    client.send(P.Start(config=config))
+    assert client.wait_state("running")
+    assert w.session is not None and w.session.config.input.index == 3
+    state = client.of(P.State)[-1]
+    assert state.opened == {"input": mic["candidates"][1]["id"]}
+    assert [a["host_api"] for a in state.fallbacks["input"]] == ["alsa"] and state.fallbacks["input"][0]["reason"] == "busy"
+    assert any(e.message.startswith("The input device “Mic” did not open through ALSA") and e.message.endswith("trying PulseAudio") for e in client.of(P.Log))
+    assert "driver" in [s.stage for s in client.of(P.State)]
+    # Gains alone keep the session on the driver it opened through.
+    session = w.session
+    client.send(P.SetDevices(devices={**config["devices"], "output_gain_db": -6.0}))
+    assert client.wait(lambda: w.session is not None and w.session.config.output_gain_db == -6.0)
+    assert w.session is session and session.config.input.index == 3
+    client.send(P.Stop())
+    assert client.wait_state("stopped")
+    # The meter too.
+    client.send(P.Meter(on=True, input=mic))
+    assert client.wait(lambda: client.of(P.State)[-1].meter)
+    assert w.aux is not None and w.aux.config.input.index == 3 and client.of(P.State)[-1].opened == {"input": mic["candidates"][1]["id"]}
+    client.send(P.Meter(on=False))
+    assert client.wait(lambda: w.aux is None)
+    # Every driver refusing: one error naming each.
+    backend.refuse_start[3] = "Unanticipated host error [PaErrorCode -9999]"
+    client.send(P.Start(config=config))
+    assert client.wait(lambda: client.states()[-1:] == ["error"] and client.of(P.State)[-1].error["code"] == "device_unavailable")
+    error = client.of(P.State)[-1].error
+    assert error["message"].startswith("The input device “Mic” could not be opened through any of its drivers (ALSA: Error starting stream")
+    assert error["detail"]["role"] == "input" and error["detail"]["host_api"] is None
+    assert error["detail"]["drivers"].splitlines()[1].startswith("PulseAudio: Error starting stream")
+
+
 def test_errors_are_reported_not_fatal(worker) -> None:
     w, client, backend, tmp = worker
     client.send(P.Start(config=start_config(tmp / "missing.pth")))

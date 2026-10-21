@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import type { AudioDevice, PhysicalDevice } from '@/api/types';
-import { DEFAULT_VALUE, channelOptions, deviceOptions, driverOptions, selectionFor, selectionValue, statusMessage, variantOf } from '@/components/devices';
+import {
+  AUTO_DRIVER,
+  DEFAULT_VALUE,
+  channelOptions,
+  deviceOptions,
+  driverOptions,
+  driverValue,
+  fallbackNote,
+  isAutoDriver,
+  selectionFor,
+  selectionValue,
+  statusMessage,
+  variantOf,
+  withDriver,
+} from '@/components/devices';
 
 const variant = (id: string, host: string, name: string): AudioDevice => ({
   id, physical_key: name.toLowerCase(), name, raw_name: name.slice(0, 31), host_api: host, direction: 'input', channels: 2, default_sample_rate: 48000,
@@ -38,7 +52,7 @@ describe('device menu options', () => {
   });
 
   it('keeps a saved device that is gone, greyed and unselectable', () => {
-    const options = deviceOptions(list, { physical_key: 'old headset', name: 'Old Headset', device_id: 'x', host_api: 'wasapi', channels: null, sample_rate: null, exclusive: false }, labels);
+    const options = deviceOptions(list, { physical_key: 'old headset', name: 'Old Headset', device_id: 'x', host_api: 'wasapi', driver: null, channels: null, sample_rate: null, exclusive: false }, labels);
     const gone = options[options.length - 1];
     expect(gone).toMatchObject({ value: 'old headset', label: 'Old Headset', unavailable: true });
     expect(gone.badges?.[0].text).toBe('not connected');
@@ -46,13 +60,31 @@ describe('device menu options', () => {
 
   it('chooses the recommended driver for a physical device, and back to default', () => {
     const sel = selectionFor('zeta mic', list);
-    expect(sel).toMatchObject({ physical_key: 'zeta mic', device_id: 'Zeta Mic-wasapi', host_api: 'wasapi' });
+    expect(sel).toMatchObject({ physical_key: 'zeta mic', device_id: 'Zeta Mic-wasapi', host_api: 'wasapi', driver: AUTO_DRIVER });
     expect(selectionValue(sel)).toBe('zeta mic');
     expect(selectionFor(DEFAULT_VALUE, list, sel).physical_key).toBeNull();
     expect(selectionValue(selectionFor(DEFAULT_VALUE, list))).toBe(DEFAULT_VALUE);
     const drivers = driverOptions(list, sel, (n) => `${n} (recommended)`);
-    expect(drivers.map((d) => d.label)).toEqual(['WASAPI (recommended)', 'MME']);
+    expect(drivers.map((d) => d.label)).toEqual(['Auto (WASAPI)', 'WASAPI (recommended)', 'MME']);
     expect(variantOf(list, { ...sel, device_id: 'Zeta Mic-mme' })?.host_api).toBe('mme');
+  });
+
+  it('chooses the driver automatically unless one is picked', () => {
+    const sel = selectionFor('zeta mic', list);
+    expect(isAutoDriver(list, sel) && driverValue(list, sel)).toBe(AUTO_DRIVER);
+    const mme = withDriver(list, sel, 'Zeta Mic-mme');
+    expect(mme).toMatchObject({ device_id: 'Zeta Mic-mme', host_api: 'mme', driver: 'fixed' });
+    expect(driverValue(list, mme)).toBe('Zeta Mic-mme');
+    expect(withDriver(list, { ...mme, exclusive: true }, AUTO_DRIVER)).toMatchObject({ device_id: 'Zeta Mic-wasapi', driver: AUTO_DRIVER, exclusive: false });
+    // Saved before the choice existed: automatic on the recommended driver, fixed on another; exclusive always fixed.
+    expect(isAutoDriver(list, { ...sel, driver: null })).toBe(true);
+    expect(isAutoDriver(list, { ...mme, driver: null })).toBe(false);
+    expect(isAutoDriver(list, { ...sel, exclusive: true })).toBe(false);
+    // A note only when another driver had to open the device.
+    const opened = { role: 'input' as const, status: 'exact' as const, message: null, device: variant('d', 'directsound', 'Zeta Mic'), candidates: [] };
+    const fmt = (driver: string, refused: string) => `${driver} | ${refused}`;
+    expect(fallbackNote({ ...opened, fallback: [] }, fmt)).toBeNull();
+    expect(fallbackNote({ ...opened, fallback: [{ device_id: 'x', host_api: 'wasapi', reason: 'busy', error: 'host error' }] }, fmt)).toBe('DirectSound | WASAPI: host error');
   });
 
   it('offers channels and reports resolution statuses', () => {
@@ -64,8 +96,9 @@ describe('device menu options', () => {
     expect(channelOptions(2, 'output', labels)[0].label).toBe('default 1+2');
     expect(channelOptions(1, 'output', labels)[0].label).toBe('default 1');
     const fmt = (status: string, name: string) => `${status}:${name}`;
-    expect(statusMessage({ role: 'input', status: 'exact', device: null, message: null }, fmt)).toBeNull();
-    expect(statusMessage({ role: 'output', status: 'default_fallback', device: null, message: null }, fmt)).toBe('default_fallback:');
-    expect(statusMessage({ role: 'output', status: 'matched', device: null, message: 'found under MME' }, fmt)).toBe('found under MME');
+    const none = { device: null, candidates: [], fallback: [] };
+    expect(statusMessage({ role: 'input', status: 'exact', message: null, ...none }, fmt)).toBeNull();
+    expect(statusMessage({ role: 'output', status: 'default_fallback', message: null, ...none }, fmt)).toBe('default_fallback:');
+    expect(statusMessage({ role: 'output', status: 'matched', message: 'found under MME', ...none }, fmt)).toBe('found under MME');
   });
 });

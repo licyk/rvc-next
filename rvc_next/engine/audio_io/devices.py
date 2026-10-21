@@ -3,7 +3,8 @@
 PortAudio lists one device per host API, so the same microphone can appear four times on Windows,
 with MME cutting names to 31 characters. ``group_devices`` turns the raw lists into physical
 devices with full names, one variant per host API, best first; ``resolve_selection`` finds a saved
-selection in a fresh list without silently swapping devices. Both are pure functions over the
+selection in a fresh list without silently swapping devices, and ``resolve_drivers`` adds the
+drivers an automatic selection tries in turn (``fallback.py``). All are pure functions over the
 dictionaries ``sounddevice.query_hostapis()`` and ``query_devices()`` return, so they are tested
 against captured enumerations. ``sounddevice`` itself is imported only inside ``enumerate_raw``.
 """
@@ -49,6 +50,19 @@ HOST_API_RANKS: dict[str, dict[str, int]] = {
 
 LOW_LATENCY = frozenset({"asio", "wasapi", "wdm-ks", "coreaudio", "jack", "alsa"})
 
+HOST_API_LABELS = {
+    "wasapi": "WASAPI",
+    "wdm-ks": "WDM-KS",
+    "directsound": "DirectSound",
+    "mme": "MME",
+    "asio": "ASIO",
+    "coreaudio": "Core Audio",
+    "jack": "JACK",
+    "alsa": "ALSA",
+    "pulse": "PulseAudio",
+    "oss": "OSS",
+}
+
 # Default-device aliases: "follow the system default" covers them, so they are not listed.
 _ALIASES = re.compile(r"^(microsoft sound mapper - (input|output)|primary sound (capture )?driver)$", re.IGNORECASE)
 
@@ -85,6 +99,11 @@ def host_api_id(name: str) -> str:
 
 def host_api_rank(api_id: str, platform: str | None = None) -> int:
     return HOST_API_RANKS.get(platform_key(platform), {}).get(api_id, 9)
+
+
+def host_api_label(api_id: str | None) -> str:
+    """The name people know a host API by (``WASAPI``, ``DirectSound``); the id itself when unknown."""
+    return HOST_API_LABELS.get(api_id or "", api_id or "the default driver")
 
 
 def is_virtual(name: str) -> bool:
@@ -368,14 +387,80 @@ def system_default(device_list: dict[str, Any], direction: str) -> dict[str, Any
     return _recommended(physicals[0]) if physicals else None
 
 
+def physical_of(device_list: dict[str, Any], direction: str, device_id: str | None) -> dict[str, Any] | None:
+    """The physical device one of whose variants has ``device_id``."""
+    for p in _physicals(device_list, direction):
+        if any(v["id"] == device_id for v in p["variants"]):
+            return p
+    return None
+
+
+def is_auto_driver(selection: dict[str, Any] | None, physical: dict[str, Any]) -> bool:
+    """Whether a selection lets the driver be chosen (``driver`` ``auto``), rather than fixing one.
+
+    Exclusive mode is a WASAPI choice, so it always fixes the driver. A selection saved before
+    ``driver`` existed (None) is automatic when it names no host API or the recommended one: every
+    pick in the device menu used to store the recommended driver, so only another one was chosen.
+    """
+    selection = selection or {}
+    if selection.get("exclusive"):
+        return False
+    driver = selection.get("driver")
+    if driver in ("auto", "fixed"):
+        return driver == "auto"
+    api = selection.get("host_api")
+    return not api or api == _recommended(physical)["host_api"]
+
+
+def driver_candidates(physical: dict[str, Any], selection: dict[str, Any] | None = None, preferred: str | None = None) -> list[dict[str, Any]]:
+    """The variants an automatic selection tries, in order: the device's drivers best first, the
+    ``preferred`` host API (the one that last opened it) moved to the front. Variants with too few
+    channels for the selected ones, or without a chosen sample rate, are left out, unless that
+    would leave none."""
+    selection = selection or {}
+    variants = list(physical["variants"])
+    wanted = max(selection.get("channels") or [1])
+    rate = selection.get("sample_rate")
+    fit = [v for v in variants if int(v["channels"]) >= wanted and (not rate or rate in (v.get("supported_rates") or [v.get("default_sample_rate")]))]
+    fit = fit or variants
+    if preferred:
+        fit.sort(key=lambda v: v["host_api"] != preferred)  # stable: the rest keep their rank
+    return fit
+
+
 def resolve_selection(selection: dict[str, Any] | None, device_list: dict[str, Any], direction: str) -> tuple[str, dict[str, Any] | None, str | None]:
+    """``resolve_drivers`` without the drivers to try."""
+    status, device, message, _ = resolve_drivers(selection, device_list, direction)
+    return status, device, message
+
+
+def resolve_drivers(
+    selection: dict[str, Any] | None, device_list: dict[str, Any], direction: str, preferred: dict[str, str] | None = None
+) -> tuple[str, dict[str, Any] | None, str | None, list[dict[str, Any]]]:
     """Find a saved selection in a fresh device list.
 
     Tried in order: the same ``device_id``; the same physical key on the same host API; the same
     physical key on the recommended host API; the same name on any host API; the system default.
-    Returns ``(status, device, message)`` with status ``exact``, ``matched``, ``default_fallback``
-    or ``missing``. A selection with no device follows the system default and is ``exact``.
+    Returns ``(status, device, message, candidates)`` with status ``exact``, ``matched``,
+    ``default_fallback`` or ``missing``. A selection with no device follows the system default and
+    is ``exact``.
+
+    For an automatic driver (``is_auto_driver``) ``candidates`` are the variants to try in turn
+    (``driver_candidates``, ``preferred`` maps a physical key to the host API that last opened it),
+    ``device`` is the first of them, and a device found by its id or key is ``exact`` whichever
+    driver it lists under. A fixed driver has no candidates.
     """
+    status, device, message = _resolve(selection, device_list, direction)
+    physical = physical_of(device_list, direction, device["id"]) if device is not None else None
+    if physical is None or not is_auto_driver(selection, physical):
+        return status, device, message, []
+    candidates = driver_candidates(physical, selection, (preferred or {}).get(physical["key"]))
+    if status == "matched" and (selection or {}).get("physical_key") == physical["key"]:
+        status, message = "exact", None
+    return status, candidates[0], message, candidates
+
+
+def _resolve(selection: dict[str, Any] | None, device_list: dict[str, Any], direction: str) -> tuple[str, dict[str, Any] | None, str | None]:
     selection = selection or {}
     physicals = _physicals(device_list, direction)
     wanted_id = selection.get("device_id")
@@ -400,7 +485,7 @@ def resolve_selection(selection: dict[str, Any] | None, device_list: dict[str, A
                 for v in p["variants"]:
                     if v["host_api"] == api:
                         return "matched", v, None
-            return "matched", _recommended(p), (f"{p['name']} is now used through {_recommended(p)['host_api']}" if api else None)
+            return "matched", _recommended(p), (f"{p['name']} is now used through {host_api_label(_recommended(p)['host_api'])}" if api else None)
     if name:
         wanted = normalize_name(name)
         best: dict[str, Any] | None = None

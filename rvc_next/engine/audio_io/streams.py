@@ -53,7 +53,8 @@ class DeviceOpenError(Exception):
     or stopped (the stream started, then stopped by itself).
 
     ``role`` (input, output or monitor) names the device at fault; None when a duplex stream failed
-    and neither of its devices could be singled out.
+    and neither of its devices could be singled out. ``attempts`` maps a role to the drivers tried
+    for it before giving up (``fallback.open_with_fallback``), the last one included.
     """
 
     def __init__(self, message: str, reason: str = "busy", role: str | None = None, device_id: str | None = None) -> None:
@@ -62,6 +63,7 @@ class DeviceOpenError(Exception):
         self.reason = reason
         self.role = role
         self.device_id = device_id
+        self.attempts: dict[str, list[dict[str, Any]]] = {}
 
 
 def classify_portaudio_error(message: str) -> str:
@@ -97,12 +99,33 @@ class Endpoint:
     """1-based. Input: channels mixed to mono (default the first). Output: channels written (default the first two)."""
     sample_rate: int | None = None
     exclusive: bool = False
+    candidates: list[dict[str, Any]] = field(default_factory=list)
+    """An automatic driver: the same physical device under each driver to try, in order (``device``
+    is the one being opened). Empty when the driver is fixed."""
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> Endpoint | None:
         if data is None:
             return None
-        return cls(device=data.get("device"), channels=data.get("channels"), sample_rate=data.get("sample_rate"), exclusive=bool(data.get("exclusive", False)))
+        return cls(
+            device=data.get("device"),
+            channels=data.get("channels"),
+            sample_rate=data.get("sample_rate"),
+            exclusive=bool(data.get("exclusive", False)),
+            candidates=list(data.get("candidates") or []),
+        )
+
+    def same(self, other: Endpoint | None) -> bool:
+        """Whether ``other`` is the same choice: the same device (for an automatic driver, the same
+        drivers to try, in any order, whichever one opened) used the same way."""
+        if other is None or bool(self.candidates) != bool(other.candidates):
+            return False
+        if self.candidates:
+            if {d.get("id") for d in self.candidates} != {d.get("id") for d in other.candidates}:
+                return False
+        elif self.device != other.device:
+            return False
+        return (self.channels, self.sample_rate, self.exclusive) == (other.channels, other.sample_rate, other.exclusive)
 
     @property
     def index(self) -> int | None:
@@ -478,7 +501,8 @@ class SessionConfig:
 
     def same_endpoints(self, other: SessionConfig) -> bool:
         """Whether ``other`` opens the same devices, so only gains and the monitor's source changed."""
-        return (self.input, self.output, self.monitor) == (other.input, other.output, other.monitor)
+        pairs = ((self.input, other.input), (self.output, other.output), (self.monitor, other.monitor))
+        return all(a is b is None or (a is not None and a.same(b)) for a, b in pairs)
 
 
 class AudioSession:
@@ -540,6 +564,8 @@ class AudioSession:
         self.callback_underruns = 0
         self.callback_overruns = 0
         self.processed_blocks = 0
+        self.fallbacks: dict[str, list[dict[str, Any]]] = {}
+        """By role, the drivers that refused before this session's devices opened (``fallback.open_with_fallback``)."""
         self._handles: list[tuple[str, StreamHandle]] = []
         self._running = False
         self._stopping = False

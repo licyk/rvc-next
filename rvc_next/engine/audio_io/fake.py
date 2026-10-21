@@ -3,7 +3,8 @@
 Each fake stream runs a thread that calls its callback once per block at the device's own rate,
 ``1 + ppm·1e-6`` times nominal (``time_scale`` speeds everything up). Inputs come from a signal
 function; outputs are recorded per device. ``lose(index)`` stalls a device's streams, as an
-unplugged USB device does; ``refuse`` makes opening fail with a reason. ``loopback`` wires an
+unplugged USB device does; ``refuse`` makes opening fail with a reason, ``refuse_start`` makes a
+stream open and then fail to start, as PortAudio's ``Unanticipated host error`` does. ``loopback`` wires an
 output back into every input, as a cable would: input sample ``n`` is output sample
 ``n − block − delay`` (in each stream's own count; a block played during one callback is captured
 by the next, as on a real device), times ``gain``, plus ``noise``. A device's
@@ -23,7 +24,7 @@ from typing import Any
 import numpy as np
 
 from rvc_next.engine.audio_io.capture import LoopbackSource, add_loopback_sources
-from rvc_next.engine.audio_io.streams import DeviceOpenError, DuplexCallback, Endpoint, FinishedCallback, InputCallback, OutputCallback, StatusFlags
+from rvc_next.engine.audio_io.streams import DeviceOpenError, DuplexCallback, Endpoint, FinishedCallback, InputCallback, OutputCallback, StatusFlags, classify_portaudio_error
 
 Source = Callable[[int, int, int], np.ndarray]
 """(sample rate, first sample index, frames) → mono float32."""
@@ -98,6 +99,9 @@ class FakeStream:
         return int(idx or 0)
 
     def start(self) -> None:
+        for index in (self.in_index, self.out_index):
+            if index is not None and index in self.backend.refuse_start:
+                raise RuntimeError(f"Error starting stream: {self.backend.refuse_start[index]}")
         self._running = True
         self._thread = threading.Thread(target=self._run, name=f"fake-{self.kind}", daemon=True)
         self._thread.start()
@@ -165,6 +169,7 @@ class FakeBackend:
         loopback: dict[str, Any] | None = None,
         list_loopback: bool = False,
         stops: list[int] | None = None,
+        refuse_start: dict[int, str] | None = None,
     ) -> None:
         if hostapis is None or devices is None:
             hostapis, devices = default_devices()
@@ -175,6 +180,8 @@ class FakeBackend:
         self.time_scale = time_scale
         self.latency = latency
         self.refuse = {int(k): v for k, v in (refuse or {}).items()}
+        self.refuse_start = {int(k): v for k, v in (refuse_start or {}).items()}
+        """Devices whose streams open, then fail to start with this text (classified as PortAudio's would be)."""
         self.list_loopback = list_loopback
         self.loopback_error: str | None = None
         if loopback is not None:
@@ -304,6 +311,9 @@ class FakeBackend:
 
     def play(self, ep: Endpoint | None, audio: np.ndarray, rate: int) -> None:
         d = self._device(ep, "output")
+        if int(d["index"]) in self.refuse_start:
+            message = f"Error starting stream: {self.refuse_start[int(d['index'])]}"
+            raise DeviceOpenError(message, classify_portaudio_error(message), "output", ep.device_id if ep else None)
         self.record(int(d["index"]), audio.astype(np.float32))
         self.played.append((int(d["index"]), int(audio.shape[0])))
 
@@ -321,6 +331,7 @@ def backend_from_request(name: str, enable_asio: bool = False, fake: dict[str, A
             loopback=cfg.get("loopback"),
             list_loopback=list_loopback,
             stops=cfg.get("stops"),
+            refuse_start=cfg.get("refuse_start"),
         )
     from rvc_next.engine.audio_io.streams import SounddeviceBackend
 

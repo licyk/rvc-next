@@ -3,6 +3,8 @@ import type { PickerOption } from '@/ui';
 
 /** The value the device menus use for "follow the system default". */
 export const DEFAULT_VALUE = '__default__';
+/** The Driver menu's value for "the recommended driver, then each other while they refuse". */
+export const AUTO_DRIVER = 'auto';
 
 export interface DeviceLabels {
   systemDefault: string;
@@ -48,9 +50,9 @@ export function selectionValue(sel: DeviceSelection | null | undefined): string 
   return sel?.physical_key ?? (sel?.device_id ? sel.device_id : DEFAULT_VALUE);
 }
 
-/** The selection for a menu value: the physical device's recommended variant, or the default. */
+/** The selection for a menu value: the physical device, its driver chosen automatically (recommended first), or the default. */
 export function selectionFor(value: string, devices: PhysicalDevice[], previous?: DeviceSelection | null): DeviceSelection {
-  const base: DeviceSelection = { device_id: null, physical_key: null, name: null, host_api: null, channels: null, sample_rate: previous?.sample_rate ?? null, exclusive: false };
+  const base: DeviceSelection = { device_id: null, physical_key: null, name: null, host_api: null, driver: AUTO_DRIVER, channels: null, sample_rate: previous?.sample_rate ?? null, exclusive: false };
   if (value === DEFAULT_VALUE) return base;
   const d = devices.find((x) => x.key === value);
   if (!d) return previous ?? base;
@@ -58,11 +60,57 @@ export function selectionFor(value: string, devices: PhysicalDevice[], previous?
   return { ...base, device_id: v?.id ?? null, physical_key: d.key, name: d.name, host_api: v?.host_api ?? null, channels: previous?.physical_key === d.key ? previous.channels : null, exclusive: false };
 }
 
-/** The variants of the selected physical device, recommended first, for the Driver menu. */
-export function driverOptions(devices: PhysicalDevice[], sel: DeviceSelection | null | undefined, recommendedLabel: (name: string) => string): { value: string; label: string }[] {
+/**
+ * Whether a selection's driver is chosen automatically (the server's ``devices.is_auto_driver``):
+ * exclusive mode fixes it; one saved before the choice existed is automatic on the recommended driver.
+ */
+export function isAutoDriver(devices: PhysicalDevice[], sel: DeviceSelection | null | undefined): boolean {
+  if (!sel || sel.exclusive) return false;
+  if (sel.driver) return sel.driver === AUTO_DRIVER;
+  const d = devices.find((x) => x.key === sel.physical_key);
+  const recommended = d?.variants.find((v) => v.id === d.recommended_id);
+  return !sel.host_api || !recommended || sel.host_api === recommended.host_api;
+}
+
+/** The Driver menu: Auto first, then the selected physical device's variants, recommended first. */
+export function driverOptions(
+  devices: PhysicalDevice[],
+  sel: DeviceSelection | null | undefined,
+  recommendedLabel: (name: string) => string,
+  autoLabel: (name: string) => string = (name) => `Auto (${name})`,
+): { value: string; label: string }[] {
   const d = devices.find((x) => x.key === sel?.physical_key);
   if (!d) return [];
-  return d.variants.map((v) => ({ value: v.id, label: v.id === d.recommended_id ? recommendedLabel(hostApiLabel(v.host_api)) : hostApiLabel(v.host_api) }));
+  const recommended = d.variants.find((v) => v.id === d.recommended_id) ?? d.variants[0];
+  return [
+    { value: AUTO_DRIVER, label: autoLabel(hostApiLabel(recommended?.host_api ?? '')) },
+    ...d.variants.map((v) => ({ value: v.id, label: v.id === d.recommended_id ? recommendedLabel(hostApiLabel(v.host_api)) : hostApiLabel(v.host_api) })),
+  ];
+}
+
+/** The Driver menu's value for a selection: Auto, or the variant fixed. */
+export function driverValue(devices: PhysicalDevice[], sel: DeviceSelection | null | undefined): string | null {
+  if (!sel) return null;
+  return isAutoDriver(devices, sel) ? AUTO_DRIVER : sel.device_id;
+}
+
+/** The selection with the Driver menu's choice: Auto (back on the recommended variant), or that variant alone. */
+export function withDriver(devices: PhysicalDevice[], sel: DeviceSelection, value: string): DeviceSelection {
+  const d = devices.find((x) => x.key === sel.physical_key);
+  if (!d) return sel;
+  if (value === AUTO_DRIVER) {
+    const v = d.variants.find((x) => x.id === d.recommended_id) ?? d.variants[0];
+    return { ...sel, device_id: v?.id ?? null, host_api: v?.host_api ?? null, driver: AUTO_DRIVER, exclusive: false };
+  }
+  const v = d.variants.find((x) => x.id === value);
+  return v ? { ...sel, device_id: v.id, host_api: v.host_api, driver: 'fixed' } : sel;
+}
+
+/** "Opened through DirectSound" and why the drivers before it refused, for a device whose automatic driver fell back; null otherwise. */
+export function fallbackNote(device: ResolvedDevice | undefined, format: (driver: string, refused: string) => string): string | null {
+  if (!device?.device || !device.fallback?.length) return null;
+  const refused = device.fallback.map((a) => `${hostApiLabel(a.host_api ?? '')}: ${a.error}`).join('; ');
+  return format(hostApiLabel(device.device.host_api), refused);
 }
 
 /** The concrete device of a selection in this enumeration, if present. */

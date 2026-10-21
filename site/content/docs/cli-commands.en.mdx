@@ -806,7 +806,7 @@ List the server's audio devices: one row per physical device, with its drivers (
 
 ### `live check`
 
-Check saved devices: resolution results, formats, topology (one duplex stream or separate input/output streams), and estimated latency. Exits with code 8 if the check fails.
+Check saved devices: resolution results, formats, topology (one duplex stream or separate input/output streams), and estimated latency. A device with the automatic driver is marked `(auto)`, with the drivers that refused it below. Exits with code 8 if the check fails.
 
 | Option | Description |
 | --- | --- |
@@ -847,6 +847,8 @@ Convert live with the server's devices until <kbd>ctrl</kbd>+<kbd>c</kbd>, with 
 | `-v, --voice <str>` | Voice ID or name | The last voice used |
 | `--input <str>` | Input device ID, name, or `default` | Saved device |
 | `--output <str>` | Output device ID, name, or `default` | Saved device |
+| `--input-driver <str>` | The input's driver: `auto` (the recommended one, then each other while they refuse) or a host API ID from `live devices`, such as `wasapi` or `directsound` (that one alone) | Saved choice |
+| `--output-driver <str>` | The output's driver, as `--input-driver` | Saved choice |
 | `--monitor <str>` | Monitor output ID, name, `default`, or `none` | Saved setting |
 | `--preset <str>` | Start from this preset | Last parameters for the same voice; otherwise the voice's default preset |
 | `--speaker <int>` | Speaker ID of a multi-speaker voice, `[0, 109]` | From the starting parameters |
@@ -870,7 +872,7 @@ Convert live with the server's devices until <kbd>ctrl</kbd>+<kbd>c</kbd>, with 
 | `--allow-fallback` | Start even if the saved output device is missing and the default would be used | Off |
 | `--seconds <float>` | Stop after this many seconds | Until <kbd>ctrl</kbd>+<kbd>c</kbd> |
 
-Device names can be full names or substrings, as long as they match exactly one device. If multiple devices match, use an ID from `live devices`. After starting, the devices, buffering parameters, voice, and voice parameters are saved as defaults for next time.
+Device names can be full names or substrings, as long as they match exactly one device. If multiple devices match, use an ID from `live devices`. A device given by name (or `default`) uses the automatic driver ([Automatic driver](/docs/guide-live#automatic-driver)); an ID names one driver's variant and uses that driver alone. After starting, the devices, buffering parameters, voice, and voice parameters are saved as defaults for next time.
 
 ```bash
 rvc-next live run -v "My voice" --pitch 12 --block-ms 400

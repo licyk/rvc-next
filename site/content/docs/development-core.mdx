@@ -395,6 +395,8 @@ worker 回应电平表或直通请求时保留上一个错误：以前会话失�
 
     未指定设备的选择跟随系统默认，算 `exact`。
 
+- **自动选择驱动**（`DeviceSelection.driver`：`auto`、`fixed`，或 None，即在这个字段出现之前保存的选择：host API 是推荐的或为空时算自动，否则算固定；独占模式总是固定驱动）。`resolve_drivers` 把这台物理设备的各个变体按优先顺序放进 `ResolvedDevice.candidates`，声道数不够所选声道、或不支持指定采样率的变体不计入；按 id 或 key 找到的设备，无论在哪个驱动下都算 `exact`。core 把它们作为每个端点的 `candidates` 发给 worker，worker 通过 `engine/audio_io/fallback.open_with_fallback` 打开：某个角色打开或启动时抛出 `DeviceOpenError`（`busy`、`missing`、`format`、`channels`、`stopped`；`permission` 从不重试）时，换上这个角色的下一个候选，总共最多打开 8 次。没有指明是哪台设备的双工流错误，先换输入。被拒的记录随 `P.State.fallbacks` 传回，旁边是 `P.State.opened`（角色 → 打开的变体），检查的结果里则是 `opened`/`attempts`；core 记住每台物理设备最后打开它的驱动（`LiveService._drivers`），下次先试它，设备列表变化时清空。面板通过 `LiveState.opened` 和 `ResolvedDevice.fallback` 显示设备是由哪个驱动打开的，以及其他驱动为什么打不开。所有候选都打不开时，错误逐个列出（`detail.drivers`）。会话期间以实际打开的端点为准：`Endpoint.same` 比较候选集合，所以回退之后只改音量不会重新打开设备。
+
 - **输出回退需要确认。** 原版在保存的设备丢失时静默换成默认设备；把转换后的声音送到扬声器而不是虚拟声卡，是用户最容易发现的事故。所以输出解析为 `default_fallback` 时，`start()` 抛 `DeviceError`（`detail.fallback = true`），除非请求带 `allow_output_fallback`。输入或监听回退只作为提示。
 - `check()`（`POST /live/devices/check`）先解析，再让设备子进程用 `check` 动作按确切配置（设备、声道、采样率、独占）问 PortAudio 能否打开，返回拓扑（`duplex`/`split`）、采样率、估计延迟和带建议操作的问题（`choose`、`use_48k`、`disable_exclusive`、`grant_permission`）。`test_tone()` 在设备子进程里播放提示音。
 - **重连**：worker 报告 `DeviceLost` 后（且 `live.auto_reconnect` 开启），一个线程每 2 秒重新枚举，丢失的角色重新解析为 `exact` 或 `matched` 时发 `SetDevices` 重新打开，音色不重新加载。自动重连关闭时，进入 `reconnecting` 即发送 `Stop`。

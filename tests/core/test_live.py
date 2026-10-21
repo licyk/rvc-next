@@ -469,3 +469,46 @@ def test_another_device_clears_an_idle_device_error(live, services):
     assert live.state().device_error is not None
     services.settings.update({"live": {"devices": {"output": DeviceSelection(channels=[1]).model_dump()}}})
     assert wait_for(lambda: live.state().device_error is None)
+
+
+def test_an_automatic_driver_falls_back_and_is_remembered(live, services, tiny_voice_file):
+    """The reported failure on the fixture's Windows machine: the microphone's WASAPI stream will not
+    start. The check finds DirectSound opens it, the session starts on it, and DirectSound is tried
+    first from then on, with WASAPI's refusal kept, until the device list changes."""
+    import json
+
+    data = json.loads((Path(__file__).resolve().parents[1] / "fixtures" / "devices" / "windows.json").read_text())
+    live.fake = {
+        "hostapis": data["hostapis"],
+        "devices": data["devices"],
+        "platform": "win32",
+        "time_scale": 1.0,
+        "refuse_start": {"26": "Unanticipated host error [PaErrorCode -9999]"},
+    }
+    services.settings.update({"live": {"show_meters": False}})  # the check then runs the input itself
+    mic = next(p for p in live.devices(refresh=True).inputs if p.name == "Microphone (Realtek(R) Audio)")
+    devices = LiveDevices(input=DeviceSelection(physical_key=mic.key, name=mic.name, driver="auto"))
+    first = live.resolve(devices)[0]
+    assert first.status == "exact" and [c.host_api for c in first.candidates] == ["wasapi", "directsound", "mme"] and not first.fallback
+    result = live.check(devices)
+    assert result.ok, result.problems
+    checked = next(r for r in result.resolved if r.role == "input")
+    assert checked.device is not None and checked.device.host_api == "directsound"
+    assert [(a.host_api, a.reason) for a in checked.fallback] == [("wasapi", "busy")]
+    again = live.resolve(devices)[0]
+    assert [c.host_api for c in again.candidates] == ["directsound", "wasapi", "mme"] and [a.host_api for a in again.fallback] == ["wasapi"]
+    voice = services.models.import_paths([tiny_voice_file]).voices[0]
+    params = VoiceParamsModel(f0_method="pm", index_rate=0, rms_mix_rate=0)
+    live.start(LiveConfig(voice_id=voice.id, params=params, stream=StreamParamsModel(block_ms=200, context_ms=500), devices=devices))
+    assert wait_for(lambda: live.state().state == "running"), live.state()
+    state = live.state()
+    opened = next(o for o in state.opened if o.role == "input")
+    assert opened.device is not None and opened.device.host_api == "directsound" and [a.host_api for a in opened.fallback] == ["wasapi"]
+    assert next(r for r in state.resolved if r.role == "input").device.host_api == "directsound"
+    assert services.settings.settings.live.devices.input.driver == "auto"
+    live.stop()
+    assert wait_for(lambda: live.state().state == "stopped")
+    # A device came or went: the recommended driver first again.
+    live.fake = {**live.fake, "devices": [d for d in data["devices"] if d["index"] != 9]}
+    live.devices(refresh=True)
+    assert [c.host_api for c in live.resolve(devices)[0].candidates] == ["wasapi", "directsound", "mme"]

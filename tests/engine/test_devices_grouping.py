@@ -4,7 +4,18 @@ from typing import Any
 
 import pytest
 
-from rvc_next.engine.audio_io.devices import accepted_channels, group_devices, is_virtual, loopback_target, normalize_name, probe_device, resolve_selection
+from rvc_next.engine.audio_io.devices import (
+    accepted_channels,
+    driver_candidates,
+    group_devices,
+    is_auto_driver,
+    is_virtual,
+    loopback_target,
+    normalize_name,
+    probe_device,
+    resolve_drivers,
+    resolve_selection,
+)
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "devices"
 
@@ -110,6 +121,58 @@ def test_resolve_exact_matched_fallback_missing() -> None:
     empty = {"inputs": [], "outputs": []}
     assert resolve_selection({"name": "x"}, empty, "input")[0] == "missing"
     assert resolve_selection(None, empty, "input")[0] == "missing"
+
+
+# -- automatic drivers ---------------------------------------------------------------------------------
+
+
+def apis(variants: list[dict[str, Any]]) -> list[str]:
+    return [v["host_api"] for v in variants]
+
+
+def test_auto_driver_tries_every_driver_best_first() -> None:
+    dl = load("windows")
+    realtek = by_name(dl, "input")["Microphone (Realtek(R) Audio)"]
+    key = {"physical_key": realtek["key"], "name": realtek["name"]}
+    status, device, message, candidates = resolve_drivers({**key, "driver": "auto"}, dl, "input")
+    assert (status, message) == ("exact", None) and apis(candidates) == ["wasapi", "directsound", "mme"]
+    assert device == candidates[0]
+    # The driver that opened it last goes first; the rest keep their rank.
+    _, device, _, candidates = resolve_drivers({**key, "driver": "auto"}, dl, "input", {realtek["key"]: "mme"})
+    assert apis(candidates) == ["mme", "wasapi", "directsound"] and device is not None and device["host_api"] == "mme"
+    # A fixed driver is that one alone, even when it is not the recommended one.
+    ds = variant(dl, "input", "Microphone (Realtek(R) Audio)", "directsound")
+    assert resolve_drivers({**selection_for(ds), "driver": "fixed"}, dl, "input") == ("exact", ds, None, [])
+    # Exclusive mode is WASAPI's: it fixes the driver.
+    wasapi = variant(dl, "input", "Microphone (Realtek(R) Audio)", "wasapi")
+    assert resolve_drivers({**selection_for(wasapi), "driver": "auto", "exclusive": True}, dl, "input")[3] == []
+    # The system default follows its device's drivers too.
+    assert apis(resolve_drivers(None, dl, "output")[3]) == ["wasapi", "directsound", "mme"]
+
+
+def test_selections_saved_before_the_choice() -> None:
+    """Every pick used to store the recommended driver: that one (or none) reads as automatic, another as chosen."""
+    dl = load("windows")
+    realtek = by_name(dl, "input")["Microphone (Realtek(R) Audio)"]
+    wasapi = variant(dl, "input", "Microphone (Realtek(R) Audio)", "wasapi")
+    ds = variant(dl, "input", "Microphone (Realtek(R) Audio)", "directsound")
+    assert is_auto_driver(selection_for(wasapi), realtek) and is_auto_driver({"physical_key": realtek["key"]}, realtek)
+    assert not is_auto_driver(selection_for(ds), realtek)
+    status, device, _, candidates = resolve_drivers(selection_for(wasapi, device_id="gone"), dl, "input")
+    # Found by its key on the recommended driver: exact, not "found under another driver".
+    assert status == "exact" and device == wasapi and len(candidates) == 3
+    assert resolve_selection(selection_for(ds), dl, "input") == ("exact", ds, None)
+
+
+def test_candidates_leave_out_drivers_that_cannot_serve_the_selection() -> None:
+    dl = load("windows")
+    cable = by_name(dl, "input")["CABLE Output (VB-Audio Virtual Cable)"]
+    # WASAPI lists the cable with 2 channels, DirectSound and MME with 8.
+    assert apis(driver_candidates(cable, {"channels": [7, 8]})) == ["directsound", "mme"]
+    # A chosen rate: only the drivers listing it (the fixture's WASAPI lists 48 kHz alone).
+    assert apis(driver_candidates(cable, {"sample_rate": 44100})) == ["directsound", "mme"]
+    # Nothing fits: every driver, so the open says why.
+    assert apis(driver_candidates(cable, {"channels": [16]})) == ["wasapi", "directsound", "mme"]
 
 
 # -- channel counts ------------------------------------------------------------------------------------

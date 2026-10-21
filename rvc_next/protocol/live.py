@@ -69,7 +69,9 @@ class SetDevices:
     """``devices`` keys: ``input``, ``output``, ``monitor`` (each an endpoint or None).
 
     An endpoint is ``{"device": <AudioDevice dict or None for the system default>,
-    "channels": [1-based] or None, "sample_rate": int or None, "exclusive": bool}``. Top-level
+    "channels": [1-based] or None, "sample_rate": int or None, "exclusive": bool, "candidates"?:
+    [AudioDevice dict]}``; ``candidates`` (an automatic driver) are the same device under each driver
+    to try in turn, ``device`` the first of them. Top-level
     keys ``monitor_source`` (converted, input or both), ``monitor_gain_db``, ``output_gain_db`` and
     ``input_gain_db`` complete it. A change of gains or monitor source alone applies to the running
     session without reopening the devices.
@@ -149,9 +151,16 @@ class State:
     previous one when the new one could not be loaded (``error.detail.reason == "voice_load"``)."""
     stage: str | None = None
     """While ``loading``, the step under way: runtime (importing torch and transformers, opening the
-    compute device), voice, index, hubert or pitch. None otherwise."""
+    compute device), voice, index, hubert or pitch; ``driver`` while a device is tried through its
+    next driver. None otherwise."""
     recording: str | None = None
     """The file being recorded to, while a recording runs."""
+    opened: dict[str, str] = field(default_factory=dict)
+    """Role (input, output, monitor) → the id of the device open for it, for each open device whose
+    driver is chosen automatically (an endpoint with ``candidates``): the session's, or the meter's
+    and Hear yourself's while stopped."""
+    fallbacks: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    """Role → the drivers that refused before the open one: ``{device_id, host_api, reason, error}``."""
     type: str = "state"
 
 

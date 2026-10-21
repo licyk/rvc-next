@@ -126,3 +126,36 @@ def test_data_dir_option_before_or_after_the_command(runner, tmp_path):
     r = runner.invoke(app, [*["jobs", "list"], "--data-dir", str(tmp_path / "c")])
     assert r.exit_code == 0, r.output
     assert (tmp_path / "c" / "rvc-next.db").is_file() and not (tmp_path / "data" / "rvc-next.db").exists()
+
+
+def test_live_device_options_choose_the_driver():
+    """A device by name tries its drivers in turn; by a variant's id, or with --input-driver, that driver alone."""
+    from pathlib import Path
+    from types import SimpleNamespace
+    from typing import cast
+
+    import typer
+
+    from rvc_next.cli.commands.live import _find, _with_driver
+    from rvc_next.core.context import Services
+    from rvc_next.core.live.models import DeviceList, ResolvedDevice
+    from rvc_next.engine.audio_io.devices import device_list, resolve_selection
+
+    data = json.loads((Path(__file__).resolve().parents[1] / "fixtures" / "devices" / "windows.json").read_text())
+    listing = DeviceList.model_validate(device_list(data["hostapis"], data["devices"], "win32", data["default_hostapi"]))
+
+    def resolve(devices, listing):
+        status, device, _ = resolve_selection(devices.input.model_dump(), listing.model_dump(), "input")
+        return [ResolvedDevice.model_validate({"role": "input", "status": status, "device": device})]
+
+    services = cast("Services", SimpleNamespace(live=SimpleNamespace(resolve=resolve)))  # only what _with_driver reads
+    by_name = _find(listing, "input", "Microphone (Realtek(R) Audio)")
+    assert by_name is not None and by_name.driver == "auto" and by_name.host_api == "wasapi"
+    ds = next(v for p in listing.inputs for v in p.variants if p.name == "Microphone (Realtek(R) Audio)" and v.host_api == "directsound")
+    by_id = _find(listing, "input", ds.id)
+    assert by_id is not None and by_id.driver == "fixed" and by_id.host_api == "directsound"
+    fixed = _with_driver(services, listing, "input", by_name, "mme")
+    assert (fixed.driver, fixed.host_api, fixed.physical_key) == ("fixed", "mme", by_name.physical_key)
+    assert _with_driver(services, listing, "input", by_id, "auto").driver == "auto"
+    with pytest.raises(typer.BadParameter, match="not asio"):
+        _with_driver(services, listing, "input", by_name, "asio")

@@ -806,7 +806,7 @@ rvc-next train import D:/RVC/logs/alice --name alice-old
 
 ### `live check`
 
-检查已保存的设备：解析结果、格式、拓扑（单个双工流或分离的输入输出流）和估计延迟。检查不通过时退出码为 8。
+检查已保存的设备：解析结果、格式、拓扑（单个双工流或分离的输入输出流）和估计延迟。自动选择驱动的设备标为 `(auto)`，下方列出拒绝它的驱动。检查不通过时退出码为 8。
 
 | 选项 | 说明 |
 | --- | --- |
@@ -847,6 +847,8 @@ rvc-next live test-tone [OPTIONS] [DEVICE]
 | `-v, --voice <str>` | 音色 id 或名称 | 上次使用的音色 |
 | `--input <str>` | 输入设备 id、名称或 `default` | 已保存的设备 |
 | `--output <str>` | 输出设备 id、名称或 `default` | 已保存的设备 |
+| `--input-driver <str>` | 输入的驱动：`auto`（先用推荐的驱动，打不开再依次尝试其他驱动），或 `live devices` 中的 host API id，如 `wasapi`、`directsound`（只用这一个） | 已保存的选择 |
+| `--output-driver <str>` | 输出的驱动，同 `--input-driver` | 已保存的选择 |
 | `--monitor <str>` | 监听输出 id、名称、`default` 或 `none` | 已保存的设置 |
 | `--preset <str>` | 以这个预设为起点 | 同一音色时为上次的参数，否则为音色的默认预设 |
 | `--speaker <int>` | 多说话人音色的说话人 id，`[0, 109]` | 取自起点参数 |
@@ -870,7 +872,7 @@ rvc-next live test-tone [OPTIONS] [DEVICE]
 | `--allow-fallback` | 已保存的输出设备不存在、将使用默认设备时仍然启动 | 关 |
 | `--seconds <float>` | 运行这么多秒后停止 | 直到 <kbd>ctrl</kbd>+<kbd>c</kbd> |
 
-设备名可以写完整名称或其中一部分，只要只匹配到一个设备；匹配到多个时请改用 `live devices` 中的 id。启动后，所用的设备、缓冲参数、音色和参数会保存为下次的默认值。
+设备名可以写完整名称或其中一部分，只要只匹配到一个设备；匹配到多个时请改用 `live devices` 中的 id。按名称（或 `default`）给出的设备自动选择驱动（[自动选择驱动](/docs/guide-live#automatic-driver)）；id 指的是某个驱动下的设备，只用这个驱动。启动后，所用的设备、缓冲参数、音色和参数会保存为下次的默认值。
 
 ```bash
 rvc-next live run -v "我的音色" --pitch 12 --block-ms 400

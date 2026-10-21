@@ -85,10 +85,10 @@ Expand **Advanced** to see:
 
 | Item | Description |
 | --- | --- |
-| **Input · Driver** / **Output · Driver** | Shown only when a physical device has several drivers (host APIs). The recommended one is marked **… (recommended)**. |
+| **Input · Driver** / **Output · Driver** | Shown only when a physical device has several drivers (host APIs). **Auto** (the default, first in the list) opens the device through the recommended driver and, when that one refuses, through each of the others in turn; see [Automatic driver](#automatic-driver). Choosing a driver (the recommended one is marked **… (recommended)**) uses that one alone. |
 | **Input · Channels** / **Output · Channels** | The selected input channels are mixed to mono; output is written to the selected channels. Defaults are **Default (channel 1)** for input and **Default (channel 1+2)** for output (channel 1 for a mono device). You can also select **Channel N** or **Mix 1+2**. |
 | **Sample rate** | **Automatic** (default) or a fixed rate supported by the device. Automatic uses the output device's default rate (48 kHz if unsupported). |
-| **Exclusive mode (WASAPI)** | Shown only when output uses the WASAPI driver. Exclusive mode can reduce latency, but prevents other programs from using the device at the same time. |
+| **Exclusive mode (WASAPI)** | Shown only when output uses the WASAPI driver. Exclusive mode can reduce latency, but prevents other programs from using the device at the same time. Turning it on fixes the output's driver to WASAPI: an exclusive stream that fails is reported, not replaced by a shared one through another driver. |
 | **Input level** | −24 to +24 dB, default 0 dB. Applies to the input before it is metered and converted: raise a quiet microphone, lower a hot one. |
 | **Output level** | −60 to +12 dB, default 0 dB. Applies to converted audio sent to the output device. |
 
@@ -134,6 +134,18 @@ Whenever you change devices, rvc-next actually tries to open them with the curre
 | **Falling back to the default** | The saved device is missing, so the system default will be used | **Choose another** is suggested |
 
 A note may also appear below a device explaining how the saved device was found again, such as **\{name\} was found under another driver.** (a different driver, but the same device), or **\{name\} was not found: using the system default.**
+
+### Automatic driver [#automatic-driver]
+
+On Windows a driver can refuse a device the others open: a WDM-KS microphone that another program holds, or a stream that opens and then fails with **Unanticipated host error** as it starts, while DirectSound opens the same microphone without complaint. With **Driver** on **Auto**, rvc-next does this switch itself: it opens the device through the recommended driver, and when that one refuses, tries the device's other drivers one by one (in the order of preference above) until one opens it. This applies to Start, the input meter, **Hear yourself**, **Test** and the check before Start.
+
+- When another driver had to open the device, a note below it says which one, and what the drivers before it said: **Opened through DirectSound, as the drivers before it refused (WASAPI: …)**.
+- That driver is then tried first for the device, until the device list changes (a device plugged in or out); after that the recommended driver is tried first again.
+- Only when every driver refuses is the device reported unavailable. The message names each driver and its answer, and **Details** lists them under **Drivers tried**.
+- A refused permission (the microphone blocked in the system's privacy settings) is not retried: it blocks every driver alike.
+- Input and output may then run on different drivers, as **split streams** (one block more latency). To keep one duplex stream, choose the same driver for both under **Advanced**.
+
+Devices chosen before this option existed keep working: one saved on the recommended driver is treated as **Auto**, one saved on another driver keeps that driver.
 
 ### What if the output device is missing?
 

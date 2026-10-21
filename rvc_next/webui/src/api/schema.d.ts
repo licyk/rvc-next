@@ -2612,6 +2612,11 @@ export interface components {
              */
             host_api: string | null;
             /**
+             * Driver
+             * @default null
+             */
+            driver: ("auto" | "fixed") | null;
+            /**
              * Channels
              * @default null
              */
@@ -2637,6 +2642,8 @@ export interface components {
             name?: string | null;
             /** Host Api */
             host_api?: string | null;
+            /** Driver */
+            driver?: ("auto" | "fixed") | null;
             /** Channels */
             channels?: number[] | null;
             /** Sample Rate */
@@ -2657,6 +2664,8 @@ export interface components {
             name: string | null;
             /** Host Api */
             host_api: string | null;
+            /** Driver */
+            driver: ("auto" | "fixed") | null;
             /** Channels */
             channels: number[] | null;
             /** Sample Rate */
@@ -2695,6 +2704,20 @@ export interface components {
              * @default true
              */
             verify_checksums: boolean;
+        };
+        /**
+         * DriverAttempt
+         * @description A driver that refused a device whose driver is chosen automatically.
+         */
+        DriverAttempt: {
+            /** Device Id */
+            device_id: string | null;
+            /** Host Api */
+            host_api: string | null;
+            /** Reason */
+            reason: string;
+            /** Error */
+            error: string;
         };
         /**
          * EffectModel
@@ -3723,8 +3746,10 @@ export interface components {
             /** Started At */
             started_at: string | null;
             /** Stage */
-            stage: ("devices" | "worker" | "runtime" | "voice" | "index" | "hubert" | "pitch") | null;
+            stage: ("devices" | "worker" | "runtime" | "voice" | "index" | "hubert" | "pitch" | "driver") | null;
             recording: components["schemas"]["LiveRecording"] | null;
+            /** Opened */
+            opened: components["schemas"]["ResolvedDevice"][];
             latency_test: components["schemas"]["LatencyMeasurement"] | null;
         };
         /** LiveStateEvent */
@@ -4186,6 +4211,10 @@ export interface components {
             device: components["schemas"]["AudioDevice"] | null;
             /** Message */
             message: string | null;
+            /** Candidates */
+            candidates: components["schemas"]["AudioDevice"][];
+            /** Fallback */
+            fallback: components["schemas"]["DriverAttempt"][];
         };
         /**
          * ResolvedPaths

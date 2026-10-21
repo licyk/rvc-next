@@ -24,7 +24,9 @@ from typing import Any
 
 from rvc_next.engine.audio_io.browser import STALL_SECONDS as BROWSER_STALL_SECONDS
 from rvc_next.engine.audio_io.browser import BrowserBackend, NoDevices, is_browser
+from rvc_next.engine.audio_io.devices import host_api_label
 from rvc_next.engine.audio_io.fake import backend_from_request
+from rvc_next.engine.audio_io.fallback import ROLES, describe_attempts, every_driver_refused, open_with_fallback
 from rvc_next.engine.audio_io.recorder import Recorder
 from rvc_next.engine.audio_io.streams import AudioSession, DeviceOpenError, Endpoint, SessionConfig, engine_rate
 from rvc_next.engine.audio_io.tone import chime
@@ -128,7 +130,8 @@ def _device_fields(ep: Endpoint | None) -> dict[str, Any]:
 def device_error(e: DeviceOpenError, cfg: SessionConfig) -> dict[str, Any]:
     """The ``device_unavailable`` error for a device that would not open: which role, which device and
     why, with PortAudio's own text kept in ``detail.error``. A duplex stream whose devices could not
-    be told apart names both (``detail.role`` None)."""
+    be told apart names both (``detail.role`` None). A device whose every driver refused
+    (``fallback.open_with_fallback``) says so, each driver's answer in ``detail.drivers``."""
     if e.role is None:
         message = f"The input {_device_name(cfg.input, 'input')} and the output {_device_name(cfg.output, 'output')} could not be opened as one stream: {e.message}"
         return _error(
@@ -141,6 +144,11 @@ def device_error(e: DeviceOpenError, cfg: SessionConfig) -> dict[str, Any]:
             error=e.message,
         )
     ep = {"input": cfg.input, "output": cfg.output, "monitor": cfg.monitor}.get(e.role)
+    tried = every_driver_refused(e)
+    if tried:
+        message = f"The {e.role} device {_device_name(ep, e.role)} could not be opened through any of its drivers ({describe_attempts(tried)})"
+        fields = {**_device_fields(ep), "host_api": None}
+        return _error("device_unavailable", message, reason=e.reason, role=e.role, device_id=e.device_id, **fields, error=e.message, drivers=describe_attempts(tried, "\n"))
     why = REASON_TEXT.get(e.reason, "could not be opened")
     message = f"The {e.role} device {_device_name(ep, e.role)} {why}: {e.message}"
     return _error("device_unavailable", message, reason=e.reason, role=e.role, device_id=e.device_id or (ep.device_id if ep else None), **_device_fields(ep), error=e.message)
@@ -240,8 +248,33 @@ class LiveWorker:
                 voice_path=voice_path,
                 stage=stage,
                 recording=str(self.recorder.path) if self.recorder is not None else None,
+                **self._opened(),
             )
         )
+
+    def _opened(self) -> dict[str, Any]:
+        """``State.opened`` and ``State.fallbacks``: the open devices whose driver was chosen automatically."""
+        opened: dict[str, str] = {}
+        fallbacks: dict[str, list[dict[str, Any]]] = {}
+        for s, on_monitor in ((self.aux, self.aux_on_monitor), (self.session, False)):
+            if s is None or not s.running:
+                continue
+            for role in ROLES:
+                ep = s.endpoint(role)
+                if ep is None or not ep.candidates or ep.device_id is None:
+                    continue
+                name = "monitor" if on_monitor and role == "output" else role  # Hear yourself while stopped, on the monitor
+                opened[name] = ep.device_id
+                if s.fallbacks.get(role):
+                    fallbacks[name] = s.fallbacks[role]
+        return {"opened": opened, "fallbacks": fallbacks}
+
+    def _fallback(self, role: str, refused: Endpoint, error: DeviceOpenError, following: Endpoint) -> None:
+        """A device's driver refused and the next one is tried: say so in the log, and as a stage while starting."""
+        name = _device_name(refused, role)
+        self.log("warning", f"The {role} device {name} did not open through {host_api_label(refused.host_api)} ({error.message}); trying {host_api_label(following.host_api)}")
+        if self.state in ("starting", "loading", "prewarming"):
+            self.set_state(self.state, stage="driver")
 
     # -- runtime ----------------------------------------------------------------------------------------
 
@@ -401,26 +434,33 @@ class LiveWorker:
         if self._cold:
             self.engine.prewarm()
             self._cold = False
+        engine = self.engine
         browser = is_browser(cfg.input)
-        session = AudioSession(
-            self.browser if browser else self.backend,
-            cfg,
-            self.engine.block_size,
-            self.engine.sample_rate,
-            processor=self.engine.process,
-            on_device_lost=self._device_lost,
-            on_error=self._processing_failed,
-            stall_seconds=BROWSER_STALL_SECONDS if browser else None,
-        )
-        session.passthrough = self.passthrough
-        try:
+
+        def open_session(c: SessionConfig) -> AudioSession:
+            session = AudioSession(
+                self.browser if browser else self.backend,
+                c,
+                engine.block_size,
+                engine.sample_rate,
+                processor=engine.process,
+                on_device_lost=self._device_lost,
+                on_error=self._processing_failed,
+                stall_seconds=BROWSER_STALL_SECONDS if browser else None,
+            )
+            session.passthrough = self.passthrough
             session.start()
+            return session
+
+        try:
+            session, _, session_fallbacks = open_with_fallback(cfg, open_session, self._fallback)
         except DeviceOpenError as e:
             self.session = None
             error = device_error(e, cfg)
             self.log("warning", error["message"])
             self.set_state("error", error)
             return False
+        session.fallbacks = session_fallbacks
         self.session = session
         if self.recorder is not None:
             if self.recorder.sample_rate == session.sample_rate:
@@ -572,7 +612,9 @@ class LiveWorker:
             return
         cfg = session_config(self.devices)
         if self.session is not None and self.session.config.same_endpoints(cfg):
-            self.session.config = cfg  # only gains or the monitor's source changed: from the next block
+            # Only gains or the monitor's source changed: from the next block, on the devices as opened.
+            old = self.session.config
+            self.session.config = replace(cfg, input=old.input, output=old.output, monitor=old.monitor)
             return
         if self.session is not None:
             self.session.stop()
@@ -594,7 +636,7 @@ class LiveWorker:
             self.set_state(self.state, self._last_error)
             return
         aux = self.aux
-        if on and self.meter and aux is not None and aux.running and aux.config.input == ep:
+        if on and self.meter and aux is not None and aux.running and aux.config.input.same(ep):
             aux.config = replace(aux.config, input_gain_db=input_gain_db)  # the same device: only the gain changed
             self.set_state(self.state, self._last_error)
             return
@@ -603,15 +645,28 @@ class LiveWorker:
             self.aux = None
         self.meter = False
         if on:
-            aux = AudioSession(self.backend, SessionConfig(input=ep, input_gain_db=input_gain_db), self._aux_block(ep), on_device_lost=self._device_lost)
+            cfg = SessionConfig(input=ep, input_gain_db=input_gain_db)
             try:
-                aux.start()
-                self.aux = aux
+                self.aux = self._open_aux(cfg)
                 self.meter = True
             except DeviceOpenError as e:
                 e.role = e.role or "input"
-                self._send_lost(e, device_error(e, aux.config))
+                self._send_lost(e, device_error(e, cfg))
         self.set_state(self.state, self._last_error)
+
+    def _open_aux(self, cfg: SessionConfig, passthrough: bool = False) -> AudioSession:
+        """Open a session without the voice (the meter, Hear yourself while stopped), through the next
+        driver of a device that refuses."""
+
+        def open_aux(c: SessionConfig) -> AudioSession:
+            aux = AudioSession(self.backend, c, self._aux_block(c.output or c.input), processor=None, on_device_lost=self._device_lost)
+            aux.passthrough = passthrough
+            aux.start()
+            return aux
+
+        aux, _, fallbacks = open_with_fallback(cfg, open_aux, self._fallback)
+        aux.fallbacks = fallbacks
+        return aux
 
     def _aux_block(self, ep: Endpoint | None) -> int:
         rate = engine_rate(ep)
@@ -632,11 +687,8 @@ class LiveWorker:
             on_monitor = cfg.monitor is not None
             if cfg.monitor is not None:
                 cfg = replace(cfg, output=cfg.monitor, monitor=None)
-            aux = AudioSession(self.backend, cfg, self._aux_block(cfg.output), processor=None, on_device_lost=self._device_lost)
-            aux.passthrough = True
             try:
-                aux.start()
-                self.aux = aux
+                self.aux = self._open_aux(cfg, passthrough=True)
                 self.aux_on_monitor = on_monitor
             except DeviceOpenError as e:
                 self.passthrough = False
@@ -646,11 +698,14 @@ class LiveWorker:
 
     def test_tone(self, device: dict[str, Any] | None) -> None:
         ep = Endpoint.from_dict(device)
-        rate = int((ep.sample_rate if ep else None) or engine_rate(ep))
+
+        def chime_on(c: SessionConfig) -> None:
+            rate = int((c.output.sample_rate if c.output else None) or engine_rate(c.output))
+            self.backend.play(c.output, chime(rate), rate)
 
         def play() -> None:
             try:
-                self.backend.play(ep, chime(rate), rate)
+                open_with_fallback(SessionConfig(input=Endpoint(), output=ep), chime_on, self._fallback)
             except DeviceOpenError as e:
                 e.role = "output"
                 self._send_lost(e, device_error(e, SessionConfig(input=Endpoint(), output=ep)))
