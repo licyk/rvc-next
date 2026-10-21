@@ -475,7 +475,9 @@ python scripts/golden.py --original <RVC checkout> --assets <assets> --voice a.p
   stream can open and then fail to start (`Unanticipated host error`) where DirectSound works. `resolve_drivers`
   gives the physical device's variants as `candidates`; every open in both workers (session, meter, Hear yourself,
   test sound, check, latency) goes through `fallback.open_with_fallback`, which moves the refusing role to its next
-  driver (never on `permission`; ≤ 8 opens; a duplex error naming neither side moves the input). The worker reports
+  driver (never on `permission`; ≤ 8 opens; a duplex error naming neither side moves the input). A stream the driver
+  ends within `SETTLE_SECONDS` of starting (0.4 s, ≥ 2 blocks) is a `stopped` refusal: `AudioSession.start` waits that
+  long when a device can fall back (`Endpoint.can_fall_back`), and a loss meanwhile is raised, never reported. The worker reports
   `State.opened`/`fallbacks`; the core tries the driver that last opened a device first until the list changes
   (`_drivers`), shows it in `LiveState.opened` and `ResolvedDevice.fallback`, and an all-refused error lists each
   driver (`detail.drivers`). A selection saved before the field (None) is auto on the recommended driver, fixed on

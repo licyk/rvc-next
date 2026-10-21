@@ -6,7 +6,9 @@ error`` when the stream starts). An endpoint with ``candidates`` (an automatic s
 ``devices.resolve_drivers``) is tried under each of them in turn: ``open_with_fallback`` calls
 ``start`` with a session configuration, and when it raises ``DeviceOpenError`` for a role that has
 another driver left, swaps that one in and calls again. The drivers that refused are recorded per
-role; when every one has, the last error is raised with all of them in ``attempts``.
+role; when every one has, the last error is raised with all of them in ``attempts``. A driver that
+starts the stream and then ends it by itself counts as a refusal too: ``AudioSession.start`` watches
+such a device's streams for ``streams.SETTLE_SECONDS`` and raises ``stopped``.
 
 A duplex stream's error may name neither device (``role`` None): the input moves on first, then
 the output (a pair on two drivers opens as two streams). A refused permission is never retried,

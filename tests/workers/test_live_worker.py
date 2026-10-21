@@ -258,6 +258,32 @@ def test_a_refusing_driver_falls_back_to_the_next(worker) -> None:
     assert error["detail"]["drivers"].splitlines()[1].startswith("PulseAudio: Error starting stream")
 
 
+def test_a_driver_that_stops_right_after_starting_falls_back(worker) -> None:
+    """ALSA starts the microphone's stream, then ends it by itself: under an automatic driver that is
+    a refusal, so the session runs through PulseAudio instead of going to ``reconnecting``."""
+    w, client, backend, tmp = worker
+    mic = two_drivers(backend)
+    backend.stops.add(0)
+    config = start_config(make_tiny_voice(tmp / "a.pth"))
+    config["devices"]["input"] = mic
+    client.send(P.Start(config=config))
+    assert client.wait_state("running")
+    assert w.session is not None and w.session.config.input.index == 3
+    state = client.of(P.State)[-1]
+    assert state.opened == {"input": mic["candidates"][1]["id"]}
+    assert state.fallbacks["input"][0]["host_api"] == "alsa" and state.fallbacks["input"][0]["reason"] == "stopped"
+    assert "reconnecting" not in client.states() and not client.of(P.DeviceLost)
+    client.send(P.Stop())
+    assert client.wait_state("stopped")
+    # Both stopping: the error names each driver; the session is never reported lost.
+    backend.stops.add(3)
+    client.send(P.Start(config=config))
+    assert client.wait(lambda: client.states()[-1:] == ["error"] and client.of(P.State)[-1].error["code"] == "device_unavailable")
+    error = client.of(P.State)[-1].error
+    assert error["detail"]["reason"] == "stopped" and error["detail"]["drivers"].splitlines()[0].startswith("ALSA: The driver ended the duplex stream within")
+    assert "reconnecting" not in client.states() and not client.of(P.DeviceLost)
+
+
 def test_errors_are_reported_not_fatal(worker) -> None:
     w, client, backend, tmp = worker
     client.send(P.Start(config=start_config(tmp / "missing.pth")))

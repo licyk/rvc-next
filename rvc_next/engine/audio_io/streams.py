@@ -46,6 +46,9 @@ BACKLOG_WRITES = 3
 
 PROBE_SECONDS = 0.4
 """How long ``probe_stream`` runs a stream to see whether it keeps going."""
+SETTLE_SECONDS = 0.4
+"""How long ``AudioSession.start`` watches the streams of a device with other drivers to fall back on,
+at least two blocks: a driver that ends a stream by itself this soon after starting it refused the device."""
 
 
 class DeviceOpenError(Exception):
@@ -126,6 +129,11 @@ class Endpoint:
         elif self.device != other.device:
             return False
         return (self.channels, self.sample_rate, self.exclusive) == (other.channels, other.sample_rate, other.exclusive)
+
+    @property
+    def can_fall_back(self) -> bool:
+        """Whether the driver is chosen automatically among more than one."""
+        return len(self.candidates) > 1
 
     @property
     def index(self) -> int | None:
@@ -522,6 +530,7 @@ class AudioSession:
         on_device_lost: DeviceLostHandler | None = None,
         on_error: Callable[[BaseException], None] | None = None,
         stall_seconds: float | None = None,
+        settle_seconds: float | None = None,
     ) -> None:
         self.backend = backend
         self.config = config
@@ -574,6 +583,14 @@ class AudioSession:
         self._last_cb: dict[str, float] = {}
         self._lost = False
         self._stall = stall_seconds if stall_seconds is not None else max(0.5, 3 * self.block / self.sample_rate)
+        if settle_seconds is None:
+            can_fall_back = any(ep is not None and ep.can_fall_back for ep in (config.input, config.output, config.monitor))
+            settle_seconds = max(SETTLE_SECONDS, 2 * self.block / self.sample_rate) if can_fall_back else 0.0
+        self._settle = settle_seconds
+        """How long ``start`` waits for a stream that stops by itself (only when a driver can be swapped)."""
+        self._settling = False
+        self._settled = threading.Event()
+        self._settle_failure: tuple[str, str, str] | None = None
         in_sel = config.input.selected("input")
         self._in_sel = in_sel
         self._in_ch = config.input.open_channels("input")
@@ -642,6 +659,9 @@ class AudioSession:
         self.out_ring.write(np.zeros(self._prefill, dtype=np.float32))
         self._running = True
         self._stopping = False
+        self._settling = self._settle > 0
+        self._settled.clear()
+        self._settle_failure = None
         role = "duplex" if self.topology == "duplex" else "input"  # the stream being opened or started: a failure names its device
         try:
             if self.topology == "duplex":
@@ -665,7 +685,7 @@ class AudioSession:
                     self._last_cb[r] = now
                 h.start()
         except DeviceOpenError as e:
-            self._running = False
+            self._running = self._settling = False
             self._close_streams()
             ep = self.endpoint(role)
             if ep is not None:
@@ -673,7 +693,7 @@ class AudioSession:
                 e.role, e.device_id = role, e.device_id or ep.device_id
             raise
         except Exception as e:
-            self._running = False
+            self._running = self._settling = False
             self._close_streams()
             # A stream that opened but would not start (an unanticipated host error, a device gone
             # between the two): the failing stream's role; a duplex stream's could be either device.
@@ -681,6 +701,27 @@ class AudioSession:
             raise DeviceOpenError(str(e), classify_portaudio_error(str(e)), None if role == "duplex" else role, ep.device_id if ep else None) from e
         self._thread = threading.Thread(target=self._loop, name="rvc-live-processing", daemon=True)
         self._thread.start()
+        if self._settling:
+            self._settle_or_raise()
+
+    def _settle_or_raise(self) -> None:
+        """Wait ``settle_seconds`` for a stream that the driver ends by itself (or that never delivers),
+        and raise that as a refusal: under an automatic driver the next one is tried instead of the
+        session being reported lost. The processing thread runs meanwhile, so nothing piles up."""
+        self._settled.wait(self._settle)
+        with self._lock:
+            self._settling = False
+            failure = self._settle_failure
+        if failure is None:
+            return
+        role, reason, message = failure
+        self.stop()
+        # A duplex stream's stop could be either device's.
+        fault = None if self.topology == "duplex" and role != "monitor" else role
+        if reason == "stopped":
+            message = f"The driver ended the {fault or 'duplex'} stream within {self._settle:.1f} s of starting it"
+        ep = self.endpoint(fault)
+        raise DeviceOpenError(message, reason, fault, ep.device_id if ep else None)
 
     def stop(self) -> None:
         self._stopping = True
@@ -722,6 +763,11 @@ class AudioSession:
             if self._lost:
                 return
             self._lost = True
+            if self._settling:  # ``start`` is still watching: it raises this as a refusal
+                self._running = False
+                self._settle_failure = (role, reason, message)
+                self._settled.set()
+                return
         self._running = False
         ep = self.endpoint(role)
         if self.on_device_lost is not None:

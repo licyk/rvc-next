@@ -142,6 +142,7 @@ On Windows a driver can refuse a device the others open: a WDM-KS microphone tha
 - When another driver had to open the device, a note below it says which one, and what the drivers before it said: **Opened through DirectSound, as the drivers before it refused (WASAPI: …)**.
 - That driver is then tried first for the device, until the device list changes (a device plugged in or out); after that the recommended driver is tried first again.
 - Only when every driver refuses is the device reported unavailable. The message names each driver and its answer, and **Details** lists them under **Drivers tried**.
+- A driver that starts the stream and then ends it by itself within its first moments (about 0.4 s, or two blocks when they are longer) counts as a refusal too: the next driver is tried, rather than Live waiting for the device to come back. Starting, the meter and **Hear yourself** take that much longer on a device with several drivers.
 - A refused permission (the microphone blocked in the system's privacy settings) is not retried: it blocks every driver alike.
 - Input and output may then run on different drivers, as **split streams** (one block more latency). To keep one duplex stream, choose the same driver for both under **Advanced**.
 

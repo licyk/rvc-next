@@ -1,4 +1,5 @@
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +68,38 @@ def test_a_driver_that_will_not_start_gives_way_to_the_next(machine) -> None:
         assert used.same_endpoints(SessionConfig(input=mic, output=speakers))
     finally:
         session.stop()
+
+
+def test_a_driver_that_ends_the_stream_by_itself_gives_way_to_the_next(machine) -> None:
+    """WASAPI starts the microphone's stream, then the driver ends it: within the settle window that is a refusal."""
+    backend, listing = machine
+    mic = auto(listing, "input", "Microphone (Realtek(R) Audio)")
+    backend.stops.add(26)
+    lost: list[str] = []
+
+    def start(cfg: SessionConfig) -> AudioSession:
+        session = AudioSession(backend, cfg, 480, on_device_lost=lambda role, *_: lost.append(role))
+        session.start()
+        return session
+
+    session, used, attempts = open_with_fallback(SessionConfig(input=mic), start)
+    try:
+        assert session.running and used.input.host_api == "directsound"
+        assert attempts["input"][0]["reason"] == "stopped" and "ended the input stream" in attempts["input"][0]["error"]
+        assert lost == []  # a refusal, never a lost device
+    finally:
+        session.stop()
+    # A fixed driver is not watched: its stop is a lost device, as before.
+    backend.stops.add(13)
+    fixed = AudioSession(backend, SessionConfig(input=Endpoint(device=mic.candidates[1])), 480, on_device_lost=lambda role, *_: lost.append(role))
+    fixed.start()
+    try:
+        deadline = time.monotonic() + 5
+        while not lost and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert lost == ["input"]
+    finally:
+        fixed.stop()
 
 
 def test_every_driver_refusing_names_them_all(machine) -> None:
