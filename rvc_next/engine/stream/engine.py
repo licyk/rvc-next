@@ -416,7 +416,7 @@ class StreamEngine:
     @staticmethod
     def _pm(x: np.ndarray) -> np.ndarray:
         """Realtime pm: padded for a 65 Hz floor, cut to the block's frames (unlike the offline pm)."""
-        import parselmouth  # ty: ignore[unresolved-import]  # a compiled extension without stubs
+        import parselmouth  # ty: ignore[import-not-found]  # a compiled extension without stubs
 
         p_len = x.shape[0] // 160 + 1
         f0_min = 65

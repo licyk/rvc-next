@@ -298,7 +298,7 @@ class SounddeviceBackend:
         from rvc_next.engine.audio_io.devices import enumerate_raw, loopback_target
 
         hostapis, devices, default_api = enumerate_raw()
-        self.loopback_error = None
+        self.loopback_error = None if hostapis else "PortAudio reported no host APIs: this machine has no audio devices or no sound server"
         native = any(int(d.get("max_input_channels", 0) or 0) > 0 and loopback_target(str(d.get("name", ""))) for d in devices)
         if self.list_loopback and not native:
             from rvc_next.engine.audio_io.capture import add_loopback_sources

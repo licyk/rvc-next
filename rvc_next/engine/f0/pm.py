@@ -11,7 +11,7 @@ class PmProvider:
     name = "pm"
 
     def compute(self, x: np.ndarray, p_len: int) -> np.ndarray:
-        import parselmouth  # ty: ignore[unresolved-import]  # a compiled extension without stubs
+        import parselmouth  # ty: ignore[import-not-found]  # a compiled extension without stubs
 
         time_step = WINDOW / SAMPLE_RATE
         f0 = parselmouth.Sound(x, SAMPLE_RATE).to_pitch_ac(time_step=time_step, voicing_threshold=0.6, pitch_floor=F0_MIN, pitch_ceiling=F0_MAX).selected_array["frequency"]

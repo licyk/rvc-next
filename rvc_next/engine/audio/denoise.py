@@ -264,7 +264,7 @@ class TorchGate(torch.nn.Module):
         return sig_mask
 
     # torch declares Module.forward as a writable Callable attribute; this implements the method.
-    def forward(self, x: torch.Tensor, xn: torch.Tensor | None = None) -> torch.Tensor:  # ty: ignore[invalid-mutable-override]
+    def forward(self, x: torch.Tensor, xn: torch.Tensor | None = None) -> torch.Tensor:
         """
         Apply the proposed algorithm to the input signal.
 

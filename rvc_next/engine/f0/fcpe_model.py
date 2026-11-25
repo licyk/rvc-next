@@ -78,7 +78,7 @@ class Wav2Mel(nn.Module):
 
     # torch declares Module.forward as a writable Callable attribute; these are method implementations.
     @torch.no_grad()
-    def forward(self, audio: Tensor, sample_rate: int) -> Tensor:  # ty: ignore[invalid-mutable-override]
+    def forward(self, audio: Tensor, sample_rate: int) -> Tensor:
         audio_res = audio if sample_rate == self.sampling_rate else self._resample(audio, sample_rate)
         mel = self.mel(audio_res)
         n_frames = int(audio.shape[1] // self.hop_size) + 1
@@ -97,7 +97,7 @@ class Transpose(nn.Module):
         super().__init__()
         self.dims = dims
 
-    def forward(self, x: Tensor) -> Tensor:  # ty: ignore[invalid-mutable-override]
+    def forward(self, x: Tensor) -> Tensor:
         return x.transpose(*self.dims)
 
 
@@ -106,7 +106,7 @@ class DepthWiseConv1d(nn.Module):
         super().__init__()
         self.conv = nn.Conv1d(chan_in, chan_out, kernel_size=kernel_size, padding=padding, groups=groups)
 
-    def forward(self, x: Tensor) -> Tensor:  # ty: ignore[invalid-mutable-override]
+    def forward(self, x: Tensor) -> Tensor:
         return self.conv(x)
 
 
@@ -129,7 +129,7 @@ class ConformerConvModule(nn.Module):
             nn.Dropout(0.0),
         )
 
-    def forward(self, x: Tensor) -> Tensor:  # ty: ignore[invalid-mutable-override]
+    def forward(self, x: Tensor) -> Tensor:
         return self.net(x)
 
 
@@ -142,7 +142,7 @@ class ConvOnlyLayer(nn.Module):
         self.conformer = ConformerConvModule(dim_model)
         self.norm = nn.LayerNorm(dim_model)
 
-    def forward(self, x: Tensor) -> Tensor:  # ty: ignore[invalid-mutable-override]
+    def forward(self, x: Tensor) -> Tensor:
         return x + self.conformer(x)
 
 
@@ -151,7 +151,7 @@ class ConvOnlyEncoder(nn.Module):
         super().__init__()
         self.encoder_layers = nn.ModuleList([ConvOnlyLayer(dim_model) for _ in range(num_layers)])
 
-    def forward(self, x: Tensor) -> Tensor:  # ty: ignore[invalid-mutable-override]
+    def forward(self, x: Tensor) -> Tensor:
         for layer in self.encoder_layers:
             x = layer(x)
         return x
@@ -182,7 +182,7 @@ class CFNaiveMelPE(nn.Module):
         self.register_buffer("cent_table", cents)
         self.register_buffer("gaussian_blurred_cent_mask", (1200.0 * torch.log2(torch.Tensor([f0_max / 10.0])))[0].detach())
 
-    def forward(self, x: Tensor) -> Tensor:  # ty: ignore[invalid-mutable-override]
+    def forward(self, x: Tensor) -> Tensor:
         x = self.input_stack(x.transpose(-1, -2)).transpose(-1, -2)
         x = self.net(x)
         x = self.norm(x)

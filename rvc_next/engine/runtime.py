@@ -184,7 +184,7 @@ def directml_device() -> Any | None:
     """The DirectML device, if ``torch_directml`` is installed and actually works."""
     try:
         import torch
-        import torch_directml  # ty: ignore[unresolved-import]
+        import torch_directml  # ty: ignore[import-not-found]
 
         device = torch_directml.device(torch_directml.default_device())
         probe = torch.ones(1, dtype=torch.float32).to(device)

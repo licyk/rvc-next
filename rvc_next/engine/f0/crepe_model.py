@@ -99,7 +99,7 @@ class Crepe(nn.Module):
         self.classifier = nn.Linear(in_features=self.in_features, out_features=PITCH_BINS)
 
     # torch declares Module.forward as a writable Callable attribute; this implements the method.
-    def forward(self, x: Tensor) -> Tensor:  # ty: ignore[invalid-mutable-override]
+    def forward(self, x: Tensor) -> Tensor:
         x = self.embed(x)
         x = self.layer(x, self.conv6, self.conv6_BN)
         x = x.permute(0, 2, 1, 3).reshape(-1, self.in_features)

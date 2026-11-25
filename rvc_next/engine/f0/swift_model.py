@@ -151,7 +151,7 @@ class LogSpectrogram(nn.Module):
         return power.transpose(-1, -2).reshape(b, t, self.n_fft)[..., : self.n_fft // 2 + 1]
 
     # torch declares Module.forward as a writable Callable attribute; these are method implementations.
-    def forward(self, audio: Tensor, n_frames: int) -> Tensor:  # ty: ignore[invalid-mutable-override]
+    def forward(self, audio: Tensor, n_frames: int) -> Tensor:
         """Hop-padded audio ``(B, L)`` → log spectrogram ``(B, 128, n_frames)``."""
         magnitude = torch.sqrt(self.power(_frames(audio, self.n_fft, n_frames) * self.window))
         return torch.log(magnitude @ self.projection + LOG_EPS).transpose(-1, -2)
@@ -169,7 +169,7 @@ class ResidualBlock(nn.Module):
         self.conv1 = nn.Conv2d(CHANNELS, CHANNELS, kernel, padding=padding, dilation=dilation)
         self.conv2 = nn.Conv2d(CHANNELS, CHANNELS, kernel, padding=padding, dilation=dilation)
 
-    def forward(self, x: Tensor) -> Tensor:  # ty: ignore[invalid-mutable-override]
+    def forward(self, x: Tensor) -> Tensor:
         return F.relu(x + self.conv2(F.relu(self.conv1(x))))
 
 
@@ -232,7 +232,7 @@ class SwiftF0Model(nn.Module):
         confidence = torch.where(in_band[logits.argmax(dim=-1)], torch.sigmoid(voicing), 0.0)
         return pitch, confidence
 
-    def forward(self, audio: Tensor, fmin: float | Tensor = FMIN, fmax: float | Tensor = FMAX) -> tuple[Tensor, Tensor]:  # ty: ignore[invalid-mutable-override]
+    def forward(self, audio: Tensor, fmin: float | Tensor = FMIN, fmax: float | Tensor = FMAX) -> tuple[Tensor, Tensor]:
         """Audio ``(B, N)`` float32 at 16 kHz → ``pitch`` and ``confidence`` ``(B, max(1, N // 256))``, as ``model.onnx``."""
         logits, voicing = self.network(self.features(audio))
         return self.decode(logits, voicing, fmin, fmax)

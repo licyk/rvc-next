@@ -79,13 +79,13 @@ def original_convert(orig: dict[str, Any], hubert: Any, case: Case, audio: np.nd
     # The original builds RMVPE inside the pipeline; its random init would draw from the seeded RNG.
     if case.f0 == "rmvpe":
         if "rmvpe" not in shared:
-            from infer.rmvpe import RMVPE  # ty: ignore[unresolved-import]
+            from infer.rmvpe import RMVPE  # ty: ignore[import-not-found]
 
             shared["rmvpe"] = RMVPE(str(assets_dir / "rmvpe" / "rmvpe.pt"), is_half=False, device="cpu")
         pipeline.model_rmvpe = shared["rmvpe"]
     if case.f0 == "fcpe":
         if "fcpe" not in shared:
-            from infer.fcpe import FCPEInfer  # ty: ignore[unresolved-import]
+            from infer.fcpe import FCPEInfer  # ty: ignore[import-not-found]
 
             shared["fcpe"] = FCPEInfer("cpu")
         pipeline.model_fcpe = shared["fcpe"]
