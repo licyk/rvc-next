@@ -119,6 +119,28 @@ def test_real_portaudio_enumerates(tmp_path: Path) -> None:
     assert isinstance(data["inputs"], list) and data["host"]
 
 
+def test_enumerate_survives_portaudio_that_cannot_answer(monkeypatch: Any) -> None:
+    """A machine whose PortAudio cannot reach a sound server lists nothing instead of failing.
+
+    ALSA answers `query_hostapis` and then refuses `query_devices`, which is what a container
+    and a headless runner do; both calls are covered so neither can take the listing down.
+    """
+    from rvc_next.engine.audio_io import devices as devices_module
+
+    class Unreachable:
+        class default:
+            hostapi = -1
+
+        def query_hostapis(self) -> list[dict[str, Any]]:
+            return [{"name": "ALSA", "devices": [], "default_input_device": -1, "default_output_device": -1}]
+
+        def query_devices(self) -> list[dict[str, Any]]:
+            raise OSError("Error querying device -1: Can't connect to server")
+
+    monkeypatch.setitem(sys.modules, "sounddevice", Unreachable())
+    assert devices_module.enumerate_raw() == ([], [], 0)
+
+
 def auto_selection(listing: dict[str, Any], direction: str, name: str) -> dict[str, Any]:
     """An automatic selection as the core sends it: the first driver's index and every driver as a candidate."""
     physical = next(p for p in listing[f"{direction}s"] if p["name"] == name)

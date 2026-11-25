@@ -326,15 +326,16 @@ def enumerate_raw(enable_asio: bool = False, rates: tuple[int, ...] = COMMON_RAT
     import sounddevice as sd
 
     # A machine without a usable PortAudio — a container, a headless CI runner, no sound server —
-    # raises here instead of listing nothing. That is an environment without audio, not a failure
-    # to enumerate: the caller gets no devices and says so, as it does for any other error.
+    # raises from either query instead of listing nothing, and ALSA answers the first while failing
+    # the second. That is an environment without audio, not a failure to enumerate: the caller gets
+    # no devices and says so, as it does for any other error.
     try:
         hostapis = [dict(h) for h in sd.query_hostapis()]
+        devices = [dict(d) for d in sd.query_devices()]
     except Exception:
-        hostapis = []
+        return [], [], 0
     if not hostapis:
         return [], [], 0
-    devices = [dict(d) for d in sd.query_devices()]
     for d in devices:
         idx = int(d.get("index", devices.index(d)))
         hi = int(d.get("hostapi", 0))
