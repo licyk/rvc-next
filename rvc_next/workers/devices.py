@@ -195,9 +195,20 @@ def main(request: dict[str, Any], emitter: Emitter) -> None:
     enable_asio = bool(request.get("enable_asio", False))
     backend = backend_from_request(request.get("backend", "sounddevice"), enable_asio, request.get("fake"), bool(request.get("loopback", False)))
     if action == "enumerate":
-        hostapis, devices, default_api = backend.query()
+        try:
+            hostapis, devices, default_api = backend.query()
+        except Exception as e:
+            # Listing devices is a diagnostic, not a task: a machine whose audio stack cannot be
+            # queried (a container, a headless runner, no sound server) reports that instead of
+            # failing the worker, so the caller still learns the host and the reason.
+            hostapis, devices, default_api = [], [], 0
+            failure = f"Audio devices cannot be listed: {e}"
+        else:
+            failure = None
         platform = request.get("platform") or (request.get("fake") or {}).get("platform") or sys.platform
         errors = [backend.loopback_error] if getattr(backend, "loopback_error", None) else []
+        if failure:
+            errors.append(failure)
         if enable_asio and platform.startswith("win") and not any("asio" in str(h.get("name", "")).lower() for h in hostapis):
             errors.append("ASIO was requested, but no ASIO driver is installed")
         data = device_list(hostapis, devices, platform, default_api, errors)

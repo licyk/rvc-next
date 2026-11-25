@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import subprocess
@@ -5,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from rvc_next.protocol.jsonl import parse_line
+from rvc_next.protocol.jsonl import Emitter, parse_line
 from rvc_next.protocol.messages import ResultEvent
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "devices"
@@ -17,7 +18,9 @@ def run(tmp_path: Path, request: dict[str, Any]) -> dict[str, Any]:
     path.write_text(json.dumps(request))
     env = {**os.environ, "PYTHONPATH": str(ROOT)}
     out = subprocess.run([sys.executable, "-m", "rvc_next.workers.devices", str(path)], capture_output=True, text=True, env=env, timeout=120)
-    assert out.returncode == 0, out.stderr
+    # Both streams: the worker reports its failure as an event on stdout and puts the traceback
+    # there too, so stderr alone says only that it exited.
+    assert out.returncode == 0, f"exit {out.returncode}\n--- stdout ---\n{out.stdout}\n--- stderr ---\n{out.stderr}"
     results = [e for e in map(parse_line, out.stdout.splitlines()) if isinstance(e, ResultEvent)]
     assert len(results) == 1
     return results[0].data
@@ -139,6 +142,32 @@ def test_enumerate_survives_portaudio_that_cannot_answer(monkeypatch: Any) -> No
 
     monkeypatch.setitem(sys.modules, "sounddevice", Unreachable())
     assert devices_module.enumerate_raw() == ([], [], 0)
+
+
+def test_enumerate_reports_an_audio_stack_that_fails_instead_of_exiting(monkeypatch: Any) -> None:
+    """Whatever the backend raises while listing devices, the worker answers with a listing.
+
+    A device listing is a diagnostic: the caller needs the host and the reason, not a failed
+    process, so an unexpected failure from the audio stack is reported in `errors`.
+    """
+    from rvc_next.workers import devices as worker
+
+    class Exploding:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def query(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+            raise OSError("Error querying device -10000: Can't connect to server")
+
+    monkeypatch.setattr(worker, "backend_from_request", lambda *_a, **_k: Exploding())
+    stream = io.StringIO()
+    worker.main({"action": "enumerate"}, Emitter(stream))
+
+    events = [e for e in map(parse_line, stream.getvalue().splitlines()) if isinstance(e, ResultEvent)]
+    assert len(events) == 1
+    data = events[0].data
+    assert data["host"] and data["inputs"] == [] and data["outputs"] == []
+    assert any("cannot be listed" in error for error in data["errors"])
 
 
 def auto_selection(listing: dict[str, Any], direction: str, name: str) -> dict[str, Any]:
