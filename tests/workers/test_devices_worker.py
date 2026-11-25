@@ -170,6 +170,31 @@ def test_enumerate_reports_an_audio_stack_that_fails_instead_of_exiting(monkeypa
     assert any("cannot be listed" in error for error in data["errors"])
 
 
+def test_enumerate_survives_a_portaudio_that_cannot_initialize(monkeypatch: Any) -> None:
+    """Importing `sounddevice` initializes PortAudio, and that raises without a sound server.
+
+    This is the runner's failure: no host API is reachable at import time, so the backend has
+    nothing to query. It reports the reason instead of letting the import take the worker down.
+    """
+    import builtins
+
+    from rvc_next.engine.audio_io.streams import SounddeviceBackend
+
+    real_import = builtins.__import__
+
+    def guarded(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == "sounddevice":
+            raise OSError("Error initializing PortAudio: 'PulseAudio_Initialize: Can't connect to server'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.delitem(sys.modules, "sounddevice", raising=False)
+    monkeypatch.setattr(builtins, "__import__", guarded)
+
+    backend = SounddeviceBackend()
+    assert backend.query() == ([], [], 0)
+    assert backend.loopback_error is not None and "PortAudio is unavailable" in backend.loopback_error
+
+
 def auto_selection(listing: dict[str, Any], direction: str, name: str) -> dict[str, Any]:
     """An automatic selection as the core sends it: the first driver's index and every driver as a candidate."""
     physical = next(p for p in listing[f"{direction}s"] if p["name"] == name)

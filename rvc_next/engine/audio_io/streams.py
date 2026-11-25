@@ -287,9 +287,17 @@ class SounddeviceBackend:
     def __init__(self, enable_asio: bool = False, list_loopback: bool = False) -> None:
         if enable_asio:
             os.environ["SD_ENABLE_ASIO"] = "1"
-        import sounddevice as sd
-
-        self.sd = sd
+        # Importing `sounddevice` initializes PortAudio, which raises on a machine with no sound
+        # server (a container, a headless runner). The reason is kept and `query` lists nothing: a
+        # listing is a diagnostic, and the caller needs to hear why, not see an import fail.
+        self.unavailable: str | None = None
+        try:
+            import sounddevice as sd
+        except Exception as e:
+            self.sd: Any = None
+            self.unavailable = str(e) or type(e).__name__
+        else:
+            self.sd = sd
         self.list_loopback = list_loopback
         self.loopback_error: str | None = None
         self._provider: Any = None
@@ -297,6 +305,9 @@ class SounddeviceBackend:
     def query(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
         from rvc_next.engine.audio_io.devices import enumerate_raw, loopback_target
 
+        if self.sd is None:
+            self.loopback_error = f"PortAudio is unavailable: {self.unavailable}"
+            return [], [], 0
         hostapis, devices, default_api = enumerate_raw()
         self.loopback_error = None if hostapis else "PortAudio reported no host APIs: this machine has no audio devices or no sound server"
         native = any(int(d.get("max_input_channels", 0) or 0) > 0 and loopback_target(str(d.get("name", ""))) for d in devices)
