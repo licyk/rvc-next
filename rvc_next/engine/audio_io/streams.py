@@ -305,7 +305,7 @@ class SounddeviceBackend:
     def query(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
         from rvc_next.engine.audio_io.devices import enumerate_raw, loopback_target
 
-        if self.sd is None:
+        if getattr(self, "unavailable", None) is not None:
             self.loopback_error = f"PortAudio is unavailable: {self.unavailable}"
             return [], [], 0
         hostapis, devices, default_api = enumerate_raw()
